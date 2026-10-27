@@ -1,0 +1,29 @@
+openapi: 3.1.0
+info: { title: Worko API, version: 0.1.0 }
+servers: [{ url: /v1 }]
+paths:
+  /health:
+    get: { operationId: health, responses: { '200': { description: OK } } }
+  /rules/pack:
+    get: { operationId: getRulePack, responses: { '200': { description: Active rule pack summary } } }
+  /rules/preview:
+    post:
+      operationId: previewSchedule
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/PreviewRequest' } } } }
+      responses: { '201': { description: Due items }, '400': { description: Validation error } }
+  /rules/extension-impact:
+    post:
+      operationId: extensionImpact
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/PreviewRequest' } } } }
+      responses: { '201': { description: '{ dueDatesChanged, clientsAffected, changes[] }' } }
+components:
+  schemas:
+    PreviewRequest:
+      type: object
+      required: [fy, clients]
+      properties:
+        fy: { type: integer, minimum: 2017 }
+        clients: { type: array, items: { type: object, required: [id], properties: { id: { type: string } }, additionalProperties: true } }
+        extensions:
+          type: array
+          items: { type: object, required: [id, ruleId, periodKey, newDueDate], properties: { id: { type: string }, ruleId: { type: string }, periodKey: { type: string }, newDueDate: { type: string, format: date } } }

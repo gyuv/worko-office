@@ -1,0 +1,83 @@
+import { z } from 'zod';
+
+export const MODULES = [
+  'clients', 'leads', 'tasks', 'compliance', 'notices', 'audit', 'billing', 'receipts', 'time',
+  'hr', 'documents', 'registers', 'dsc', 'vault', 'communication', 'automation', 'reports',
+  'settings', 'users', 'audit_log',
+] as const;
+export const ACTIONS = ['view', 'create', 'edit', 'delete', 'approve', 'export', 'print', 'assign', 'reveal'] as const;
+export const SCOPES = ['none', 'own', 'team', 'branch', 'groups', 'all'] as const;
+
+export type Module = (typeof MODULES)[number];
+export type Action = (typeof ACTIONS)[number];
+export type Scope = (typeof SCOPES)[number];
+
+const SCOPE_RANK: Record<Scope, number> = { none: 0, own: 1, team: 2, groups: 3, branch: 4, all: 5 };
+
+export type Grant = { module: Module; action: Action; scope: Scope; clientGroupIds?: string[] };
+export type Role = { key: string; name: string; system: boolean; grants: Grant[]; hiddenFields?: string[] };
+
+export const grantSchema = z.object({
+  module: z.enum(MODULES), action: z.enum(ACTIONS), scope: z.enum(SCOPES),
+  clientGroupIds: z.array(z.string().uuid()).optional(),
+});
+
+/** Resource context used to resolve a scope check. */
+export type ResourceCtx = {
+  ownerUserIds?: string[];
+  teamId?: string | null;
+  branchId?: string | null;
+  clientGroupIds?: string[];
+  sensitive?: boolean;
+  allowedUserIds?: string[];
+};
+export type Actor = { userId: string; teamIds: string[]; branchId: string | null; roles: Role[]; superAdmin?: boolean };
+
+export function effectiveScope(actor: Actor, module: Module, action: Action): Grant | undefined {
+  let best: Grant | undefined;
+  for (const r of actor.roles) for (const g of r.grants) {
+    if (g.module === module && g.action === action && (!best || SCOPE_RANK[g.scope] > SCOPE_RANK[best.scope])) best = g;
+  }
+  return best;
+}
+
+export function can(actor: Actor, module: Module, action: Action, res: ResourceCtx = {}): boolean {
+  if (actor.superAdmin) return true;
+  // Sensitive clients are restricted to named users regardless of role scope.
+  if (res.sensitive && !(res.allowedUserIds ?? []).includes(actor.userId)) return false;
+  const g = effectiveScope(actor, module, action);
+  if (!g || g.scope === 'none') return false;
+  switch (g.scope) {
+    case 'all': return true;
+    case 'branch': return !res.branchId || res.branchId === actor.branchId;
+    case 'groups': return (res.clientGroupIds ?? []).some((id) => g.clientGroupIds?.includes(id));
+    case 'team': return (!!res.teamId && actor.teamIds.includes(res.teamId)) || (res.ownerUserIds ?? []).includes(actor.userId);
+    case 'own': return (res.ownerUserIds ?? []).includes(actor.userId);
+  }
+}
+
+const all = (scope: Scope, actions: readonly Action[] = ACTIONS, mods: readonly Module[] = MODULES): Grant[] =>
+  mods.flatMap((module) => actions.map((action) => ({ module, action, scope })));
+
+/** Default system roles; firms may clone and edit. */
+export const SYSTEM_ROLES: Role[] = [
+  { key: 'partner', name: 'Partner', system: true, grants: all('all') },
+  {
+    key: 'manager', name: 'Manager', system: true, hiddenFields: [],
+    grants: [
+      ...all('team', ['view', 'create', 'edit', 'assign', 'approve', 'export', 'print']),
+      ...all('none', ['view'], ['settings', 'users', 'audit_log']),
+    ],
+  },
+  {
+    key: 'senior', name: 'Senior', system: true, hiddenFields: ['client.fees'],
+    grants: all('own', ['view', 'create', 'edit', 'print'], ['clients', 'tasks', 'compliance', 'documents', 'registers', 'time', 'hr', 'notices', 'audit', 'communication', 'dsc']),
+  },
+  {
+    key: 'article', name: 'Article / Intern', system: true, hiddenFields: ['client.fees', 'invoice.*'],
+    grants: all('own', ['view', 'edit'], ['tasks', 'documents', 'time', 'hr', 'registers']),
+  },
+  { key: 'accountant', name: 'Accountant', system: true, grants: all('all', ['view', 'create', 'edit', 'export', 'print'], ['billing', 'receipts', 'clients', 'reports']) },
+  { key: 'admin', name: 'Admin / Office', system: true, grants: [...all('all', ACTIONS, ['settings', 'users', 'audit_log', 'registers', 'hr', 'dsc']), ...all('all', ['view'], ['clients'])] },
+  { key: 'auditor', name: 'Auditor (read-only)', system: true, grants: all('all', ['view', 'export']).filter((g) => g.module !== 'vault') },
+];
