@@ -19,7 +19,9 @@ export class VisibilityService {
   async onChange(tx: Tx, tenantId: string, clientId: string, before: ClientVisibility, after: ClientVisibility, opts: { childrenFrom?: string } = {}) {
     const actors = await loadActors(tx);
     const b = clientCtx(before); const a = clientCtx(after);
-    const lost = (module: Module) => actors.filter((x) => can(x, module, 'view', b) && !can(x, module, 'view', a)).map((x) => x.userId);
+    // A child is visible only with clients:view AND its own module's view (same rule as REST and the sync scope).
+    const sees = (x: (typeof actors)[number], module: Module, ctx: typeof a) => can(x, 'clients', 'view', ctx) && can(x, module, 'view', ctx);
+    const lost = (module: Module) => actors.filter((x) => sees(x, module, b) && !sees(x, module, a)).map((x) => x.userId);
     const childSource = opts.childrenFrom ?? clientId;
     const revoke = async (table: string, ids: string[], users: string[]) => {
       if (!users.length || !ids.length) return;

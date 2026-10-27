@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { can, clientCtx } from '@worko/domain';
 import PDFDocument from 'pdfkit';
 import { AuditService } from '../audit/audit.service.js';
 import type { RequestActor } from '../auth/context.js';
@@ -7,6 +8,7 @@ import { DbService } from '../db/db.service.js';
 import { uuidv7 } from '../db/ids.js';
 import { DocumentsService } from '../documents/documents.service.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
+import { visibilityOf } from '../sync/registry.js';
 import { SyncService } from '../sync/sync.service.js';
 import type { Readable } from 'node:stream';
 
@@ -21,7 +23,7 @@ export class RegistersService {
   list(a: RequestActor, kind: Kind, q: { q?: string; clientId?: string; from?: string; to?: string; pending?: boolean; limit: number; offset: number }) {
     return this.db.tenantTx(a.tenantId, async (tx) => {
       const p = new Params(); const t = TABLE[kind]; const d = DATE[kind];
-      const where = ['e.deleted_at IS NULL', clientScopeSql(a, 'clients', 'view', p), clientScopeSql(a, 'registers', 'view', p)];
+      const where = ['e.deleted_at IS NULL', 'c.deleted_at IS NULL', clientScopeSql(a, 'clients', 'view', p), clientScopeSql(a, 'registers', 'view', p)];
       if (q.clientId) where.push(`e.client_id = ${p.add(q.clientId)}`);
       if (q.from) where.push(`e.${d} >= ${p.add(q.from)}`);
       if (q.to) where.push(`e.${d} <= ${p.add(q.to)}`);
@@ -61,7 +63,7 @@ export class RegistersService {
     return this.db.tenantTx(a.tenantId, async (tx) => {
       const p = new Params([id]);
       const e = (await tx.query(`SELECT e.*, c.name AS client_name, t.name AS firm_name FROM ${TABLE[kind]} e JOIN client c ON c.id = e.client_id JOIN tenant t ON t.id = e.tenant_id
-        WHERE e.id = $1 AND e.deleted_at IS NULL AND ${clientScopeSql(a, 'clients', 'view', p)} AND ${clientScopeSql(a, 'registers', 'view', p)}`, p.values)).rows[0];
+        WHERE e.id = $1 AND e.deleted_at IS NULL AND c.deleted_at IS NULL AND ${clientScopeSql(a, 'clients', 'view', p)} AND ${clientScopeSql(a, 'registers', 'view', p)}`, p.values)).rows[0];
       if (!e) throw new NotFoundException();
       return e;
     });
@@ -70,13 +72,16 @@ export class RegistersService {
   /** Signature (drawn on phone/tablet) stored as a client document and linked to the entry. */
   async attachSignature(a: RequestActor, kind: Kind, id: string, file: { buffer: Buffer; mimetype: string; originalname: string; size: number }) {
     const e = await this.entry(a, kind, id);
+    const ctx = await this.db.tenantTx(a.tenantId, async (tx) => clientCtx(visibilityOf((await tx.query('SELECT * FROM client WHERE id = $1', [e.client_id])).rows[0])));
+    if (!can(a, 'registers', 'edit', ctx)) throw new ForbiddenException();
     const doc = await this.docs.upload(a, { ...file, originalname: `Signature ${e.number}.png` },
       { clientId: e.client_id, category: 'Signatures', fy: e.fy, tags: [kind, e.number] }, null);
-    await this.db.tenantTx(a.tenantId, async (tx) => {
-      await tx.query(`UPDATE ${TABLE[kind]} SET signature_doc_id = $2, updated_by = $3 WHERE id = $1`, [id, doc.id, a.userId]);
+    const r = await this.db.tenantTx(a.tenantId, async (tx) => {
+      const res = await this.sync.serverPatch(tx, a, TABLE[kind], id, { signature_doc_id: doc.id });
       await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: `${TABLE[kind]}.signed`, entity: TABLE[kind], entityId: id, diff: { documentId: doc.id } });
+      return res;
     });
-    this.realtime.publish({ type: 'changed', tenantId: a.tenantId, cursor: 0 });
+    this.realtime.publish({ type: 'changed', tenantId: a.tenantId, cursor: r?.cursor ?? 0 });
     return { documentId: doc.id };
   }
 

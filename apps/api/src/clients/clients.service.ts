@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { can, clientCtx, GST_STATES, hiddenFieldsOf, panFromGstin, type ClientVisibility } from '@worko/domain';
+import { can, clientCtx, GST_STATES, hiddenFieldsOf, panFromGstin, type ClientVisibility, type Module } from '@worko/domain';
 import { AuditService } from '../audit/audit.service.js';
 import type { RequestActor } from '../auth/context.js';
 import { requireElevated } from '../auth/elevation.js';
@@ -58,10 +58,10 @@ export class ClientsService {
     return r;
   }
 
-  async list(a: RequestActor, q: { q?: string; status?: string; groupId?: string; limit: number; offset: number }) {
+  async list(a: RequestActor, q: { q?: string; status?: string; groupId?: string; limit: number; offset: number }, action: 'view' | 'export' = 'view') {
     return this.dbs.tenantTx(a.tenantId, async (tx) => {
       const p = new Params();
-      const where = [clientScopeSql(a, 'clients', 'view', p), 'c.deleted_at IS NULL'];
+      const where = [clientScopeSql(a, 'clients', action, p), 'c.deleted_at IS NULL'];
       if (q.status) where.push(`c.status = ${p.add(q.status)}`);
       if (q.groupId) where.push(`${p.add(q.groupId)}::uuid = ANY(c.group_ids)`);
       if (q.q) {
@@ -85,11 +85,10 @@ export class ClientsService {
       const contacts = (await tx.query(`SELECT id, name, role, email, phone, whatsapp, dob, anniversary, is_primary AS "isPrimary", notes FROM contact WHERE client_id = $1 AND deleted_at IS NULL ORDER BY is_primary DESC, name`, [id])).rows;
       const groups = (await tx.query(`SELECT id, name, kind FROM client_group WHERE id = ANY($1) AND deleted_at IS NULL ORDER BY name`, [c.group_ids])).rows;
       const ctx = clientCtx(visibilityOf(c));
-      const counts = (await tx.query(`SELECT
-          (SELECT count(*) FROM document WHERE client_id = $1 AND deleted_at IS NULL)::int AS documents,
-          (SELECT count(*) FROM vault_secret WHERE client_id = $1 AND deleted_at IS NULL)::int AS secrets,
-          (SELECT count(*) FROM inward_entry WHERE client_id = $1 AND deleted_at IS NULL)::int AS inward,
-          (SELECT count(*) FROM outward_entry WHERE client_id = $1 AND deleted_at IS NULL)::int AS outward`, [id])).rows[0];
+      // Counts only for modules the actor may see on this client (a count alone discloses e.g. how many credentials exist).
+      const n = async (table: string, module: Module) => can(a, module, 'view', ctx)
+        ? (await tx.query(`SELECT count(*)::int AS n FROM ${table} WHERE client_id = $1 AND deleted_at IS NULL`, [id])).rows[0].n as number : null;
+      const counts = { documents: await n('document', 'documents'), secrets: await n('vault_secret', 'vault'), inward: await n('inward_entry', 'registers'), outward: await n('outward_entry', 'registers') };
       return {
         ...present(a, c), registrations: regs, contacts, groups, counts,
         can: { edit: can(a, 'clients', 'edit', ctx), delete: can(a, 'clients', 'delete', ctx), reveal: can(a, 'clients', 'reveal', ctx), vault: can(a, 'vault', 'view', ctx) },
@@ -224,6 +223,12 @@ export class ClientsService {
       await this.validateAccess(tx, a, acc);
       const before = visibilityOf(cur);
       const after = this.nextVisibility(a, before, acc);
+      // Changing who is responsible or who may see a sensitive client is an approval-level action (not plain edit),
+      // and the previous partner/manager are never silently dropped from a sensitive allow-list.
+      const sensitiveChange = before.partnerId !== after.partnerId || before.managerId !== after.managerId || before.sensitive !== after.sensitive
+        || before.allowedUserIds.join() !== after.allowedUserIds.join();
+      if (sensitiveChange && !can(a, 'clients', 'approve', clientCtx(before))) throw new ForbiddenException('Changing partner, manager or restricted access needs approval rights');
+      if (after.sensitive) after.allowedUserIds = unique([...after.allowedUserIds, ...[before.partnerId, before.managerId].filter((x): x is string => !!x)]);
       if (!can(a, 'clients', 'edit', clientCtx(after))) throw new ForbiddenException('You would lose access to this client — ask someone with wider scope');
       const patch: Record<string, unknown> = {
         branch_id: after.branchId, partner_id: after.partnerId, manager_id: after.managerId, team_id: after.teamId,
@@ -237,11 +242,16 @@ export class ClientsService {
     this.realtime.publish({ type: 'changed', tenantId: a.tenantId, cursor: 0 });
   }
 
+  /** Bulk exports carry PAN/phone/email for many clients — always audited. */
+  async auditExport(a: RequestActor, format: string, rows: number) {
+    await this.dbs.tenantTx(a.tenantId, (tx) => this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'client.exported', entity: 'client', diff: { format, rows } }));
+  }
+
   async remove(a: RequestActor, id: string) {
     await this.dbs.tenantTx(a.tenantId, async (tx) => {
       await this.loadFor(tx, a, id, 'delete');
       await tx.query('UPDATE client SET deleted_at = now(), updated_by = $2 WHERE id = $1', [id, a.userId]);
-      for (const t of ['contact', 'client_registration', 'vault_secret']) await tx.query(`UPDATE ${t} SET deleted_at = now() WHERE client_id = $1 AND deleted_at IS NULL`, [id]);
+      for (const t of ['contact', 'client_registration', 'vault_secret', 'document', 'inward_entry', 'outward_entry']) await tx.query(`UPDATE ${t} SET deleted_at = now() WHERE client_id = $1 AND deleted_at IS NULL`, [id]);
       await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'client.deleted', entity: 'client', entityId: id });
     });
     this.realtime.publish({ type: 'changed', tenantId: a.tenantId, cursor: 0 });

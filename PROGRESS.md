@@ -1,11 +1,11 @@
 # PROGRESS
 
-_Last session: 2026-10-27._ **Phase 3 complete** (reviewer audit in progress — fixes land before Phase 4). Resume at Phase 4 in docs/ROADMAP.md.
+_Last session: 2026-10-27._ **Phase 3 complete and reviewed** (review findings fixed, D51–D53). Resume at Phase 4 in docs/ROADMAP.md.
 
-## Test status — 276 tests, all green (build/typecheck/lint clean, 12 packages)
+## Test status — 282 tests, all green (build/typecheck/lint clean, 12 packages)
 | Package | Tests | Notes |
 |---|---|---|
-| `@worko/api` | 68 | + Phase 3: clients CRUD/search/360, PII reveal + step-up, visibility & revocation, scope key, device-sync validation, register numbering, field hiding, merge, vault + extension pairing/restrictions, documents (signed downloads, malware/HTML refusal, versions, legal hold, share links, access log), registers + PDF + signatures, import/export, users deactivation, SQL≡can() property test (3000 cases), demo seed integrity |
+| `@worko/api` | 74 | + Phase 3: clients CRUD/search/360, PII reveal + step-up, visibility & revocation, scope key, device-sync validation, register numbering, field hiding, merge, vault + extension pairing/restrictions, documents (signed downloads, malware/HTML refusal, versions, legal hold, share links, access log), registers + PDF + signatures, import/export, users deactivation, SQL≡can() property test (3000 cases), demo seed integrity, Phase 3 review regressions (child scope, delete cascade, access approval, counts, export audit, immutable register date, session-bound URLs, share lockout) |
 | `@worko/sync` | 86 | + scope-key re-pull |
 | `@worko/extension` | 29 | manifest allow-list, field finders, background fill flow |
 | `@worko/mobile` | 18 | clients search, links, register patches, signature queue |

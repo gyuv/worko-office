@@ -43,3 +43,6 @@
 | Client groups | Groups are flat for permissions (no inheritance through `parent_id`); group edit/delete endpoints not built. | Phase 4 (group billing/reports). |
 | Desktop "print/scan to folder" | Drag-and-drop from Explorer works via the web renderer; no virtual printer / scanner (TWAIN/WIA) integration. | Phase 12 desktop polish. |
 | Revocation fan-out cost | Access changes evaluate every active user's visibility (fine at ≤ a few hundred users per firm). | Batch/approximate for very large tenants. |
+| Merge completeness | Merge unions tags/PAN/email/phone and moves children; it does not merge `file_no`, groups or staff, and can leave two primary contacts. | Phase 4 clean-up. |
+| Pre-Phase-3 devices | Devices that never stored a `scopeKey` don't run the clear-and-repull on a role change until their next wipe/reinstall. | Force a scope check on first pull of a new app version. |
+| Signed URL re-check | Signed URLs check the session, not the document's current visibility (2-minute window). | Re-check visibility on download. |

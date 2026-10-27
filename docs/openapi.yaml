@@ -713,7 +713,7 @@ components:
             registrations: { type: array, items: { type: object, required: [id, kind, number], properties: { id: { type: string }, kind: { type: string }, number: { type: string }, stateCode: { type: [string, 'null'] }, status: { type: [string, 'null'] }, registeredOn: { type: [string, 'null'] }, isPrimary: { type: boolean } } } }
             contacts: { type: array, items: { allOf: [{ $ref: '#/components/schemas/ContactIn' }, { type: object, required: [id], properties: { id: { type: string }, notes: { type: [string, 'null'] } } }] } }
             groups: { type: array, items: { type: object, required: [id, name], properties: { id: { type: string }, name: { type: string }, kind: { type: string } } } }
-            counts: { type: object, required: [documents, secrets, inward, outward], properties: { documents: { type: integer }, secrets: { type: integer }, inward: { type: integer }, outward: { type: integer } } }
+            counts: { type: object, required: [documents, secrets, inward, outward], properties: { documents: { type: [integer, "null"] }, secrets: { type: [integer, "null"] }, inward: { type: [integer, "null"] }, outward: { type: [integer, "null"] } } }
             can: { type: object, required: [edit, delete, reveal, vault], properties: { edit: { type: boolean }, delete: { type: boolean }, reveal: { type: boolean }, vault: { type: boolean } } }
     GstinDetails:
       type: object

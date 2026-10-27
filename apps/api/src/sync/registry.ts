@@ -54,7 +54,7 @@ async function parentClient(tx: Tx, clientId: unknown) {
   return (await tx.query('SELECT * FROM client WHERE id = $1 AND deleted_at IS NULL', [clientId])).rows[0] ?? null;
 }
 const childOf = (module: 'clients' | 'documents' | 'registers') => ({
-  scope: (a: RequestActor, p: Params) => `EXISTS (SELECT 1 FROM client c WHERE c.id = x.client_id AND ${clientScopeSql(a, module, 'view', p)})`,
+  scope: (a: RequestActor, p: Params) => `EXISTS (SELECT 1 FROM client c WHERE c.id = x.client_id AND ${clientScopeSql(a, 'clients', 'view', p)}${module === 'clients' ? '' : ` AND ${clientScopeSql(a, module, 'view', p)}`})`,
   canInsert: async (a: RequestActor, row: Record<string, unknown>, tx: Tx) => {
     const c = await parentClient(tx, row.client_id);
     return !!c && can(a, module === 'clients' ? 'clients' : module, module === 'clients' ? 'edit' : 'create', clientCtx(visibilityOf(c)));
@@ -192,7 +192,7 @@ export const SYNC_TABLES: Record<string, SyncTableDef> = {
     writable: { client_id: uuid, received_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), mode: z.enum(['physical', 'email', 'whatsapp', 'courier', 'portal', 'other']),
       from_name: short(200), from_phone: z.string().regex(/^\+?\d{10,15}$/).nullable(), description: z.string().trim().min(1).max(1000), items,
       returnable: z.boolean(), due_back: date, returned_on: date },
-    immutable: ['client_id'],
+    immutable: ['client_id', 'received_on'], // number + FY derive from the date (D51)
     ...childOf('registers'),
     beforeInsert: async (a, row, tx) => {
       const fy = fyOf(String(row.received_on ?? new Date().toISOString().slice(0, 10)));
@@ -207,7 +207,7 @@ export const SYNC_TABLES: Record<string, SyncTableDef> = {
     writable: { client_id: uuid, sent_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), mode: z.enum(['hand', 'courier', 'email', 'whatsapp', 'post', 'other']),
       to_name: short(200), to_phone: z.string().regex(/^\+?\d{10,15}$/).nullable(), courier_name: short(100), tracking_no: short(100),
       description: z.string().trim().min(1).max(1000), items, original: z.boolean(), to_be_received_back: z.boolean(), received_back_on: date },
-    immutable: ['client_id'],
+    immutable: ['client_id', 'sent_on'], // number + FY derive from the date (D51)
     ...childOf('registers'),
     beforeInsert: async (a, row, tx) => {
       const fy = fyOf(String(row.sent_on ?? new Date().toISOString().slice(0, 10)));

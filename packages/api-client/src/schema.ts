@@ -1532,10 +1532,10 @@ export interface components {
                 kind?: string;
             }[];
             counts: {
-                documents: number;
-                secrets: number;
-                inward: number;
-                outward: number;
+                documents: number | null;
+                secrets: number | null;
+                inward: number | null;
+                outward: number | null;
             };
             can: {
                 edit: boolean;

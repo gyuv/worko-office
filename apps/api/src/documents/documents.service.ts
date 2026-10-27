@@ -29,6 +29,8 @@ const firmWide = (a: RequestActor, action: Action) => effectiveScope(a, 'documen
 
 const signKey = () => createHash('sha256').update(`download:${process.env.JWT_SIGNING_KEY ?? 'worko-dev-only-signing-key'}`).digest();
 
+export const SHARE_MAX_FAILURES = 10;
+
 @Injectable()
 export class DocumentsService {
   constructor(
@@ -175,7 +177,7 @@ export class DocumentsService {
     return this.db.tenantTx(a.tenantId, async (tx) => {
       const d = await this.loadDoc(tx, a, id, 'view');
       const v = version ?? d.current_version;
-      const payload = Buffer.from(JSON.stringify({ t: a.tenantId, d: id, v, u: a.userId, e: Date.now() + 120_000 })).toString('base64url');
+      const payload = Buffer.from(JSON.stringify({ t: a.tenantId, d: id, v, u: a.userId, s: a.sessionId, e: Date.now() + 120_000 })).toString('base64url');
       const sig = createHmac('sha256', signKey()).update(payload).digest('base64url');
       return { url: `/v1/files/${payload}.${sig}`, expiresInSeconds: 120 };
     });
@@ -188,9 +190,13 @@ export class DocumentsService {
     const expect = createHmac('sha256', signKey()).update(payload).digest();
     const got = Buffer.from(sig, 'base64url');
     if (got.length !== expect.length || !timingSafeEqual(got, expect)) throw new NotFoundException();
-    const p = JSON.parse(Buffer.from(payload, 'base64url').toString()) as { t: string; d: string; v: number; u: string; e: number };
+    const p = JSON.parse(Buffer.from(payload, 'base64url').toString()) as { t: string; d: string; v: number; u: string; s: string; e: number };
     if (p.e < Date.now()) throw new NotFoundException('Link expired');
     return this.db.tenantTx(p.t, async (tx) => {
+      // The URL is only as good as the session that minted it: signed out, revoked or deactivated ⇒ dead link.
+      const live = await tx.query(`SELECT 1 FROM device_session s JOIN app_user u ON u.id = s.user_id
+        WHERE s.id = $1 AND s.user_id = $2 AND s.revoked_at IS NULL AND u.status = 'active' AND u.deleted_at IS NULL`, [p.s, p.u]);
+      if (!live.rowCount) throw new NotFoundException();
       const v = (await tx.query(`SELECT d.name, v.storage_key, v.mime, v.size FROM document d JOIN document_version v ON v.document_id = d.id AND v.version = $2 WHERE d.id = $1 AND d.deleted_at IS NULL`, [p.d, p.v])).rows[0];
       if (!v) throw new NotFoundException();
       await this.log(tx, null, p.d, 'download', ip, null, p.t, p.u);
@@ -231,7 +237,12 @@ export class DocumentsService {
       const l = (await tx.query(`SELECT s.*, d.name, d.storage_key, d.mime, d.size FROM share_link s JOIN document d ON d.id = s.document_id AND d.deleted_at IS NULL
         WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > now() FOR UPDATE OF s`, [sha256(token)])).rows[0];
       if (!l || (l.max_downloads !== null && l.downloads >= l.max_downloads)) return { error: 'gone' as const };
-      if (l.password_hash && (!password || !(await verifyPassword(password, l.password_hash)))) return { error: 'password' as const };
+      if (l.password_hash && (!password || !(await verifyPassword(password, l.password_hash)))) {
+        // Per-link lockout: too many wrong passwords from anywhere revokes the link (throttling is per IP only).
+        if (password) await tx.query(`UPDATE share_link SET failed_attempts = failed_attempts + 1,
+          revoked_at = CASE WHEN failed_attempts + 1 >= ${SHARE_MAX_FAILURES} THEN now() ELSE revoked_at END WHERE id = $1`, [l.id]);
+        return { error: 'password' as const };
+      }
       await tx.query('UPDATE share_link SET downloads = downloads + 1 WHERE id = $1', [l.id]);
       await this.log(tx, null, l.document_id, 'share_download', ip, l.id, tenantId);
       return { name: l.name as string, mime: l.mime as string, size: Number(l.size), key: l.storage_key as string };

@@ -316,3 +316,75 @@ describe('users', () => {
     await t.http().patch(`/v1/users/${u.userId}`).set(H(u)).send({ status: 'active' }).expect(401);
   });
 });
+
+describe('phase 3 review regressions', () => {
+  const inward = (s: Session, clientId: string, on = '2026-05-10') =>
+    t.http().post('/v1/registers/inward').set(H(s)).send({ client_id: clientId, received_on: on, mode: 'physical', description: 'Bank statements' });
+
+  it('children sync only with clients:view too, and stop syncing when the client is deleted', async () => {
+    const p = await t.signup('rv1');
+    const desk = await t.addUser(p, 'rv1', 'Desk', 'article');
+    // "Front desk": every register entry, but only own clients.
+    await t.sql(`UPDATE role SET grants = grants || '[{"module":"registers","action":"view","scope":"all"},{"module":"documents","action":"view","scope":"all"}]'::jsonb
+      WHERE key = 'article' AND tenant_id = $1`, [p.tenantId]);
+    const other = await client(p);
+    await inward(p, other.id).expect(201);
+    const seen = (await pull(desk)).changes.map((x: { table: string }) => x.table);
+    expect(seen).not.toContain('inward_entry');
+    const before = await pull(p);
+    expect(before.changes.some((x: { table: string }) => x.table === 'inward_entry')).toBe(true);
+    await t.http().delete(`/v1/clients/${other.id}`).set(H(p)).expect(204);
+    const after = await pull(p, before.cursor);
+    expect(after.changes.filter((x: { deleted: boolean }) => x.deleted).map((x: { table: string }) => x.table)).toContain('inward_entry');
+    expect((await t.http().get('/v1/registers/inward').set(H(p))).body.total).toBe(0);
+  });
+
+  it('only approvers change partner/manager/restricted access; sensitive keeps the previous partner', async () => {
+    const p = await t.signup('rv2');
+    const sen = await t.addUser(p, 'rv2', 'Sen', 'senior');
+    const c = await client(p, { partnerId: p.userId, staffIds: [sen.userId] });
+    await t.http().put(`/v1/clients/${c.id}/access`).set(H(sen)).send({ partnerId: sen.userId, managerId: null, sensitive: true }).expect(403);
+    await t.http().put(`/v1/clients/${c.id}/access`).set(H(sen)).send({ groupIds: [] }).expect(204); // plain edit still fine
+    const p2 = await t.addUser(p, 'rv2', 'Pia', 'partner');
+    await t.http().put(`/v1/clients/${c.id}/access`).set(H(p2)).send({ partnerId: p2.userId, sensitive: true, allowedUserIds: [] }).expect(204);
+    await t.http().get(`/v1/clients/${c.id}`).set(H(p)).expect(200); // previous partner kept
+  });
+
+  it('360 counts only for granted modules; export uses the export scope and is audited', async () => {
+    const p = await t.signup('rv3');
+    const art = await t.addUser(p, 'rv3', 'Art', 'article');
+    const c = await client(p, { staffIds: [art.userId] });
+    const v = (await t.http().get(`/v1/clients/${c.id}`).set(H(art)).expect(200)).body;
+    expect(v.counts.secrets).toBeNull();
+    expect(typeof v.counts.documents).toBe('number');
+    await t.http().get('/v1/clients/export?format=csv').set(H(p)).expect(200);
+    const audit = (await t.http().get('/v1/audit?entity=client').set(H(p))).body;
+    expect(JSON.stringify(audit)).toContain('client.exported');
+  });
+
+  it('register date is immutable after insert (number and FY follow it)', async () => {
+    const p = await t.signup('rv4');
+    const c = await client(p);
+    const { body: { id } } = await inward(p, c.id, '2026-03-31').expect(201);
+    await t.http().patch(`/v1/registers/inward/${id}`).set(H(p)).send({ received_on: '2026-04-02' }).expect(400);
+  });
+
+  it('signed download URLs die with the session', async () => {
+    const p = await t.signup('rv5');
+    const c = await client(p);
+    const { body: { id } } = await t.http().post('/v1/documents').set(H(p)).field('clientId', c.id).field('category', 'ITR').attach('file', Buffer.from('%PDF-1.4\n%%EOF\n'), { filename: 'a.pdf', contentType: 'application/pdf' }).expect(201);
+    const { body: { url } } = await t.http().post(`/v1/documents/${id}/download-url`).set(H(p)).send({}).expect(200);
+    await t.http().post('/v1/auth/logout').set(H(p)).expect(204);
+    await t.http().get(url).expect(404);
+  });
+
+  it('share link locks after too many wrong passwords', async () => {
+    const p = await t.signup('rv6');
+    const c = await client(p);
+    const { body: { id } } = await t.http().post('/v1/documents').set(H(p)).field('clientId', c.id).field('category', 'ITR').attach('file', Buffer.from('%PDF-1.4\n%%EOF\n'), { filename: 'a.pdf', contentType: 'application/pdf' }).expect(201);
+    const share = (await t.http().post(`/v1/documents/${id}/shares`).set(H(p)).send({ expiresInHours: 24, password: 'client123' }).expect(201)).body;
+    await t.sql('UPDATE share_link SET failed_attempts = 9');
+    await t.http().post(share.url).send({ password: 'nope' }).expect(404);
+    await t.http().post(share.url).send({ password: 'client123' }).expect(404);
+  });
+});

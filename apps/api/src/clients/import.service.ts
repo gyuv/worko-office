@@ -167,7 +167,8 @@ export class ImportService {
   }
 
   async export(a: RequestActor, format: 'csv' | 'xlsx'): Promise<{ name: string; mime: string; body: Buffer }> {
-    const { items } = await this.clients.list(a, { limit: 100_000, offset: 0 });
+    const { items } = await this.clients.list(a, { limit: 100_000, offset: 0 }, 'export');
+    await this.clients.auditExport(a, format, items.length);
     const cols = ['fileNo', 'name', 'tradeName', 'entityType', 'pan', 'primaryGstin', 'tan', 'email', 'phone', 'status', 'tags'] as const;
     const head = ['File no', 'Name', 'Trade name', 'Entity type', 'PAN', 'GSTIN', 'TAN', 'Email', 'Phone', 'Status', 'Tags'];
     const cell = (v: unknown) => (Array.isArray(v) ? v.join('; ') : v === null || v === undefined ? '' : String(v));

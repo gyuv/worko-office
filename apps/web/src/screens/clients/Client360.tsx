@@ -39,9 +39,9 @@ export function Client360({ id }: { id: string }) {
   const gstins = c.registrations.filter((r) => r.kind === 'GSTIN');
   const tabs: Array<[Tab, string]> = [
     ['overview', t('client360.overview')],
-    ['documents', `${t('nav.documents')} (${c.counts.documents})`],
+    ...(c.counts.documents !== null ? [['documents', `${t('nav.documents')} (${c.counts.documents})`] as [Tab, string]] : []),
     ...(c.can.vault ? [['credentials', `${t('client360.credentials')} (${c.counts.secrets})`] as [Tab, string]] : []),
-    ['registers', `${t('nav.registers')} (${c.counts.inward + c.counts.outward})`],
+    ...(c.counts.inward !== null ? [['registers', `${t('nav.registers')} (${c.counts.inward + (c.counts.outward ?? 0)})`] as [Tab, string]] : []),
     ...(c.can.edit ? [['access', t('client360.access')] as [Tab, string]] : []),
     ...(c.can.delete ? [['merge', t('client360.merge')] as [Tab, string]] : []),
   ];
