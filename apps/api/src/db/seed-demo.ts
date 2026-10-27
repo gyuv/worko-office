@@ -75,11 +75,12 @@ async function seedPractice(tx: Tx, tenantId: string, branch: string, users: Rec
   const team = uuidv7();
   await tx.query('INSERT INTO team (id, tenant_id, name, branch_id, lead_user_id) VALUES ($1,$2,$3,$4,$5)', [team, tenantId, 'GST team', branch, users.manager]);
   for (const u of [users.senior, users.article, users.manager]) await tx.query('INSERT INTO team_member (tenant_id, team_id, user_id) VALUES ($1,$2,$3)', [tenantId, team, u]);
-  const groups = await Promise.all(['Kulkarni family', 'Sahyadri group of companies', 'Retail cluster – Pune'].map(async (name, i) => {
+  const groups: string[] = [];
+  for (const [i, name] of ['Kulkarni family', 'Sahyadri group of companies', 'Retail cluster – Pune'].entries()) {
     const id = uuidv7();
     await tx.query('INSERT INTO client_group (id, tenant_id, name, kind) VALUES ($1,$2,$3,$4)', [id, tenantId, name, i === 0 ? 'family' : 'group']);
-    return id;
-  }));
+    groups.push(id);
+  }
   await tx.query(`INSERT INTO custom_field_def (id, tenant_id, entity, key, label, type, options) VALUES ($1,$2,'client','industry','Industry','select','["Manufacturing","Trading","Services","Professional"]')`, [uuidv7(), tenantId]);
   const today = new Date().toISOString().slice(0, 10);
   const fy = (() => { const [y, m] = today.split('-').map(Number) as [number, number]; const s = m >= 4 ? y : y - 1; return `${s}-${String((s + 1) % 100).padStart(2, '0')}`; })();

@@ -5,5 +5,8 @@ import type { Tx } from '../db/db.service.js';
 /** Every active staff user of the tenant as an Actor — for "who could see this before/after" decisions. */
 export async function loadActors(tx: Tx): Promise<Actor[]> {
   const users = (await tx.query(`SELECT id, branch_id FROM app_user WHERE status = 'active' AND deleted_at IS NULL AND kind = 'staff'`)).rows;
-  return Promise.all(users.map(async (u) => ({ userId: u.id, branchId: u.branch_id, teamIds: await loadTeamIds(tx, u.id), roles: await loadUserRoles(tx, u.id) })));
+  // Sequential on purpose: one transaction = one connection, which can't run queries concurrently.
+  const out: Actor[] = [];
+  for (const u of users) out.push({ userId: u.id, branchId: u.branch_id, teamIds: await loadTeamIds(tx, u.id), roles: await loadUserRoles(tx, u.id) });
+  return out;
 }
