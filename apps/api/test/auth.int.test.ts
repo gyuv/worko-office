@@ -85,7 +85,8 @@ describe('TOTP 2FA', () => {
     await http().post('/v1/auth/totp/enable').set(bearer(s.accessToken)).send({ code: totp(secret) }).expect(204);
     const noCode = await http().post('/v1/auth/login').send({ firm: 'totpco', email: 'partner@totpco.in', password: PW, device: web }).expect(401);
     expect(noCode.body.code).toBe('MFA_REQUIRED');
-    await http().post('/v1/auth/login').send({ firm: 'totpco', email: 'partner@totpco.in', password: PW, totp: totp(secret), device: web }).expect(200);
+    // Next time step: the step used to enable is spent (replay protection).
+    await http().post('/v1/auth/login').send({ firm: 'totpco', email: 'partner@totpco.in', password: PW, totp: totp(secret, Date.now() + 30_000), device: web }).expect(200);
   });
 });
 
@@ -174,5 +175,75 @@ describe('demo seed', () => {
       const r = await http().post('/v1/auth/login').send({ firm: 'demo', email: u.email, password: DEMO.password, device: web }).expect(200);
       expect((await http().get('/v1/me').set(bearer(r.body.accessToken))).body.roles).toEqual([u.role]);
     }
+  });
+});
+
+describe('Phase 1 review regressions', () => {
+  const sql = async <T = Record<string, unknown>>(q: string, p: unknown[] = []) => {
+    const c = new pg.Client({ connectionString: db.url }); await c.connect();
+    try { return (await c.query(q, p)).rows as T[]; } finally { await c.end(); }
+  };
+
+  it('idempotency_key is tenant-isolated under RLS', async () => {
+    const a = await signup('idema'); const b = await signup('idemb');
+    await sql(`INSERT INTO idempotency_key (tenant_id, key, response) VALUES ($1, 'k1', '{"secret":1}')`, [a.tenantId]);
+    const c = new pg.Client({ connectionString: db.url }); await c.connect();
+    await c.query('BEGIN'); await c.query('SET LOCAL ROLE worko_app');
+    await c.query("SELECT set_config('app.tenant_id', $1, true)", [b.tenantId]);
+    expect((await c.query('SELECT * FROM idempotency_key')).rows).toEqual([]);
+    await c.query("SELECT set_config('app.tenant_id', $1, true)", [a.tenantId]);
+    expect((await c.query('SELECT * FROM idempotency_key')).rows).toHaveLength(1);
+    await c.query('ROLLBACK'); await c.end();
+  });
+
+  it('wrong TOTP codes lock the account; a used code cannot be replayed', async () => {
+    const s = await signup('mfalock');
+    const secret = base32Decode((await http().post('/v1/auth/totp/setup').set(bearer(s.accessToken)).expect(201)).body.secret);
+    await http().post('/v1/auth/totp/enable').set(bearer(s.accessToken)).send({ code: totp(secret) }).expect(204);
+    const login = (code: string) => http().post('/v1/auth/login').send({ firm: 'mfalock', email: 'partner@mfalock.in', password: PW, totp: code, device: web });
+    await login(totp(secret)).expect(401); // same step as enable → replay rejected
+    const wrong = totp(secret) === '000000' ? '111111' : '000000';
+    for (let i = 0; i < 4; i++) await login(wrong).expect(401);
+    await login(totp(secret, Date.now() + 30_000)).expect(429); // locked even with a valid future-step code
+  });
+
+  it('requesting a new OTP does not grant extra guesses; requests are capped', async () => {
+    await signup('otpcap', 'partner@otpcap.in', '+919811111111');
+    const req = () => http().post('/v1/auth/otp/request').send({ firm: 'otpcap', phone: '+919811111111' }).expect(202);
+    const verify = (code: string) => http().post('/v1/auth/otp/verify').send({ firm: 'otpcap', phone: '+919811111111', code, device: web });
+    await req();
+    const first = sms.sent.at(-1)!.text.slice(0, 6);
+    await req(); // retires the first challenge
+    await verify(first).expect(401);
+    const before = sms.sent.length;
+    for (let i = 0; i < 10; i++) await req();
+    expect(sms.sent.length - before).toBeLessThanOrEqual(3); // 5 per hour in total
+    const n = (await sql<{ n: number }>(`SELECT count(*)::int AS n FROM otp_challenge c JOIN app_user u ON u.id = c.user_id WHERE u.phone = '+919811111111' AND c.consumed_at IS NULL`))[0]!.n;
+    expect(n).toBe(1);
+  });
+
+  it('branch-scoped admins cannot wipe devices in other branches or of partners, nor add users elsewhere', async () => {
+    const s = await signup('branchco');
+    const [{ id: branch2 }] = await sql<{ id: string }>(`INSERT INTO branch (id, tenant_id, name) VALUES (gen_random_uuid(), $1, 'Pune') RETURNING id`, [s.tenantId]);
+    const grants = JSON.stringify(['view', 'create', 'edit'].map((action) => ({ module: 'users', action, scope: 'branch' })));
+    await sql(`INSERT INTO role (id, tenant_id, key, name, grants) VALUES (gen_random_uuid(), $1, 'branch_admin', 'Branch admin', $2)`, [s.tenantId, grants]);
+    await http().post('/v1/users').set(bearer(s.accessToken)).send({ name: 'BA', email: 'ba@branchco.in', password: PW, roleKeys: ['branch_admin'], branchId: branch2 }).expect(201);
+    await http().post('/v1/users').set(bearer(s.accessToken)).send({ name: 'Art', email: 'art@branchco.in', password: PW, roleKeys: ['article'] }).expect(201);
+    const ba = (await http().post('/v1/auth/login').send({ firm: 'branchco', email: 'ba@branchco.in', password: PW, device: web }).expect(200)).body;
+    const art = (await http().post('/v1/auth/login').send({ firm: 'branchco', email: 'art@branchco.in', password: PW, device: web }).expect(200)).body;
+    await http().post(`/v1/auth/sessions/${s.sessionId}/wipe`).set(bearer(ba.accessToken)).expect(403); // partner, other branch
+    await http().post(`/v1/auth/sessions/${art.sessionId}/wipe`).set(bearer(ba.accessToken)).expect(403); // other branch
+    const [{ id: hq }] = await sql<{ id: string }>(`SELECT id FROM branch WHERE tenant_id = $1 AND name = 'Head office'`, [s.tenantId]);
+    await http().post('/v1/users').set(bearer(ba.accessToken)).send({ name: 'X', email: 'x@branchco.in', password: PW, roleKeys: ['branch_admin'], branchId: hq }).expect(403);
+  });
+
+  it('refresh ignores client device ids and stops for disabled users', async () => {
+    const s = await signup('refco');
+    const [{ device_id }] = await sql<{ device_id: string }>(`SELECT device_id FROM device_session WHERE id = $1`, [s.sessionId]);
+    const r = await http().post('/v1/auth/refresh').send({ refreshToken: s.refreshToken, deviceId: 'spoofed' }).expect(200);
+    const claims = JSON.parse(Buffer.from(r.body.accessToken.split('.')[1], 'base64url').toString());
+    expect(claims.dev).toBe(device_id);
+    await sql(`UPDATE app_user SET status = 'disabled' WHERE id = $1`, [s.userId]);
+    await http().post('/v1/auth/refresh').send({ refreshToken: r.body.refreshToken }).expect(401);
   });
 });

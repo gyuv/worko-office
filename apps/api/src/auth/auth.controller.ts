@@ -1,6 +1,6 @@
-import { Body, Controller, ForbiddenException, Get, HttpCode, Param, ParseUUIDPipe, Post, Req } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, HttpCode, NotFoundException, Param, ParseUUIDPipe, Post, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { can } from '@worko/domain';
+import { can, coversRole } from '@worko/domain';
 import type { Request } from 'express';
 import { z } from 'zod';
 import { ZodPipe } from '../common/zod.pipe.js';
@@ -13,7 +13,7 @@ const phone = z.string().regex(/^\+?\d{10,15}$/, 'Invalid phone number');
 const loginSchema = z.object({ firm, email: z.string().email(), password: z.string().min(1).max(200), totp: z.string().regex(/^\d{6}$/).optional(), device });
 const otpRequestSchema = z.object({ firm, phone });
 const otpVerifySchema = z.object({ firm, phone, code: z.string().regex(/^\d{6}$/), device });
-const refreshSchema = z.object({ refreshToken: z.string().min(20).max(300), deviceId: z.string().max(64).optional() });
+const refreshSchema = z.object({ refreshToken: z.string().min(20).max(300) });
 const codeSchema = z.object({ code: z.string().regex(/^\d{6}$/) });
 
 const meta = (req: Request): Meta => ({ ip: req.ip ?? null, userAgent: req.headers['user-agent'] });
@@ -41,7 +41,7 @@ export class AuthController {
 
   @Public() @Throttle({ default: { limit: 30, ttl: 60_000 } }) @Post('refresh') @HttpCode(200)
   refresh(@Body(new ZodPipe(refreshSchema)) b: z.infer<typeof refreshSchema>, @Req() req: Request) {
-    return this.auth.refresh(b.refreshToken, b.deviceId, meta(req));
+    return this.auth.refresh(b.refreshToken, meta(req));
   }
 
   @Post('logout') @HttpCode(204)
@@ -69,8 +69,13 @@ export class AuthController {
   @Post('totp/enable') @HttpCode(204)
   async totpEnable(@CurrentActor() a: RequestActor, @Body(new ZodPipe(codeSchema)) b: z.infer<typeof codeSchema>) { await this.auth.totpEnable(a, b.code); }
 
+  /** Own sessions always; others' only with users:edit covering their branch AND every role they hold. */
   private async assertCanManage(a: RequestActor, sessionId: string) {
     const owner = await this.auth.sessionOwner(a, sessionId);
-    if (owner !== a.userId && !can(a, 'users', 'edit', { branchId: null })) throw new ForbiddenException();
+    if (!owner) throw new NotFoundException();
+    if (owner.userId === a.userId) return;
+    if (!can(a, 'users', 'edit', { branchId: owner.branchId, ownerUserIds: [owner.userId] }) || !owner.roles.every((r) => coversRole(a, r))) {
+      throw new ForbiddenException();
+    }
   }
 }

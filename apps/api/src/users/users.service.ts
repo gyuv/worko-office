@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
-import { covers } from '@worko/domain';
+import { can, coversRole } from '@worko/domain';
 import { AuditService } from '../audit/audit.service.js';
 import type { RequestActor } from '../auth/context.js';
 import { hashPassword } from '../auth/crypto.js';
@@ -33,15 +33,17 @@ export class UsersService {
     // Prevent privilege escalation: you can only hand out roles whose grants you hold yourself.
     const passwordHash = await hashPassword(i.password);
     return this.db.tenantTx(a.tenantId, async (tx) => {
-      const roles = (await tx.query('SELECT id, key, grants FROM role WHERE key = ANY($1) AND deleted_at IS NULL', [i.roleKeys])).rows;
+      const branchId = i.branchId ?? a.branchId;
+      if (!can(a, 'users', 'create', { branchId })) throw new ForbiddenException('Cannot add users to that branch');
+      const roles = (await tx.query('SELECT id, key, grants, hidden_fields FROM role WHERE key = ANY($1) AND deleted_at IS NULL', [i.roleKeys])).rows;
       if (roles.length !== new Set(i.roleKeys).size) throw new BadRequestException('Unknown role');
-      for (const r of roles) for (const g of r.grants) {
-        if (!covers(a, g)) throw new ForbiddenException(`Cannot grant role ${r.key}`);
+      for (const r of roles) {
+        if (!coversRole(a, { grants: r.grants, hiddenFields: r.hidden_fields })) throw new ForbiddenException(`Cannot grant role ${r.key}`);
       }
       const id = uuidv7();
       try {
         await tx.query(`INSERT INTO app_user (id, tenant_id, email, phone, name, password_hash, branch_id) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-          [id, a.tenantId, i.email.toLowerCase(), i.phone ?? null, i.name, passwordHash, i.branchId ?? a.branchId]);
+          [id, a.tenantId, i.email.toLowerCase(), i.phone ?? null, i.name, passwordHash, branchId]);
       } catch (e) {
         if ((e as { code?: string }).code === '23505') throw new ConflictException('A user with that email or phone exists');
         throw e;

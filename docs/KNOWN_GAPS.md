@@ -17,3 +17,9 @@
 | Android | JS bundle builds (`expo export`); native Gradle/AAB build and on-device run not yet verified. No offline banner (needs NetInfo) or biometric app lock yet. | Phase 2. |
 | Client portal users | `app_user.kind` supports `client`, but portal login flow is not built. | Phase 9. |
 | Super-admin | Signup is self-serve (disable with `ALLOW_SIGNUP=false`); no super-admin console yet. | Phase 12. |
+| Field hiding | `role.hidden_fields` is stored, loaded and enforced in role-grant escalation checks, but no API response is filtered by it yet (no fee/password fields exist until Phase 3). | Response serializer that strips hidden fields, built with the client module (Phase 3). |
+| Sensitive clients | `can()` honours `sensitive` + `allowedUserIds`, but there is no table/column or endpoint using it yet. | Client master (Phase 3). |
+| 2FA lifecycle | No 2FA disable, recovery codes, or admin-enforced 2FA policy. | Phase 2 carry-over. |
+| Role management | Only system roles are seeded; no create/edit-role API or role editor UI. | Settings (Phase 2/3). |
+| Audit anchoring | Hash chain is verified on demand only; a DB superuser could rewrite the whole chain. | Scheduled verification + periodic external anchoring of the chain head (e.g. write-once object storage) in Phase 12. |
+| Web headers | CSP `frame-ancestors` in a `<meta>` tag is ignored by browsers; anti-framing must come from HTTP headers on the web host. API already sends `X-Frame-Options: DENY`. | Static-host/CDN header config in deployment (Phase 12). |

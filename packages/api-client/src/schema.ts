@@ -616,7 +616,6 @@ export interface operations {
             content: {
                 "application/json": {
                     refreshToken: string;
-                    deviceId?: string;
                 };
             };
         };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  can, covers, formatCompactINR, formatINR, fyLabel, fyStartYear, gstinCheckChar, incomeTaxPeriodLabel,
+  can, covers, coversRole, formatCompactINR, formatINR, fyLabel, fyStartYear, gstinCheckChar, incomeTaxPeriodLabel,
   isValidGstin, isValidPan, isValidUdin, maskAadhaar, panFromGstin, splitGst, SYSTEM_ROLES, type Actor,
 } from './index.js';
 
@@ -61,6 +61,15 @@ describe('permissions', () => {
     expect(can(actor('manager'), 'tasks', 'view', { teamId: 't2' })).toBe(false);
     expect(can(actor('manager'), 'settings', 'view', { teamId: 't1' })).toBe(false);
     expect(can(actor('manager'), 'users', 'create', { teamId: 't1' })).toBe(false);
+  });
+  it('coversRole() checks group subsets and hidden fields', () => {
+    const grp = (ids: string[]): Actor => ({ userId: 'u', teamIds: [], branchId: null, roles: [{ key: 'g', name: 'g', system: false, hiddenFields: ['client.fees'], grants: [{ module: 'clients', action: 'view', scope: 'groups', clientGroupIds: ids }] }] });
+    const a = grp(['00000000-0000-0000-0000-000000000001']);
+    expect(coversRole(a, { grants: [{ module: 'clients', action: 'view', scope: 'groups', clientGroupIds: ['00000000-0000-0000-0000-000000000001'] }], hiddenFields: ['client.fees'] })).toBe(true);
+    expect(coversRole(a, { grants: [{ module: 'clients', action: 'view', scope: 'groups', clientGroupIds: ['00000000-0000-0000-0000-000000000002'] }], hiddenFields: ['client.fees'] })).toBe(false);
+    expect(coversRole(a, { grants: [], hiddenFields: [] })).toBe(false); // would reveal fees
+    expect(coversRole(actor('manager'), role('partner'))).toBe(false);
+    expect(coversRole(actor('partner'), role('article'))).toBe(true);
   });
   it('covers() blocks granting wider scope than you hold', () => {
     expect(covers(actor('partner'), { module: 'billing', action: 'edit', scope: 'all' })).toBe(true);

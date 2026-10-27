@@ -48,7 +48,7 @@ paths:
       tags: [auth]
       operationId: refresh
       security: []
-      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [refreshToken], properties: { refreshToken: { type: string }, deviceId: { type: string } } } } } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [refreshToken], properties: { refreshToken: { type: string } } } } } }
       responses: { '200': { $ref: '#/components/responses/Tokens' }, '401': { description: 'Expired/reused token, or `code: DEVICE_WIPE`', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } } }
   /auth/logout:
     post: { tags: [auth], operationId: logout, responses: { '204': { description: Session revoked } } }

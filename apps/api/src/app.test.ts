@@ -11,8 +11,8 @@ describe('crypto', () => {
     // RFC 6238 Appendix B: T=59 → 94287082, T=1111111109 → 07081804
     expect(totp(secret, 59_000)).toBe('287082');
     expect(totp(secret, 1_111_111_109_000)).toBe('081804');
-    expect(verifyTotp(secret, totp(secret, 1_000_000), 1_030_000)).toBe(true);
-    expect(verifyTotp(secret, totp(secret, 1_000_000), 1_200_000)).toBe(false);
+    expect(verifyTotp(secret, totp(secret, 1_000_000), 1_030_000)).toBe(33); // time step 1_000_000 / 30s
+    expect(verifyTotp(secret, totp(secret, 1_000_000), 1_200_000)).toBeNull();
   });
   it('base32 round-trips', () => {
     const b = Buffer.from('hello worko 2fa!');

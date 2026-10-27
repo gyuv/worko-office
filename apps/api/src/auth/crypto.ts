@@ -54,7 +54,11 @@ export function totp(secret: Buffer, at = Date.now(), step = 30, digits = 6): st
   return String(code).padStart(digits, '0');
 }
 
-/** Accepts ±1 step for clock drift. */
-export function verifyTotp(secret: Buffer, code: string, at = Date.now()): boolean {
-  return [-1, 0, 1].some((d) => totp(secret, at + d * 30_000) === code);
+/** Accepts ±1 step for clock drift. Returns the matched time step (for replay protection) or null. */
+export function verifyTotp(secret: Buffer, code: string, at = Date.now()): number | null {
+  for (const d of [-1, 0, 1]) {
+    const t = at + d * 30_000;
+    if (totp(secret, t) === code) return Math.floor(t / 30_000);
+  }
+  return null;
 }

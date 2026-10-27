@@ -60,7 +60,27 @@ export function can(actor: Actor, module: Module, action: Action, res: ResourceC
 export function covers(actor: Actor, g: Grant): boolean {
   if (actor.superAdmin || g.scope === 'none') return true;
   const mine = effectiveScope(actor, g.module, g.action);
-  return !!mine && SCOPE_RANK[mine.scope] >= SCOPE_RANK[g.scope];
+  if (!mine || SCOPE_RANK[mine.scope] < SCOPE_RANK[g.scope]) return false;
+  // Same rank 'groups': the granted groups must be a subset of the actor's own.
+  if (g.scope === 'groups' && mine.scope === 'groups') return (g.clientGroupIds ?? []).every((id) => mine.clientGroupIds?.includes(id));
+  return true;
+}
+
+/** Fields hidden from the actor: hidden only if every one of their roles hides it. */
+export function hiddenFieldsOf(actor: Actor): string[] {
+  if (actor.superAdmin || actor.roles.length === 0) return [];
+  const [first, ...rest] = actor.roles.map((r) => new Set(r.hiddenFields ?? []));
+  return [...first!].filter((f) => rest.every((s) => s.has(f)));
+}
+
+/**
+ * The actor may assign `role` (or act on a holder of it) only if they hold every grant at equal-or-wider
+ * scope AND the role hides at least the fields hidden from the actor.
+ */
+export function coversRole(actor: Actor, role: Pick<Role, 'grants' | 'hiddenFields'>): boolean {
+  if (actor.superAdmin) return true;
+  const hidden = new Set(role.hiddenFields ?? []);
+  return role.grants.every((g) => covers(actor, g)) && hiddenFieldsOf(actor).every((f) => hidden.has(f));
 }
 
 const all = (scope: Scope, actions: readonly Action[] = ACTIONS, mods: readonly Module[] = MODULES): Grant[] =>

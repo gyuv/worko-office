@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { isAllowedExternal, loadSettings } from './settings';
+import { isAllowedExternal, isAppUrl, isTokenPair, loadSettings } from './settings';
 import { TokenStore, type SafeStorage } from './token-store';
 import { trayMenu } from './tray-menu';
 
@@ -48,5 +48,22 @@ describe('settings & tray', () => {
     const m = trayMenu({ badge: 3, autoStart: false, open() {}, toggleAutoStart() {}, quit() {} });
     expect(m[0]?.label).toBe('Open Worko (3 pending)');
     expect(m.find((i) => i.type === 'checkbox')?.checked).toBe(false);
+  });
+});
+
+describe('renderer lock-down', () => {
+  const app = 'file:///C:/Program%20Files/Worko/resources/web/dist/index.html';
+  it('only the app entry page may load', () => {
+    expect(isAppUrl(app + '#/audit', app)).toBe(true);
+    expect(isAppUrl('file:///C:/Users/x/Downloads/evil.html', app)).toBe(false);
+    expect(isAppUrl('https://evil.example/', app)).toBe(false);
+    expect(isAppUrl('http://localhost:5173/#/x', 'http://localhost:5173/')).toBe(true);
+    expect(isAppUrl('http://localhost:5174/', 'http://localhost:5173/')).toBe(false);
+  });
+  it('validates token payloads from the renderer', () => {
+    expect(isTokenPair(null)).toBe(true);
+    expect(isTokenPair({ accessToken: 'a', refreshToken: 'r', sessionId: 's', userId: 'u', tenantId: 't', expiresIn: 900 })).toBe(true);
+    expect(isTokenPair({ accessToken: 1 })).toBe(false);
+    expect(isTokenPair('x')).toBe(false);
   });
 });
