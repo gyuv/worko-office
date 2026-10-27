@@ -40,6 +40,35 @@ export const en = {
   'notif.sendTest': 'Send a test notification', 'notif.testSent': 'Sent — it should appear on all your signed-in devices.',
   'notif.enableBrowser': 'Enable browser notifications', 'notif.browserOn': 'Browser notifications are on for this browser.',
   'notif.browserUnavailable': 'Browser push is not configured on this server.', 'notif.saved': 'Saved',
+  // ---- web: clients, documents, registers, vault (web agent adds keys here) ----
+
+  // ---- mobile (mobile agent adds keys here) ----
+  'm.clients.search': 'Search name, PAN, GSTIN, phone, file no.', 'm.clients.empty': 'No clients on this device yet.',
+  'm.clients.noMatch': 'No clients match your search.', 'm.clients.count': '{count} clients', 'm.clients.select': 'Select a client to see details.',
+  'm.client.back': 'Back', 'm.client.pan': 'PAN', 'm.client.gstins': 'GSTIN', 'm.client.fileNo': 'File no.', 'm.client.contacts': 'Contacts',
+  'm.client.noContacts': 'No contacts', 'm.client.addresses': 'Addresses', 'm.client.documents': 'Documents', 'm.client.noDocuments': 'No documents',
+  'm.client.call': 'Call {name}', 'm.client.whatsapp': 'WhatsApp {name}', 'm.client.primary': 'Primary', 'm.client.newInward': 'New inward entry',
+  'm.client.newOutward': 'New outward entry', 'm.client.scan': 'Scan / photo → upload', 'm.client.registers': 'Register entries',
+  'm.status.active': 'Active', 'm.status.inactive': 'Inactive', 'm.status.prospect': 'Prospect', 'm.status.all': 'All',
+  'm.doc.open': 'Open {name}', 'm.doc.openFailed': 'Could not open the document. Check your connection.', 'm.doc.offline': 'You are offline. Documents can be uploaded and opened only when connected.',
+  'm.doc.category': 'Category', 'm.doc.fy': 'Financial year', 'm.doc.name': 'File name', 'm.doc.upload': 'Upload', 'm.doc.uploading': 'Uploading…',
+  'm.doc.uploaded': 'Uploaded. It will appear in the list after the next sync.', 'm.doc.uploadFailed': 'Upload failed: {reason}',
+  'm.doc.camera': 'Take photo', 'm.doc.library': 'Choose from gallery', 'm.doc.noPermission': 'Camera permission denied — choose from gallery instead.',
+  'm.doc.retake': 'Choose another', 'm.doc.cat.kyc': 'KYC', 'm.doc.cat.itr': 'Income tax', 'm.doc.cat.gst': 'GST', 'm.doc.cat.tds': 'TDS',
+  'm.doc.cat.audit': 'Audit', 'm.doc.cat.roc': 'ROC', 'm.doc.cat.notice': 'Notice', 'm.doc.cat.other': 'Other',
+  'm.reg.title': 'Registers', 'm.reg.inward': 'Inward', 'm.reg.outward': 'Outward', 'm.reg.search': 'Search number, party, description',
+  'm.reg.empty': 'No entries yet.', 'm.reg.add': 'New entry', 'm.reg.numberPending': 'Number assigned on sync', 'm.reg.client': 'Client',
+  'm.reg.pickClient': 'Choose client', 'm.reg.date': 'Date (YYYY-MM-DD)', 'm.reg.mode': 'Mode', 'm.reg.from': 'Received from', 'm.reg.to': 'Sent to',
+  'm.reg.phone': 'Phone', 'm.reg.description': 'Description', 'm.reg.items': 'Items (one per line)', 'm.reg.returnable': 'Returnable to client',
+  'm.reg.receivedBack': 'To be received back', 'm.reg.original': 'Originals', 'm.reg.dueBack': 'Due back (YYYY-MM-DD)', 'm.reg.courier': 'Courier',
+  'm.reg.tracking': 'Tracking no.', 'm.reg.saved': 'Saved on this device. It syncs automatically.', 'm.reg.invalid': 'Check: {fields}',
+  'm.reg.sign': 'Capture signature', 'm.reg.signed': 'Signed', 'm.reg.sigPending': 'Signature waiting to upload',
+  'm.mode.physical': 'In person', 'm.mode.email': 'Email', 'm.mode.whatsapp': 'WhatsApp', 'm.mode.courier': 'Courier', 'm.mode.portal': 'Portal',
+  'm.mode.other': 'Other', 'm.mode.hand': 'By hand', 'm.mode.post': 'Post',
+  'm.sig.title': 'Sign below', 'm.sig.clear': 'Clear', 'm.sig.save': 'Save signature', 'm.sig.empty': 'Please sign before saving.',
+  'm.sig.pad': 'Signature pad', 'm.sig.uploaded': 'Signature uploaded.', 'm.sig.queued': 'Signature saved; it uploads when the entry has synced and you are online.',
+
+  // ---- extension (extension agent adds keys here, if any) ----
 } as const;
 export type MessageKey = keyof typeof en;
 export type Messages = Record<MessageKey, string>;

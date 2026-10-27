@@ -11,6 +11,8 @@ import { api, unwrap, useSession } from './session';
 import { getEngine, getStore, startSync, stopSync, syncNow, toReminder, useSync } from './sync';
 import { setupNotifications } from './notifications';
 import { themeFor, type Theme } from './theme';
+import { flushSignatures } from './net';
+import { Stack } from './screens/Stack';
 
 const t = createTranslator('en-IN', { product: PRODUCT.name });
 const qc = new QueryClient({ defaultOptions: { queries: { retry: 1 } } });
@@ -84,11 +86,18 @@ function Tabs({ theme }: { theme: Theme }) {
   const s = styles(theme);
   const [tab, setTab] = useState<Tab>('home');
   const current = TABS.find((x) => x.key === tab)!;
+  const [registers, setRegisters] = useState(false);
+  useSignatureRetry();
   return (
     <View style={{ flex: 1 }}>
       <StatusStrip theme={theme} />
       <View style={{ flex: 1, padding: 16 }}>
-        {tab === 'home' ? <Home theme={theme} /> : tab === 'more' ? <More theme={theme} /> : tab === 'inbox' ? <Inbox theme={theme} />
+        {tab === 'home' ? <Home theme={theme} /> : tab === 'clients' ? <Stack theme={theme} root={{ name: 'clients' }} />
+          : tab === 'more' ? (registers ? <View style={{ flex: 1 }}>
+            <Pressable onPress={() => setRegisters(false)} accessibilityRole="button" style={{ minHeight: 48, justifyContent: 'center' }}>
+              <Text style={{ color: theme.primary, fontWeight: '600' }}>{t('nav.more')}</Text></Pressable>
+            <Stack theme={theme} root={{ name: 'registers' }} /></View>
+            : <More theme={theme} onRegisters={() => setRegisters(true)} />) : tab === 'inbox' ? <Inbox theme={theme} />
           : <Text style={s.muted}>{t('home.comingSoon', { module: t(current.label), phase: current.phase ?? 0 })}</Text>}
       </View>
       <View style={s.tabbar} accessibilityRole="tablist">
@@ -101,6 +110,14 @@ function Tabs({ theme }: { theme: Theme }) {
       </View>
     </View>
   );
+}
+
+/** Retry pending signature uploads when connectivity returns or a register entry syncs (gets its number). */
+function useSignatureRetry() {
+  const online = useSync((x) => x.online);
+  const vIn = useSync((x) => x.versions.inward_entry ?? 0);
+  const vOut = useSync((x) => x.versions.outward_entry ?? 0);
+  useEffect(() => { if (online) void flushSignatures().catch(() => undefined); }, [online, vIn, vOut]);
 }
 
 /** Offline banner + sync state (spec §8/§13). */
@@ -178,7 +195,7 @@ function Home({ theme }: { theme: Theme }) {
   );
 }
 
-function More({ theme }: { theme: Theme }) {
+function More({ theme, onRegisters }: { theme: Theme; onRegisters(): void }) {
   const s = styles(theme);
   const qcl = useQueryClient();
   const setTokens = useSession((x) => x.setTokens);
@@ -190,7 +207,12 @@ function More({ theme }: { theme: Theme }) {
   const active = useMemo(() => (sessions.data ?? []).filter((x) => !x.revokedAt), [sessions.data]);
   return (
     <View style={{ flex: 1 }}>
-      <Text style={s.h2}>{t('security.sessions')}</Text>
+      <Pressable style={[s.row, { minHeight: 48 }]} onPress={onRegisters} accessibilityRole="button">
+        <Feather name="book" size={18} color={theme.primary} style={{ marginRight: 10 }} />
+        <Text style={[s.text, { flex: 1 }]}>{t('m.reg.title')}</Text>
+        <Feather name="chevron-right" size={18} color={theme.textMuted} />
+      </Pressable>
+      <Text style={[s.h2, { marginTop: 16 }]}>{t('security.sessions')}</Text>
       <FlatList data={active} keyExtractor={(x) => x.id} renderItem={({ item }) => (
         <View style={s.row}>
           <View style={{ flex: 1 }}>
