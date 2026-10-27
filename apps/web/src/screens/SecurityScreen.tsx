@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { relativeTime } from '@worko/i18n';
 import { Laptop, Monitor, Smartphone } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useT } from '../lib/i18n';
 import { useMe } from '../lib/me';
 import { api, unwrap } from '../lib/session';
@@ -47,6 +47,7 @@ export function SecurityScreen() {
         <h2 className="mb-2 font-semibold">{t('security.twoFactor')}: {me?.totpEnabled ? t('security.twoFactorOn') : t('security.twoFactorOff')}</h2>
         {!me?.totpEnabled && <TotpSetup />}
       </section>
+      <ExtensionPairing firm={me?.firmSlug ?? ''} />
     </div>
   );
 }
@@ -71,5 +72,39 @@ function TotpSetup() {
       </div>
       {enable.isError && <p role="alert" className="text-overdue">{t('auth.invalid')}</p>}
     </form>
+  );
+}
+
+/** One-time pairing code for the browser extension (vault autofill). */
+function ExtensionPairing({ firm }: { firm: string }) {
+  const t = useT();
+  const pair = useMutation({ mutationFn: () => unwrap(api.POST('/vault/extension/pair-code')) });
+  const [left, setLeft] = useState(0);
+  useEffect(() => {
+    if (!pair.data) return;
+    const end = Date.now() + pair.data.expiresInSeconds * 1000;
+    const tick = () => setLeft(Math.max(0, Math.round((end - Date.now()) / 1000)));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [pair.data]);
+  return (
+    <section className="card space-y-2 p-4">
+      <h2 className="font-semibold">{t('ext.title')}</h2>
+      <p className="text-muted">{t('ext.help')}</p>
+      {pair.data && left > 0 ? (
+        <div className="space-y-1" aria-live="polite">
+          <div>{t('ext.firm')}: <code className="font-mono">{firm}</code></div>
+          <div>{t('ext.code')}: <code className="select-all rounded bg-surface-alt px-2 py-1 font-mono text-lg tracking-widest">{pair.data.code}</code></div>
+          <div className="text-sm text-muted">{t('ext.expires', { time: `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` })}</div>
+        </div>
+      ) : (
+        <>
+          {pair.data && <p role="status" className="text-sm text-muted">{t('ext.expired')}</p>}
+          <button className="btn btn-primary" disabled={pair.isPending} onClick={() => pair.mutate()}>{t('ext.connect')}</button>
+        </>
+      )}
+      {pair.isError && <p role="alert" className="text-overdue">{t('common.error')}</p>}
+    </section>
   );
 }

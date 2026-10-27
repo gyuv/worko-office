@@ -8,6 +8,7 @@ import { useOnline } from '../lib/useOnline';
 import { CommandPalette } from './CommandPalette';
 import { BellButton, SyncIndicator, Toasts } from './SyncIndicator';
 import { NAV } from './nav';
+import { StepUpDialog } from './StepUpDialog';
 
 export function Shell({ children, onSignOut }: { children: ReactNode; onSignOut(): void }) {
   const t = useT();
@@ -78,6 +79,7 @@ export function Shell({ children, onSignOut }: { children: ReactNode; onSignOut(
       </div>
       <CommandPalette onSignOut={onSignOut} />
       <Toasts />
+      <StepUpDialog />
     </div>
   );
 }

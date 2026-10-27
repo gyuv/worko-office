@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Moon, LogOut, type LucideIcon } from 'lucide-react';
+import { ArrowLeftRight, Moon, LogOut, Plus, Upload, type LucideIcon } from 'lucide-react';
 import { useT } from '../lib/i18n';
 import { useRoute } from '../lib/router';
 import { useTheme } from '../lib/theme';
@@ -32,6 +32,11 @@ export function CommandPalette({ onSignOut }: { onSignOut(): void }) {
 
   const cmds = useMemo<Cmd[]>(() => [
     ...NAV.filter((n) => !n.perm || can(...n.perm)).map((n) => ({ id: n.route, label: t('palette.goto', { page: t(n.label) }), hint: n.shortcut, icon: n.icon, run: () => go(n.route) })),
+    ...(can('clients', 'create') ? [
+      { id: 'new-client', label: t('palette.newClient'), icon: Plus, run: () => { go('clients'); setTimeout(() => dispatchEvent(new Event('worko:new-client'))); } },
+      { id: 'import-clients', label: t('palette.importClients'), icon: Upload, run: () => go('clients/import') },
+    ] : []),
+    ...(can('registers', 'view') ? [{ id: 'go-registers', label: t('palette.registers'), icon: ArrowLeftRight, run: () => go('registers') }] : []),
     { id: 'theme', label: t('palette.toggleTheme'), icon: Moon, run: toggleTheme },
     { id: 'signout', label: t('common.signOut'), icon: LogOut, run: onSignOut },
   ], [t, go, toggleTheme, onSignOut, can]);

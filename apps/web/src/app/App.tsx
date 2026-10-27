@@ -12,6 +12,9 @@ import { SecurityScreen } from '../screens/SecurityScreen';
 import { TeamScreen } from '../screens/TeamScreen';
 import { NotificationsScreen } from '../screens/NotificationsScreen';
 import { startSync, stopSync } from '../lib/sync';
+import { ClientsRoute } from '../screens/clients/ClientsScreen';
+import { DocumentsScreen } from '../screens/documents/DocumentsScreen';
+import { RegistersScreen } from '../screens/registers/RegistersScreen';
 
 function Routes() {
   const t = useT();
@@ -22,6 +25,9 @@ function Routes() {
     case 'audit': return <AuditScreen />;
     case 'team': return <TeamScreen />;
     case 'notifications': return <NotificationsScreen />;
+    case 'clients': return <ClientsRoute />;
+    case 'documents': return <DocumentsScreen />;
+    case 'registers': return <RegistersScreen />;
     default: {
       const n = NAV.find((x) => x.route === route)!;
       return <ComingSoon module={t(n.label)} phase={n.phase ?? 0} />;
