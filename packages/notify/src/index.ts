@@ -102,9 +102,12 @@ export class ReminderScheduler {
       if (!this.active(r) || this.fired.has(this.key(r))) continue;
       const due = this.dueAt(r);
       if (due <= now) {
-        this.fired.add(this.key(r));
-        if (now - due < 24 * 3600_000 && shown < (this.opts.maxPerTick ?? 5)) { this.opts.show(r); shown++; }
+        // Only mark fired once actually shown (or too old to bother); overflow waits for the next tick.
+        if (now - due >= 24 * 3600_000) this.fired.add(this.key(r));
+        else if (shown < (this.opts.maxPerTick ?? 5)) { this.fired.add(this.key(r)); this.opts.show(r); shown++; }
+        else next = 1_000;
       } else next = next === null ? due - now : Math.min(next, due - now);
+      if (next !== null && next < 0) next = 0;
     }
     this.opts.save?.([...this.fired].slice(-2000));
     return next;

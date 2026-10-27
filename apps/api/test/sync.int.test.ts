@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
+import { z } from 'zod';
 import { JobQueueService } from '../src/jobs/job-queue.service.js';
 import { PUSH_PROVIDERS, type MockPushProvider, type PushProviders } from '../src/notifications/push.providers.js';
 import { SYNC_TABLES, SYNC_TABLES_TOKEN } from '../src/sync/registry.js';
@@ -16,7 +17,10 @@ beforeAll(async () => {
   t = await bootApp({
     listen: true,
     // A strict alias over `team` lets us exercise money/legal-record semantics before invoices exist.
-    override: (b) => b.overrideProvider(SYNC_TABLES_TOKEN).useValue({ ...SYNC_TABLES, team_strict: { ...SYNC_TABLES.team, strict: true } }),
+    override: (b) => b.overrideProvider(SYNC_TABLES_TOKEN).useValue({
+      ...SYNC_TABLES,
+      team_strict: { ...SYNC_TABLES.team, strict: true, visible: undefined, writable: { name: z.string() }, canInsert: () => true, canUpdate: () => true },
+    }),
   });
   push = (t.app.get(PUSH_PROVIDERS) as PushProviders).webpush as MockPushProvider;
   jobs = t.app.get(JobQueueService);
@@ -253,5 +257,107 @@ describe('realtime change feed', () => {
     const sub = await subscribe(phone);
     await t.http().post(`/v1/auth/sessions/${phone.sessionId}/revoke`).set(bearer(a.accessToken)).expect(204);
     expect((await t.sql(`SELECT disabled_at FROM push_subscription WHERE id = $1`, [sub]))[0]!.disabled_at).not.toBeNull();
+  });
+});
+
+describe('Phase 2 review regressions', () => {
+  it('teams are read-only over sync and invisible without users:view; REST rejects out-of-scope users', async () => {
+    const p = await t.signup('rteam');
+    const art = await t.addUser(p, 'rteam', 'Ajay', 'article');
+    const other = await t.signup('rteamx');
+    const { body: { id } } = await t.http().post('/v1/teams').set(bearer(p.accessToken)).send({ name: 'Audit' }).expect(201);
+    const res = await pushM(p, [{ key: key(), table: 'team', id, baseVersion: 1, patch: { lead_user_id: p.userId } }]);
+    expect(res[0]).toMatchObject({ status: 'rejected', reason: 'field_not_writable:lead_user_id' });
+    expect((await pull(art)).changes.filter((c: { table: string }) => c.table === 'team')).toEqual([]);
+    expect((await pushM(art, [{ key: key(), table: 'team', id: randomUUID(), baseVersion: 0, patch: {} }]))[0].reason).toBe('unknown_table');
+    expect((await pull(p)).changes.some((c: { table: string }) => c.table === 'team')).toBe(true);
+    await t.http().post('/v1/teams').set(bearer(p.accessToken)).send({ name: 'X', leadUserId: other.userId }).expect(403); // other firm
+    await t.http().put(`/v1/teams/${id}/members`).set(bearer(p.accessToken)).send({ userIds: [other.userId] }).expect(403);
+  });
+
+  it('a snoozed notification pushes again when the snooze ends', async () => {
+    const a = await t.signup('rsnooze');
+    await noQuietHours(a);
+    const sub = await subscribe(a);
+    const nid = await sendHigh(a);
+    await runJobs();
+    // Delivery compares the snooze with the real clock, so use a short real snooze.
+    await t.http().post(`/v1/notifications/${nid}/snooze`).set(bearer(a.accessToken)).send({ until: new Date(Date.now() + 1_200).toISOString() }).expect(204);
+    await new Promise((r) => setTimeout(r, 1_500));
+    await runJobs();
+    expect(push.sent.filter((s) => s.sub.id === sub)).toHaveLength(2);
+  });
+
+  it('concurrent deliveries of one notification push once per device', async () => {
+    const a = await t.signup('rdouble');
+    await noQuietHours(a);
+    const sub = await subscribe(a);
+    const nid = await sendHigh(a);
+    const svc = t.app.get((await import('../src/notifications/notifications.service.js')).NotificationsService) as unknown as { deliver(j: unknown): Promise<void> };
+    const job = { id: '0', tenant_id: a.tenantId, kind: 'notification.deliver', ref_id: nid, attempts: 1, max_attempts: 6 };
+    await Promise.all([svc.deliver(job), svc.deliver(job), svc.deliver(job)]);
+    expect(push.sent.filter((s) => s.sub.id === sub)).toHaveLength(1);
+  });
+
+  it('cannot hijack another user\'s live push endpoint', async () => {
+    const a = await t.signup('rhijack');
+    const b = await t.addUser(a, 'rhijack', 'Bhim', 'senior');
+    const endpoint = `https://push.example/${randomUUID()}`;
+    const subA = await subscribe(a, endpoint);
+    await t.http().post('/v1/push/subscriptions').set(bearer(b.accessToken)).send({ kind: 'webpush', endpoint, keys: { p256dh: 'k', auth: 'a' } }).expect(409);
+    expect((await t.sql(`SELECT user_id FROM push_subscription WHERE id = $1`, [subA]))[0]!.user_id).toBe(a.userId);
+    expect(await subscribe(a, endpoint)).toBe(subA); // own re-registration is fine
+  });
+
+  it('idempotency keys are per user', async () => {
+    const a = await t.signup('ridem');
+    const b = await t.addUser(a, 'ridem', 'Bose', 'senior');
+    const k = key();
+    expect((await pushM(a, [{ key: k, table: 'notification_pref', id: randomUUID(), baseVersion: 0, patch: { prefs: {} } }]))[0].status).toBe('applied');
+    expect((await pushM(b, [{ key: k, table: 'notification_pref', id: randomUUID(), baseVersion: 0, patch: { prefs: {} } }]))[0]).toMatchObject({ status: 'rejected', reason: 'key_conflict' });
+  });
+
+  it('escalation skips inactive managers and falls back to an active team lead', async () => {
+    const p = await t.signup('resc');
+    const gone = await t.addUser(p, 'resc', 'Gopal', 'senior');
+    const lead = await t.addUser(p, 'resc', 'Lata', 'manager');
+    const art = await t.addUser(p, 'resc', 'Amit', 'article');
+    await t.sql(`UPDATE app_user SET manager_id = $1 WHERE id = $2`, [gone.userId, art.userId]);
+    await t.sql(`UPDATE app_user SET status = 'disabled' WHERE id = $1`, [gone.userId]);
+    await t.http().post('/v1/teams').set(bearer(p.accessToken)).send({ name: 'T', leadUserId: lead.userId, memberIds: [art.userId] }).expect(201);
+    const svc = t.app.get((await import('../src/notifications/notifications.service.js')).NotificationsService);
+    await svc.send(p.tenantId, { userIds: [art.userId], category: 'task.overdue', priority: 'high', title: 'Late', requiresAck: true, escalateAfterMinutes: 5 });
+    await runJobs(6 * 60_000);
+    expect((await t.sql(`SELECT count(*)::int AS n FROM notification WHERE user_id = $1`, [gone.userId]))[0]!.n).toBe(0);
+    expect((await t.sql(`SELECT title FROM notification WHERE user_id = $1`, [lead.userId])).map((r) => r.title)).toEqual(['Escalated: Late']);
+  });
+});
+
+describe('realtime re-validation', () => {
+  it('closes sockets at token expiry and when the user is disabled', async () => {
+    const { RealtimeGateway } = await import('../src/realtime/realtime.gateway.js');
+    const gw = t.app.get(RealtimeGateway);
+    const a = await t.signup('rtsweep');
+    const b = await t.addUser(a, 'rtsweep', 'Bela', 'senior');
+    const addr = t.app.getHttpServer().address() as { port: number };
+    const open = async (token: string) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${addr.port}/v1/realtime`);
+      let code = 0; let ready = false;
+      ws.on('message', (d) => { if (JSON.parse(String(d)).type === 'ready') ready = true; });
+      ws.on('close', (c) => (code = c));
+      await new Promise((r) => ws.on('open', r));
+      ws.send(JSON.stringify({ type: 'auth', token }));
+      for (let i = 0; i < 50 && !ready; i++) await new Promise((r) => setTimeout(r, 20));
+      return { code: () => code };
+    };
+    const ca = await open(a.accessToken); const cb = await open(b.accessToken);
+    await t.sql(`UPDATE app_user SET status = 'disabled' WHERE id = $1`, [b.userId]);
+    await gw.sweep();
+    for (let i = 0; i < 50 && !cb.code(); i++) await new Promise((r) => setTimeout(r, 20));
+    expect(cb.code()).toBe(4403);
+    expect(ca.code()).toBe(0);
+    await gw.sweep(Date.now() + 16 * 60_000);
+    for (let i = 0; i < 50 && !ca.code(); i++) await new Promise((r) => setTimeout(r, 20));
+    expect(ca.code()).toBe(4401);
   });
 });

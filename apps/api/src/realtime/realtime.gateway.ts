@@ -7,7 +7,7 @@ import { TokenService } from '../auth/token.service.js';
 import { DbService } from '../db/db.service.js';
 import { RealtimeService, type RealtimeEvent } from './realtime.service.js';
 
-type Conn = { ws: WebSocket; tenantId: string; userId: string; sessionId: string; alive: boolean };
+type Conn = { ws: WebSocket; tenantId: string; userId: string; sessionId: string; alive: boolean; exp: number };
 export const REALTIME_PATH = '/v1/realtime';
 const AUTH_TIMEOUT_MS = 5_000;
 
@@ -35,9 +35,7 @@ export class RealtimeGateway implements OnApplicationBootstrap, OnApplicationShu
       this.wss.handleUpgrade(req, socket, head, (ws) => this.onConnection(ws));
     });
     this.unsub = this.realtime.subscribe((e) => this.fanOut(e));
-    this.heartbeat = setInterval(() => {
-      for (const c of this.conns) { if (!c.alive) { c.ws.terminate(); continue; } c.alive = false; c.ws.ping(); }
-    }, 30_000).unref();
+    this.heartbeat = setInterval(() => void this.sweep(), 30_000).unref();
   }
 
   onApplicationShutdown() {
@@ -47,6 +45,27 @@ export class RealtimeGateway implements OnApplicationBootstrap, OnApplicationShu
   }
 
   get connectionCount() { return this.conns.size; }
+
+  /**
+   * Heartbeat + re-validation: drop dead peers, close sockets whose access token expired (4401 → client
+   * refreshes and reconnects) and whose session or user is no longer active.
+   */
+  async sweep(now = Date.now()) {
+    for (const c of this.conns) {
+      if (!c.alive) { c.ws.terminate(); this.conns.delete(c); continue; }
+      if (now >= c.exp) { c.ws.close(4401, 'token expired'); continue; }
+      c.alive = false; c.ws.ping();
+    }
+    const byTenant = new Map<string, Conn[]>();
+    for (const c of this.conns) byTenant.set(c.tenantId, [...(byTenant.get(c.tenantId) ?? []), c]);
+    for (const [tenantId, conns] of byTenant) {
+      const ok = new Set(await this.db.tenantTx(tenantId, async (tx) => (await tx.query(
+        `SELECT s.id FROM device_session s JOIN app_user u ON u.id = s.user_id
+         WHERE s.id = ANY($1) AND s.revoked_at IS NULL AND s.wipe_requested_at IS NULL AND u.status = 'active'`,
+        [conns.map((c) => c.sessionId)])).rows.map((r) => r.id as string)).catch(() => conns.map((c) => c.sessionId)));
+      for (const c of conns) if (!ok.has(c.sessionId)) c.ws.close(4403, 'session ended');
+    }
+  }
 
   private onConnection(ws: WebSocket) {
     const timer = setTimeout(() => ws.close(4401, 'auth timeout'), AUTH_TIMEOUT_MS);
@@ -60,7 +79,7 @@ export class RealtimeGateway implements OnApplicationBootstrap, OnApplicationShu
           `SELECT 1 FROM device_session s JOIN app_user u ON u.id = s.user_id
            WHERE s.id = $1 AND s.user_id = $2 AND s.revoked_at IS NULL AND s.wipe_requested_at IS NULL AND u.status = 'active'`, [c.sid, c.sub])).rowCount);
         if (!ok) throw new Error('session');
-        const conn: Conn = { ws, tenantId: c.tid, userId: c.sub, sessionId: c.sid, alive: true };
+        const conn: Conn = { ws, tenantId: c.tid, userId: c.sub, sessionId: c.sid, alive: true, exp: c.exp * 1000 };
         this.conns.add(conn);
         ws.on('pong', () => (conn.alive = true));
         ws.on('close', () => this.conns.delete(conn));

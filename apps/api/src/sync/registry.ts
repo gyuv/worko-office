@@ -18,6 +18,8 @@ export type SyncTableDef = {
   strict?: boolean;
   /** SQL predicate (params: $1 = actor user id) for rows this actor syncs at all; others are never mentioned. */
   scopeSql: string;
+  /** Table-level gate: actors failing it never receive (or write) this table at all. */
+  visible?: (a: RequestActor) => boolean;
   /** May the actor create a row with this initial patch? `owner` columns are forced server-side. */
   canInsert?: (a: RequestActor) => boolean;
   /** Columns forced on insert (e.g. user_id = actor). */
@@ -51,14 +53,15 @@ export const SYNC_TABLES: Record<string, SyncTableDef> = {
     canUpdate: (a, row) => row.user_id === a.userId,
     audit: true,
   },
+  // Read-only on devices: team lead/membership changes grant access and redirect escalations, so they
+  // go only through the REST endpoints, which validate users and branch scope.
   team: {
     table: 'team',
     columns: ['name', 'branch_id', 'lead_user_id'],
-    writable: { name: z.string().trim().min(1).max(120), lead_user_id: z.string().uuid().nullable() },
+    writable: {},
     scopeSql: 'true',
-    canInsert: (a) => can(a, 'users', 'edit', { branchId: a.branchId }),
-    canUpdate: (a, row) => can(a, 'users', 'edit', { branchId: (row.branch_id as string | null) ?? a.branchId }),
-    canDelete: (a, row) => can(a, 'users', 'delete', { branchId: (row.branch_id as string | null) ?? a.branchId }),
+    visible: (a) => can(a, 'users', 'view', { branchId: a.branchId }),
+    canUpdate: () => false,
     audit: true,
   },
 };

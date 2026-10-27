@@ -28,7 +28,9 @@ export class SyncService {
     // One transaction per mutation: a rejected mutation never rolls back its neighbours.
     for (const m of mutations) {
       const r = await this.db.tenantTx(a.tenantId, async (tx) => {
-        const prior = (await tx.query('SELECT result FROM sync_mutation WHERE key = $1', [m.key])).rows[0];
+        const prior = (await tx.query('SELECT result, user_id FROM sync_mutation WHERE key = $1', [m.key])).rows[0];
+        // Keys are per user: another user's key is never treated as "already applied" for this caller.
+        if (prior && prior.user_id !== a.userId) return { key: m.key, status: 'rejected' as const, reason: 'key_conflict' };
         if (prior) return { ...(prior.result as MutationResult), status: 'duplicate' as const };
         const res = await this.applyMutation(tx, a, m);
         await tx.query('INSERT INTO sync_mutation (tenant_id, key, user_id, result) VALUES ($1,$2,$3,$4)', [a.tenantId, m.key, a.userId, JSON.stringify(res.result)]);
@@ -44,7 +46,7 @@ export class SyncService {
   private async applyMutation(tx: Tx, a: RequestActor, m: Mutation): Promise<{ result: MutationResult; cursor: number }> {
     const def = this.tables[m.table];
     const reject = (reason: string) => ({ result: { key: m.key, status: 'rejected' as const, reason }, cursor: 0 });
-    if (!def) return reject('unknown_table');
+    if (!def || (def.visible && !def.visible(a))) return reject('unknown_table');
 
     // Validate the patch against the whitelist before touching the DB.
     const patch: Record<string, unknown> = {};
@@ -124,6 +126,7 @@ export class SyncService {
     return this.db.tenantTx(a.tenantId, async (tx) => {
       const all: Change[] = [];
       for (const [name, def] of Object.entries(this.tables)) {
+        if (def.visible && !def.visible(a)) continue;
         const cols = def.columns.map(ident).join(', ');
         const r = await tx.query(
           `SELECT id, version, sync_cursor, deleted_at, ${cols} FROM ${ident(def.table)}

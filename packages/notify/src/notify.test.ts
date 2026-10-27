@@ -61,6 +61,17 @@ describe('offline reminder scheduler', () => {
     mk().tick([r('a', '09:00', { snoozedUntil: ist('10:45').toISOString() })]);
     expect(show).toHaveBeenCalledTimes(2);
   });
+  it('reminders over the per-tick cap are shown on later ticks, not dropped', () => {
+    const now = ist('08:00').getTime();
+    const show = vi.fn();
+    const s = new ReminderScheduler({ now: () => now, show, prefs: defaultPrefs, maxPerTick: 5 });
+    const items = Array.from({ length: 8 }, (_, i) => r(`q${i}`, '07:59'));
+    expect(s.tick(items)).toBe(1_000);
+    s.tick(items);
+    expect(show).toHaveBeenCalledTimes(8);
+    s.tick(items);
+    expect(show).toHaveBeenCalledTimes(8);
+  });
   it('prime() silences what was already due at startup, but later arrivals still fire', () => {
     const now = ist('10:00').getTime();
     const show = vi.fn();

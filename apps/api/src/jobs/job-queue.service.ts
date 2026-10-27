@@ -44,7 +44,13 @@ export class JobQueueService implements OnModuleInit, OnApplicationShutdown {
          WHERE id IN (SELECT id FROM job_queue WHERE run_at <= $2 AND dead_at IS NULL AND (locked_until IS NULL OR locked_until < $2)
                       ORDER BY run_at LIMIT $1 FOR UPDATE SKIP LOCKED)
          RETURNING id, tenant_id, kind, ref_id, attempts, max_attempts`, [batch, at]))).rows;
-      for (const j of jobs) await this.execute(j, at);
+      for (const j of jobs) {
+        // Batches run sequentially: refresh each job's lease right before running it so a slow batch can't
+        // let another node re-claim (and re-run) jobs still waiting their turn here.
+        const still = await this.db.systemTx((tx) => tx.query(
+          `UPDATE job_queue SET locked_until = now() + interval '2 minutes' WHERE id = $1 AND dead_at IS NULL RETURNING id`, [j.id]));
+        if (still.rowCount) await this.execute(j, at);
+      }
       return jobs.length;
     } finally { this.running = false; }
   }

@@ -29,6 +29,7 @@ export class TeamsController {
     if (!can(a, 'users', 'edit', { branchId })) throw new ForbiddenException();
     const id = uuidv7();
     const cursor = await this.db.tenantTx(a.tenantId, async (tx) => {
+      if (b.leadUserId) await this.assertManageable(tx, a, [b.leadUserId]);
       const r = await tx.query(`INSERT INTO team (id, tenant_id, name, branch_id, lead_user_id, updated_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING sync_cursor`,
         [id, a.tenantId, b.name, branchId, b.leadUserId ?? null, a.userId]);
       await this.setMembers(tx, a, id, b.memberIds);
@@ -49,7 +50,16 @@ export class TeamsController {
     });
   }
 
+  /** Users must exist in this firm (RLS) and sit in a branch the actor may edit — FKs alone bypass both. */
+  private async assertManageable(tx: Tx, a: RequestActor, userIds: string[]) {
+    const ids = [...new Set(userIds)];
+    if (!ids.length) return;
+    const r = (await tx.query(`SELECT id, branch_id FROM app_user WHERE id = ANY($1) AND deleted_at IS NULL AND status = 'active'`, [ids])).rows;
+    if (r.length !== ids.length || r.some((u) => !can(a, 'users', 'edit', { branchId: u.branch_id }))) throw new ForbiddenException('Unknown user or outside your scope');
+  }
+
   private async setMembers(tx: Tx, a: RequestActor, teamId: string, userIds: string[]) {
+    await this.assertManageable(tx, a, userIds);
     await tx.query('DELETE FROM team_member WHERE team_id = $1', [teamId]);
     for (const u of new Set(userIds)) await tx.query('INSERT INTO team_member (tenant_id, team_id, user_id) VALUES ($1,$2,$3)', [a.tenantId, teamId, u]);
   }

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { jwtVerify, SignJWT } from 'jose';
 
 export type AccessClaims = { sub: string; tid: string; sid: string; dev: string };
+export type VerifiedClaims = AccessClaims & { exp: number };
 
 @Injectable()
 export class TokenService {
@@ -20,8 +21,8 @@ export class TokenService {
       .setSubject(c.sub).setIssuedAt().setIssuer('worko').setExpirationTime(`${TokenService.ACCESS_TTL_S}s`).sign(this.key);
   }
 
-  async verify(token: string): Promise<AccessClaims> {
+  async verify(token: string): Promise<VerifiedClaims> {
     const { payload } = await jwtVerify(token, this.key, { issuer: 'worko', algorithms: ['HS256'] });
-    return { sub: payload.sub!, tid: payload.tid as string, sid: payload.sid as string, dev: payload.dev as string };
+    return { sub: payload.sub!, tid: payload.tid as string, sid: payload.sid as string, dev: payload.dev as string, exp: payload.exp! };
   }
 }

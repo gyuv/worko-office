@@ -31,3 +31,8 @@
 | Digests | Digest preference is stored; morning/evening summary sender not built. | With the Daily Office Digest agent (Phase 10) / email channel (Phase 7). |
 | Escalation text | Escalation notification titles are generated in English server-side. | Move to i18n keys rendered client-side. |
 | Load/chaos tests | Convergence proven by seeded simulators and real-API tests; no 100k-client/1M-task load test or chaos test yet. | Phase 12 hardening. |
+| Duplicate alerts on one device | A device with push enabled can get both the server push and its own locally scheduled reminder for the same item. | Suppress local scheduling for items the device has a live push subscription for, or tag OS notifications by id so the second replaces the first. |
+| Email/WhatsApp/SMS channels | Allowed in `notification_delivery.channel`, but no senders are wired to notifications yet. | Phase 7 (communication hub). |
+| Dead-letter jobs | Jobs that exhaust retries are marked `dead_at` and logged; no admin view, alert or replay. | Settings → System health (Phase 12) + automation-failure notifications (Phase 10). |
+| Sync housekeeping | `sync_mutation` (idempotency) and resolved `sync_conflict` rows are never pruned; `/sync/push` volume is only bounded by the global rate limit. | Retention job (e.g. 30 days) + per-device push quota. |
+| Deactivation flow | Sockets and refresh now stop for disabled users, but there is no UI/API yet to deactivate a user. | Users module (Phase 3). |

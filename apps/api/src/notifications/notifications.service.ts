@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { defaultPrefs, planDelivery, prefsSchema, type Category, type Prefs, type Priority } from '@worko/notify';
 import { AuditService } from '../audit/audit.service.js';
 import type { RequestActor } from '../auth/context.js';
@@ -77,7 +77,8 @@ export class NotificationsService implements OnModuleInit {
     const now = new Date();
     const transient: string[] = [];
     await this.db.tenantTx(j.tenant_id, async (tx) => {
-      const n = (await tx.query('SELECT * FROM notification WHERE id = $1', [j.ref_id])).rows[0];
+      // Row lock: a second worker delivering the same notification waits, then sees the 'sent' rows and skips.
+      const n = (await tx.query('SELECT * FROM notification WHERE id = $1 FOR UPDATE', [j.ref_id])).rows[0];
       if (!n || n.deleted_at || n.read_at || n.acked_at) return; // seen on some device → don't buzz the others
       if (n.snoozed_until && n.snoozed_until > now) throw new Reschedule(n.snoozed_until);
       const plan = planDelivery({ category: n.category, priority: n.priority, fireAt: now, prefs: await this.prefsFor(tx, n.user_id) });
@@ -114,10 +115,15 @@ export class NotificationsService implements OnModuleInit {
     await this.db.tenantTx(j.tenant_id, async (tx) => {
       const n = (await tx.query('SELECT * FROM notification WHERE id = $1', [j.ref_id])).rows[0];
       if (!n || n.acked_at || n.deleted_at || n.escalation_level >= MAX_ESCALATION) return;
+      // Manager first, else a team lead — and only someone still active.
       target = (await tx.query(
-        `SELECT coalesce(u.manager_id, (SELECT t.lead_user_id FROM team_member m JOIN team t ON t.id = m.team_id
-                 WHERE m.user_id = u.id AND t.lead_user_id IS NOT NULL AND t.lead_user_id <> u.id AND t.deleted_at IS NULL LIMIT 1)) AS target
-         FROM app_user u WHERE u.id = $1`, [n.user_id])).rows[0]?.target ?? null;
+        `SELECT c.id AS target FROM app_user u
+         CROSS JOIN LATERAL (
+           SELECT u.manager_id AS id, 0 AS pref
+           UNION ALL SELECT t.lead_user_id, 1 FROM team_member m JOIN team t ON t.id = m.team_id
+             WHERE m.user_id = u.id AND t.lead_user_id IS NOT NULL AND t.deleted_at IS NULL
+         ) c JOIN app_user tu ON tu.id = c.id AND tu.status = 'active' AND tu.deleted_at IS NULL
+         WHERE u.id = $1 AND c.id <> u.id ORDER BY c.pref LIMIT 1`, [n.user_id])).rows[0]?.target ?? null;
       if (!target) return;
       const who = (await tx.query('SELECT name FROM app_user WHERE id = $1', [n.user_id])).rows[0]?.name ?? '';
       const r = await this.notifyInTx(tx, j.tenant_id, {
@@ -157,7 +163,11 @@ export class NotificationsService implements OnModuleInit {
       const own = (await tx.query('SELECT 1 FROM notification WHERE id = $1 AND user_id = $2', [id, a.userId])).rowCount;
       if (!own) throw new NotFoundException();
       const res = await this.sync.serverPatch(tx, a, 'notification', id, patch);
-      if (action === 'snooze') await this.jobs.enqueue(tx, a.tenantId, DELIVER, id, until);
+      if (action === 'snooze') {
+        // A snoozed reminder must buzz again: re-arm every device's delivery for the new time.
+        await tx.query(`UPDATE notification_delivery SET status = 'pending', sent_at = NULL WHERE notification_id = $1`, [id]);
+        await this.jobs.enqueue(tx, a.tenantId, DELIVER, id, until);
+      }
       if (action === 'ack') await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'notification.acknowledged', entity: 'notification', entityId: id });
       return res;
     });
@@ -195,7 +205,10 @@ export class NotificationsService implements OnModuleInit {
       const r = await tx.query(
         `INSERT INTO push_subscription (id, tenant_id, user_id, session_id, kind, endpoint, keys) VALUES ($1,$2,$3,$4,$5,$6,$7)
          ON CONFLICT (tenant_id, endpoint) DO UPDATE SET user_id = EXCLUDED.user_id, session_id = EXCLUDED.session_id, keys = EXCLUDED.keys, disabled_at = NULL, last_error = NULL
+           -- Re-binding is allowed for your own endpoint, or one whose old session is gone; never steal a live one.
+           WHERE push_subscription.user_id = EXCLUDED.user_id OR push_subscription.disabled_at IS NOT NULL
          RETURNING id`, [id, a.tenantId, a.userId, a.sessionId, s.kind, s.endpoint, s.keys ? JSON.stringify(s.keys) : null]);
+      if (!r.rowCount) throw new ConflictException('This device is registered to another user');
       return { id: r.rows[0].id as string };
     });
   }
