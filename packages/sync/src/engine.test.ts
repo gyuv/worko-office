@@ -203,16 +203,17 @@ describe('RealtimeClient', () => {
     };
     return { made, create };
   }
+  const until = async (ok: () => boolean) => { for (let i = 0; i < 200 && !ok(); i++) await new Promise((r) => setTimeout(r, 10)); };
   it('authenticates, relays change hints, reconnects with backoff, stops on revoke', async () => {
     const f = fakeWs(); const cursors: number[] = []; let revoked: boolean | null = null;
     const c = new RealtimeClient({ url: 'ws://x', createSocket: f.create, getToken: () => 'tok', onChanged: (n) => cursors.push(n), onRevoked: (w) => (revoked = w), random: () => 0 });
     c.start();
-    await new Promise((r) => setTimeout(r, 5));
+    await until(() => f.made[0]?.sent.length === 1);
     expect(JSON.parse(f.made[0]!.sent[0]!)).toEqual({ type: 'auth', token: 'tok' });
     f.made[0]!.serverSend({ type: 'ready' }); f.made[0]!.serverSend({ type: 'changed', cursor: 7 });
     expect(cursors).toEqual([-1, 7]); // -1 = "sync now" after (re)connect
     f.made[0]!.serverClose(1006);
-    await new Promise((r) => setTimeout(r, 300));
+    await until(() => f.made.length === 2);
     expect(f.made).toHaveLength(2);
     f.made[1]!.serverSend({ type: 'revoked', wipe: true });
     expect(revoked).toBe(true);
