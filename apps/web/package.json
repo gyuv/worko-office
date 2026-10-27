@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.105.0",
+    "@tanstack/react-virtual": "^3.14.23",
     "@worko/api-client": "workspace:*",
     "@worko/domain": "workspace:*",
     "@worko/i18n": "workspace:*",
