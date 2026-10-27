@@ -171,10 +171,20 @@ describe('demo seed', () => {
     const { seedDemo, DEMO } = await import('../src/db/seed-demo.js');
     expect((await seedDemo(db.url)).created).toBe(true);
     expect((await seedDemo(db.url)).created).toBe(false);
+    const tok: Record<string, string> = {};
     for (const u of DEMO.users) {
       const r = await http().post('/v1/auth/login').send({ firm: 'demo', email: u.email, password: DEMO.password, device: web }).expect(200);
       expect((await http().get('/v1/me').set(bearer(r.body.accessToken))).body.roles).toEqual([u.role]);
+      tok[u.role] = r.body.accessToken;
     }
+    expect((await http().get('/v1/clients?limit=500').set(bearer(tok.partner!))).body.total).toBe(50);
+    expect((await http().get('/v1/clients?limit=500').set(bearer(tok.article!))).body.total).toBe(12);
+    const [secret] = (await http().get('/v1/vault/secrets?portal=INCOME_TAX').set(bearer(tok.partner!)).expect(200)).body;
+    await http().post('/v1/auth/step-up').set(bearer(tok.partner!)).send({ password: DEMO.password }).expect(200);
+    expect((await http().post(`/v1/vault/secrets/${secret.id}/reveal`).set(bearer(tok.partner!)).send({ purpose: 'view' }).expect(200)).body.password).toMatch(/^Demo#/);
+    const [doc] = (await http().get('/v1/documents?category=ITR').set(bearer(tok.partner!))).body.items;
+    const { body: { url } } = await http().post(`/v1/documents/${doc.id}/download-url`).set(bearer(tok.partner!)).send({}).expect(200);
+    await http().get(url).expect(200);
   });
 });
 

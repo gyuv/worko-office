@@ -128,6 +128,28 @@ describe.each([
   });
 });
 
+describe('scope changes', () => {
+  it('a changed scopeKey wipes rows and re-pulls from zero, keeping the outbox', async () => {
+    const store = new MemoryStore();
+    let scope = 'A'; const pulls: number[] = [];
+    const rows = { A: [{ table: 'client', id: 'c1', version: 1, cursor: 1, deleted: false, fields: { name: 'Visible before' } }], B: [] as never[] };
+    const transport: Transport = {
+      push: async (ms) => ms.map((m) => ({ key: m.key, status: 'applied' as const, version: 1 })),
+      pull: async (since) => { pulls.push(since); const ch = since === 0 ? rows[scope as 'A' | 'B'] : []; return { changes: ch, cursor: since === 0 ? 5 : since, hasMore: false, scopeKey: scope }; },
+    };
+    const e = new SyncEngine({ store, transport, deviceId: 'd' });
+    await e.sync();
+    expect((await store.list('client')).map((r) => r.id)).toEqual(['c1']);
+    scope = 'B';
+    transport.push = async () => { throw new OfflineError(); };
+    await store.outboxAdd({ key: 'k', table: 'task', id: 't', baseVersion: 0, patch: {} });
+    transport.push = async (ms) => ms.map((m) => ({ key: m.key, status: 'applied' as const }));
+    await e.sync();
+    expect(await store.list('client')).toEqual([]);
+    expect(pulls).toEqual([0, 5, 0]);
+  });
+});
+
 describe('SyncEngine convergence under random offline periods', () => {
   for (let seed = 1; seed <= 20; seed++) {
     it(`seed ${seed}`, async () => {

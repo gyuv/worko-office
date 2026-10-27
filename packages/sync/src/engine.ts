@@ -7,7 +7,12 @@
 export type LocalRow = { table: string; id: string; version: number; deleted: boolean; fields: Record<string, unknown>; server?: Record<string, unknown> };
 export type OutboxEntry = { key: string; table: string; id: string; baseVersion: number; patch: Record<string, unknown>; delete?: boolean };
 export type PushResult = { key: string; status: 'applied' | 'duplicate' | 'rejected_stale' | 'rejected'; version?: number; reason?: string };
-export type PullPage = { changes: Array<{ table: string; id: string; version: number; cursor: number; deleted: boolean; fields: Record<string, unknown> }>; cursor: number; hasMore: boolean };
+export type PullPage = {
+  changes: Array<{ table: string; id: string; version: number; cursor: number; deleted: boolean; fields: Record<string, unknown> }>;
+  cursor: number; hasMore: boolean;
+  /** Changes whenever what this user may see changes (role/team/branch); triggers a full re-pull. */
+  scopeKey?: string;
+};
 
 export interface LocalStore {
   get(table: string, id: string): Promise<LocalRow | null>;
@@ -22,6 +27,8 @@ export interface LocalStore {
   setMeta(k: string, v: string): Promise<void>;
   /** Remote wipe / sign-out: erase everything. */
   wipe(): Promise<void>;
+  /** Drop all synced rows and the cursor but keep the outbox (scope change → re-pull). */
+  clearRows(): Promise<void>;
 }
 
 export interface Transport {
@@ -111,12 +118,21 @@ export class SyncEngine {
     if (tables.size) this.o.onChange?.(tables);
   }
 
-  private async pullAll() {
+  private async pullAll(): Promise<void> {
     let since = Number((await this.o.store.getMeta('cursor')) ?? 0);
+    const knownScope = await this.o.store.getMeta('scopeKey');
     const initial = since === 0;
     let pulled = 0;
     for (;;) {
       const page = await this.o.transport.pull(since, this.o.pageSize ?? 500);
+      if (page.scopeKey && knownScope && page.scopeKey !== knownScope && since > 0) {
+        // Access changed: rows we hold may no longer be visible. Start over from zero.
+        await this.o.store.clearRows();
+        await this.o.store.setMeta('scopeKey', page.scopeKey);
+        this.o.onChange?.(new Set(['*']));
+        return this.pullAll();
+      }
+      if (page.scopeKey && page.scopeKey !== knownScope) await this.o.store.setMeta('scopeKey', page.scopeKey);
       const pending = await this.o.store.outboxList(100_000);
       const rows: LocalRow[] = []; const tables = new Set<string>();
       for (const c of page.changes) {
@@ -156,6 +172,7 @@ export class MemoryStore implements LocalStore {
   async getMeta(k: string) { return this.meta.get(k) ?? null; }
   async setMeta(k: string, v: string) { this.meta.set(k, v); }
   async wipe() { this.rows.clear(); this.outbox = []; this.meta.clear(); }
+  async clearRows() { this.rows.clear(); this.meta.delete('cursor'); }
 }
 
 /** Minimal async SQL driver: implemented over node:sqlite / better-sqlite3 (desktop) and expo-sqlite (Android, SQLCipher). */
@@ -201,4 +218,5 @@ export class SqliteStore implements LocalStore {
   async getMeta(k: string) { return (await this.db.all<{ v: string }>('SELECT v FROM meta WHERE k = ?', [k]))[0]?.v ?? null; }
   async setMeta(k: string, v: string) { await this.db.run('INSERT INTO meta (k, v) VALUES (?, ?) ON CONFLICT (k) DO UPDATE SET v = excluded.v', [k, v]); }
   async wipe() { await this.db.run('DELETE FROM rows'); await this.db.run('DELETE FROM outbox'); await this.db.run('DELETE FROM meta'); }
+  async clearRows() { await this.db.run('DELETE FROM rows'); await this.db.run("DELETE FROM meta WHERE k = 'cursor'"); }
 }

@@ -12,7 +12,7 @@ import { SMS_PROVIDER, type SmsProvider } from './sms.provider.js';
 import { TokenService } from './token.service.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 
-export type Device = { platform: 'web' | 'desktop' | 'android'; label?: string; deviceId?: string };
+export type Device = { platform: 'web' | 'desktop' | 'android' | 'extension'; label?: string; deviceId?: string };
 export type Meta = { ip: string | null; userAgent?: string };
 export type TokenPair = { accessToken: string; refreshToken: string; expiresIn: number; sessionId: string; userId: string; tenantId: string };
 
@@ -198,6 +198,55 @@ export class AuthService {
       const r = (await tx.query('SELECT s.user_id, u.branch_id FROM device_session s JOIN app_user u ON u.id = s.user_id WHERE s.id = $1', [sessionId])).rows[0];
       return r ? { userId: r.user_id, branchId: r.branch_id, roles: await loadUserRoles(tx, r.user_id) } : null;
     });
+  }
+
+  /**
+   * Browser extension pairing: the code shown in the web app (5 min, single use, 5 guesses) becomes an
+   * `extension` session, which the guard restricts to the vault autofill endpoints.
+   */
+  async pairExtension(firm: string, code: string, meta: Meta): Promise<TokenPair> {
+    const tenantId = await this.tenantIdBySlug(firm);
+    if (!tenantId) throw new UnauthorizedException('Invalid or expired code');
+    const outcome = await this.db.tenantTx(tenantId, async (tx) => {
+      const rows = (await tx.query(`SELECT p.id, p.user_id, p.code_hash, p.attempts FROM extension_pair_code p JOIN app_user u ON u.id = p.user_id
+        WHERE p.consumed_at IS NULL AND p.expires_at > now() AND u.status = 'active' FOR UPDATE OF p`)).rows;
+      const hit = rows.find((r) => r.code_hash === sha256(`${r.user_id}:${code}`) && r.attempts < 5);
+      if (!hit) {
+        await tx.query(`UPDATE extension_pair_code SET attempts = attempts + 1 WHERE consumed_at IS NULL AND expires_at > now()`);
+        return { error: new UnauthorizedException('Invalid or expired code') };
+      }
+      await tx.query('UPDATE extension_pair_code SET consumed_at = now() WHERE id = $1', [hit.id]);
+      return { pair: await this.openSession(tx, tenantId, hit.user_id, { platform: 'extension', label: 'Browser extension' }, meta, 'extension_pair') };
+    });
+    if ('error' in outcome) throw outcome.error;
+    return outcome.pair!;
+  }
+
+  /** Re-authenticate (password or authenticator code) to unlock sensitive actions for 5 minutes on this session. */
+  async stepUp(a: RequestActor, b: { password?: string; totp?: string }, ip: string | null) {
+    const outcome = await this.db.tenantTx(a.tenantId, async (tx) => {
+      const u = (await tx.query('SELECT password_hash, totp_enabled, totp_secret_enc, totp_last_step, failed_logins, locked_until FROM app_user WHERE id = $1', [a.userId])).rows[0];
+      if (u.locked_until && u.locked_until > new Date()) return { error: new HttpException('Account temporarily locked. Try again later.', HttpStatus.TOO_MANY_REQUESTS) };
+      let ok = false;
+      if (u.totp_enabled) {
+        // With 2FA on, only the authenticator proves presence (a stolen session + known password is not enough).
+        const step = b.totp ? verifyTotp(decryptField(u.totp_secret_enc, `totp:${a.userId}`), b.totp) : null;
+        ok = step !== null && (u.totp_last_step === null || step > Number(u.totp_last_step));
+        if (ok) await tx.query('UPDATE app_user SET totp_last_step = $2 WHERE id = $1', [a.userId, step]);
+      } else if (b.password && u.password_hash) {
+        ok = await verifyPassword(b.password, u.password_hash);
+      }
+      if (!ok) {
+        await this.recordFailure(tx, a.tenantId, a.userId, u.failed_logins + 1, 'auth.step_up_failed', ip);
+        return { error: new UnauthorizedException({ code: u.totp_enabled ? 'TOTP_REQUIRED' : 'PASSWORD_REQUIRED', message: 'Verification failed' }) };
+      }
+      await tx.query('UPDATE app_user SET failed_logins = 0 WHERE id = $1', [a.userId]);
+      const r = await tx.query(`UPDATE device_session SET elevated_until = now() + interval '5 minutes' WHERE id = $1 RETURNING elevated_until`, [a.sessionId]);
+      await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'auth.step_up', entity: 'device_session', entityId: a.sessionId, ip });
+      return { until: r.rows[0].elevated_until as Date };
+    });
+    if ('error' in outcome) throw outcome.error;
+    return { elevatedUntil: outcome.until.toISOString() };
   }
 
   async totpSetup(a: RequestActor) {

@@ -100,7 +100,12 @@ export const SYSTEM_ROLES: Role[] = [
   },
   {
     key: 'article', name: 'Article / Intern', system: true, hiddenFields: ['client.fees', 'invoice.*'],
-    grants: all('own', ['view', 'edit'], ['tasks', 'documents', 'time', 'hr', 'registers']),
+    grants: [
+      ...all('own', ['view', 'edit'], ['tasks', 'time', 'hr']),
+      // Recording inward/outward papers and filing scans is everyday article work — on their own clients only.
+      ...all('own', ['view', 'edit', 'create', 'print'], ['documents', 'registers']),
+      ...all('own', ['view'], ['clients']),
+    ],
   },
   { key: 'accountant', name: 'Accountant', system: true, grants: all('all', ['view', 'create', 'edit', 'export', 'print'], ['billing', 'receipts', 'clients', 'reports']) },
   { key: 'admin', name: 'Admin / Office', system: true, grants: [...all('all', ACTIONS, ['settings', 'users', 'audit_log', 'registers', 'hr', 'dsc']), ...all('all', ['view'], ['clients'])] },

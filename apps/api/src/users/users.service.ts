@@ -1,5 +1,7 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { can, coversRole } from '@worko/domain';
+import { loadUserRoles } from '../auth/roles.repo.js';
+import { RealtimeService } from '../realtime/realtime.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import type { RequestActor } from '../auth/context.js';
 import { hashPassword } from '../auth/crypto.js';
@@ -10,7 +12,7 @@ export type CreateUser = { name: string; email: string; phone?: string; password
 
 @Injectable()
 export class UsersService {
-  constructor(private db: DbService, private audit: AuditService) {}
+  constructor(private db: DbService, private audit: AuditService, private realtime: RealtimeService) {}
 
   list(a: RequestActor) {
     return this.db.tenantTx(a.tenantId, async (tx) => (await tx.query(
@@ -52,6 +54,50 @@ export class UsersService {
       await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'user.created', entity: 'app_user', entityId: id, diff: { email: i.email, roles: i.roleKeys } });
       return { id };
     });
+  }
+
+  /**
+   * Edit a user: status (deactivate/reactivate), manager, branch, roles. The editor must cover the target's current
+   * and new roles and both branches; deactivation ends every session (live sockets included).
+   */
+  async update(a: RequestActor, id: string, i: { status?: 'active' | 'disabled'; managerId?: string | null; branchId?: string; roleKeys?: string[]; name?: string; phone?: string | null }) {
+    if (id === a.userId && (i.status === 'disabled' || i.roleKeys)) throw new BadRequestException('You cannot deactivate or re-role yourself');
+    const sessions = await this.db.tenantTx(a.tenantId, async (tx) => {
+      const u = (await tx.query(`SELECT id, branch_id, status FROM app_user WHERE id = $1 AND deleted_at IS NULL AND kind = 'staff'`, [id])).rows[0];
+      if (!u) throw new NotFoundException();
+      const current = await loadUserRoles(tx, id);
+      if (!can(a, 'users', 'edit', { branchId: u.branch_id }) || !current.every((r) => coversRole(a, r))) throw new ForbiddenException();
+      if (i.branchId) {
+        if (!(await tx.query('SELECT 1 FROM branch WHERE id = $1', [i.branchId])).rowCount || !can(a, 'users', 'edit', { branchId: i.branchId })) throw new ForbiddenException('Branch outside your scope');
+      }
+      if (i.managerId) {
+        if (i.managerId === id) throw new BadRequestException('A user cannot manage themselves');
+        if (!(await tx.query(`SELECT 1 FROM app_user WHERE id = $1 AND status = 'active' AND kind = 'staff'`, [i.managerId])).rowCount) throw new BadRequestException('Unknown manager');
+      }
+      if (i.roleKeys) {
+        const roles = (await tx.query('SELECT id, key, grants, hidden_fields FROM role WHERE key = ANY($1) AND deleted_at IS NULL', [i.roleKeys])).rows;
+        if (!roles.length || roles.length !== new Set(i.roleKeys).size) throw new BadRequestException('Unknown role');
+        for (const r of roles) if (!coversRole(a, { grants: r.grants, hiddenFields: r.hidden_fields })) throw new ForbiddenException(`Cannot grant role ${r.key}`);
+        await tx.query('DELETE FROM user_role WHERE user_id = $1', [id]);
+        for (const r of roles) await tx.query('INSERT INTO user_role (tenant_id, user_id, role_id) VALUES ($1,$2,$3)', [a.tenantId, id, r.id]);
+      }
+      const sets: string[] = []; const vals: unknown[] = [id];
+      const set = (c: string, v: unknown) => { vals.push(v); sets.push(`${c} = $${vals.length}`); };
+      if (i.status) set('status', i.status);
+      if (i.managerId !== undefined) set('manager_id', i.managerId);
+      if (i.branchId) set('branch_id', i.branchId);
+      if (i.name) set('name', i.name);
+      if (i.phone !== undefined) set('phone', i.phone);
+      if (sets.length) await tx.query(`UPDATE app_user SET ${sets.join(', ')} WHERE id = $1`, vals);
+      let ended: string[] = [];
+      if (i.status === 'disabled') {
+        ended = (await tx.query(`UPDATE device_session SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL RETURNING id`, [id])).rows.map((r) => r.id);
+        await tx.query(`UPDATE push_subscription SET disabled_at = now(), last_error = 'user disabled' WHERE user_id = $1 AND disabled_at IS NULL`, [id]);
+      }
+      await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: i.status === 'disabled' ? 'user.deactivated' : 'user.updated', entity: 'app_user', entityId: id, diff: i });
+      return ended;
+    });
+    for (const sessionId of sessions) this.realtime.publish({ type: 'session_revoked', tenantId: a.tenantId, sessionId, wipe: false });
   }
 
   roles(a: RequestActor) {

@@ -2,7 +2,7 @@ import { CanActivate, ExecutionContext, ForbiddenException, Injectable, Unauthor
 import { Reflector } from '@nestjs/core';
 import { effectiveScope, type Action, type Module } from '@worko/domain';
 import { DbService } from '../db/db.service.js';
-import { IS_PUBLIC, PERM, type RequestActor } from './context.js';
+import { EXTENSION_OK, IS_PUBLIC, PERM, type RequestActor } from './context.js';
 import { loadTeamIds, loadUserRoles } from './roles.repo.js';
 import { TokenService } from './token.service.js';
 
@@ -22,7 +22,7 @@ export class AuthGuard implements CanActivate {
 
     const actor = await this.db.tenantTx(claims.tid, async (tx) => {
       const s = (await tx.query(
-        `SELECT s.revoked_at, s.wipe_requested_at, u.branch_id, u.status FROM device_session s JOIN app_user u ON u.id = s.user_id
+        `SELECT s.revoked_at, s.wipe_requested_at, s.platform, s.elevated_until, u.branch_id, u.status FROM device_session s JOIN app_user u ON u.id = s.user_id
          WHERE s.id = $1 AND s.user_id = $2`, [claims.sid, claims.sub])).rows[0];
       if (!s) throw new UnauthorizedException();
       if (s.wipe_requested_at) throw new UnauthorizedException({ code: 'DEVICE_WIPE', message: 'This device must erase local data' });
@@ -31,10 +31,15 @@ export class AuthGuard implements CanActivate {
       const a: RequestActor = {
         userId: claims.sub, tenantId: claims.tid, sessionId: claims.sid, deviceId: claims.dev,
         branchId: s.branch_id, teamIds: await loadTeamIds(tx, claims.sub), roles: await loadUserRoles(tx, claims.sub),
+        platform: s.platform, elevatedUntil: s.elevated_until,
       };
       return a;
     });
     req.actor = actor;
+    // Browser-extension sessions are limited to the vault autofill surface.
+    if (actor.platform === 'extension' && !this.reflector.getAllAndOverride<boolean>(EXTENSION_OK, targets)) {
+      throw new ForbiddenException('Not available to the browser extension');
+    }
 
     const perm = this.reflector.getAllAndOverride<{ module: Module; action: Action } | undefined>(PERM, targets);
     if (perm) {

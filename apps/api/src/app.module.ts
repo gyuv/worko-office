@@ -27,15 +27,35 @@ import { SYNC_TABLES, SYNC_TABLES_TOKEN } from './sync/registry.js';
 import { SyncController } from './sync/sync.controller.js';
 import { SyncService } from './sync/sync.service.js';
 import { TeamsController } from './teams/teams.controller.js';
+import { ClientsController } from './clients/clients.controller.js';
+import { ClientsService } from './clients/clients.service.js';
+import { ImportController } from './clients/import.controller.js';
+import { ImportService } from './clients/import.service.js';
+import { VisibilityService } from './clients/visibility.service.js';
+import { KeyService, KMS_PROVIDER, LocalKms } from './crypto/key.service.js';
+import { DocumentsController } from './documents/documents.controller.js';
+import { DocumentsService } from './documents/documents.service.js';
+import { GSTIN_LOOKUP, MockGstinLookup } from './lookup/gstin.provider.js';
+import { RegistersController } from './registers/registers.controller.js';
+import { RegistersService } from './registers/registers.service.js';
+import { MockVirusScanner, STORAGE, storageFactory, VIRUS_SCANNER } from './storage/storage.js';
+import { VaultController } from './vault/vault.controller.js';
+import { VaultService } from './vault/vault.service.js';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ limit: Number(process.env.RATE_LIMIT ?? 300), ttl: 60_000 }])],
   controllers: [HealthController, RulesController, AuthController, UsersController, AuditController, TenancyController,
-    SyncController, NotificationsController, TeamsController],
+    SyncController, NotificationsController, TeamsController,
+    ImportController, ClientsController, VaultController, DocumentsController, RegistersController],
   providers: [
     DbService, AuditService, TokenService, AuthService, TenancyService, UsersService, RulesService,
     RealtimeService, RealtimeGateway, JobQueueService, SyncService, NotificationsService,
     { provide: SYNC_TABLES_TOKEN, useValue: SYNC_TABLES },
+    ClientsService, VisibilityService, ImportService, VaultService, DocumentsService, RegistersService, KeyService,
+    { provide: KMS_PROVIDER, useFactory: () => new LocalKms() },
+    { provide: STORAGE, useFactory: storageFactory },
+    { provide: VIRUS_SCANNER, useClass: MockVirusScanner },
+    { provide: GSTIN_LOOKUP, useClass: MockGstinLookup },
     { provide: PUSH_PROVIDERS, useFactory: pushProvidersFactory },
     { provide: SMS_PROVIDER, useClass: MockSmsProvider },
     { provide: APP_GUARD, useClass: ThrottlerGuard },

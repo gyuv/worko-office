@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  can, covers, coversRole, formatCompactINR, formatINR, fyLabel, fyStartYear, gstinCheckChar, incomeTaxPeriodLabel,
+  can, clientCtx, covers, coversRole, entityHintFromPan, formatCompactINR, GST_STATES, formatINR, fyLabel, fyStartYear, gstinCheckChar, incomeTaxPeriodLabel,
   isValidGstin, isValidPan, isValidUdin, maskAadhaar, panFromGstin, splitGst, SYSTEM_ROLES, type Actor,
 } from './index.js';
 
@@ -55,6 +55,8 @@ describe('permissions', () => {
     expect(can(actor('article'), 'tasks', 'view', { ownerUserIds: ['u1'] })).toBe(true);
     expect(can(actor('article'), 'tasks', 'view', { ownerUserIds: ['u2'] })).toBe(false);
     expect(can(actor('article'), 'billing', 'view')).toBe(false);
+    expect(can(actor('article'), 'clients', 'view', { ownerUserIds: ['u1'] })).toBe(true);
+    expect(can(actor('article'), 'clients', 'edit', { ownerUserIds: ['u1'] })).toBe(false);
   });
   it('manager sees team work', () => {
     expect(can(actor('manager'), 'tasks', 'view', { teamId: 't1' })).toBe(true);
@@ -82,5 +84,33 @@ describe('permissions', () => {
   it('auditor cannot touch vault or edit', () => {
     expect(can(actor('auditor'), 'vault', 'view')).toBe(false);
     expect(can(actor('auditor'), 'billing', 'edit')).toBe(false);
+  });
+});
+
+describe('clients', () => {
+  it('state codes and PAN hints', () => {
+    expect(GST_STATES['27']).toBe('Maharashtra');
+    expect(entityHintFromPan('AAACX1234Y')).toBe('PRIVATE_COMPANY');
+    expect(entityHintFromPan('ABCPE1234F')).toBe('INDIVIDUAL');
+  });
+  it('clientCtx feeds can(): owners, sensitive allow-list', () => {
+    const ctx = clientCtx({ branchId: 'b1', partnerId: 'p', managerId: null, teamId: null, staffIds: ['u1'], groupIds: [], sensitive: true, allowedUserIds: ['u1'] });
+    expect(ctx.ownerUserIds).toEqual(['p', 'u1']);
+    expect(can({ userId: 'u1', teamIds: [], branchId: 'b1', roles: [SYSTEM_ROLES.find((r) => r.key === 'article')!] }, 'clients', 'view', ctx)).toBe(true);
+    expect(can({ userId: 'p', teamIds: [], branchId: 'b1', roles: [SYSTEM_ROLES.find((r) => r.key === 'partner')!] }, 'clients', 'view', ctx)).toBe(false);
+  });
+});
+
+describe('portal allow-list', () => {
+  it('exact https hosts only', async () => {
+    const { isPortalUrl, portalForUrl } = await import('./index.js');
+    expect(isPortalUrl('GST', 'https://services.gst.gov.in/services/login')).toBe(true);
+    expect(isPortalUrl('GST', 'http://services.gst.gov.in/')).toBe(false);
+    expect(isPortalUrl('GST', 'https://services.gst.gov.in.evil.com/')).toBe(false);
+    expect(isPortalUrl('GST', 'https://evil.com/?services.gst.gov.in')).toBe(false);
+    expect(isPortalUrl('GST', 'https://services.gst.gov.in:8443/')).toBe(false);
+    expect(isPortalUrl('INCOME_TAX', 'https://services.gst.gov.in/')).toBe(false);
+    expect(portalForUrl('https://eportal.incometax.gov.in/iec/foservices/#/login')).toBe('INCOME_TAX');
+    expect(portalForUrl('https://netbanking.example.com/')).toBeNull();
   });
 });

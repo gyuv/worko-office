@@ -599,6 +599,604 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/step-up": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Re-authenticate (password, or authenticator code when 2FA is on) to unlock sensitive actions for 5 minutes on this session. */
+        post: operations["stepUp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/extension/pair": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["pairExtension"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["updateUser"];
+        trace?: never;
+    };
+    "/clients": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listClients"];
+        put?: never;
+        post: operations["createClient"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/duplicates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["findDuplicates"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/import/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["previewImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/import/commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["commitImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["exportClients"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getClient"];
+        put?: never;
+        post?: never;
+        delete: operations["deleteClient"];
+        options?: never;
+        head?: never;
+        patch: operations["updateClient"];
+        trace?: never;
+    };
+    "/clients/{id}/access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Who may see the client. Narrowing revokes it from exactly the devices that held it. */
+        put: operations["setClientAccess"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/{id}/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["mergeClient"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/{id}/reveal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Requires a recent step-up; audited. */
+        post: operations["revealClientPii"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/{id}/registrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["addRegistration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/{id}/contacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["addContact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/{id}/secrets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["createSecret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/{id}/document-tree": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["documentTree"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/lookup/gstin/{gstin}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["lookupGstin"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/client-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listClientGroups"];
+        put?: never;
+        post: operations["createClientGroup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/custom-fields": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listCustomFields"];
+        put?: never;
+        post: operations["createCustomField"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vault/secrets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listSecrets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vault/secrets/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteSecret"];
+        options?: never;
+        head?: never;
+        patch: operations["updateSecret"];
+        trace?: never;
+    };
+    "/vault/secrets/{id}/reveal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Requires a recent step-up. Autofill only for the portal's official https host. Audited. */
+        post: operations["revealSecret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vault/extension/pair-code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["extensionPairCode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listDocuments"];
+        put?: never;
+        /** @description 25 MB max; executables/scripts/HTML refused; virus-scanned. Pass documentId to add a new version. */
+        post: operations["uploadDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/documents/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["trashDocument"];
+        options?: never;
+        head?: never;
+        patch: operations["updateDocument"];
+        trace?: never;
+    };
+    "/documents/{id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["restoreDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/documents/{id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["documentVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/documents/{id}/download-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["documentDownloadUrl"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/documents/{id}/access-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["documentAccessLog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/documents/{id}/shares": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listShares"];
+        put?: never;
+        post: operations["createShare"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/shares/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["revokeShare"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/files/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["downloadSigned"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/share/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["downloadShare"];
+        put?: never;
+        post: operations["downloadShareWithPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/registers/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listRegister"];
+        put?: never;
+        /** @description Server assigns number (IN|OUT/FY/0001), FY and the recording user. */
+        post: operations["createRegisterEntry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/registers/{kind}/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["updateRegisterEntry"];
+        trace?: never;
+    };
+    "/registers/{kind}/{id}/signature": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["signRegisterEntry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/registers/{kind}/{id}/receipt.pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["registerReceipt"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -740,6 +1338,8 @@ export interface components {
             changes: components["schemas"]["Change"][];
             cursor: number;
             hasMore: boolean;
+            /** @description Changes when what the user may see changes; clients then re-pull from zero */
+            scopeKey?: string;
         };
         Conflict: {
             id: string;
@@ -788,6 +1388,309 @@ export interface components {
             leadUserId?: string | null;
             memberIds: string[];
         };
+        /** @enum {string} */
+        EntityType: "INDIVIDUAL" | "PROPRIETORSHIP" | "PARTNERSHIP" | "LLP" | "PRIVATE_COMPANY" | "PUBLIC_COMPANY" | "OPC" | "HUF" | "TRUST" | "AOP_BOI" | "SOCIETY" | "GOVERNMENT" | "OTHER";
+        /** @enum {string} */
+        Portal: "GST" | "INCOME_TAX" | "TRACES" | "MCA" | "EPFO" | "ESIC" | "BANK" | "PT" | "DGFT" | "OTHER";
+        Address: {
+            kind?: string;
+            line1: string;
+            line2?: string;
+            city: string;
+            state: string;
+            pin: string;
+        };
+        BankAccountIn: {
+            bank: string;
+            accountNo: string;
+            ifsc: string;
+            holder?: string;
+        };
+        ClientFields: {
+            name?: string;
+            tradeName?: string | null;
+            fileNo?: string | null;
+            entityType?: components["schemas"]["EntityType"];
+            pan?: string | null;
+            tan?: string | null;
+            cin?: string | null;
+            udyam?: string | null;
+            iec?: string | null;
+            /** Format: date */
+            dob?: string | null;
+            email?: string | null;
+            phone?: string | null;
+            addresses?: components["schemas"]["Address"][];
+            source?: string | null;
+            /** @enum {string} */
+            status?: "active" | "inactive" | "prospect";
+            tags?: string[];
+            custom?: {
+                [key: string]: unknown;
+            };
+            notes?: string | null;
+            complianceProfile?: {
+                [key: string]: unknown;
+            };
+            /** @description 12 digits; stored encrypted, only last 4 shown */
+            aadhaar?: string | null;
+            /** @description Stored encrypted; masked in responses */
+            bankAccounts?: components["schemas"]["BankAccountIn"][];
+        };
+        ClientAccess: {
+            branchId?: string | null;
+            partnerId?: string | null;
+            managerId?: string | null;
+            teamId?: string | null;
+            staffIds?: string[];
+            groupIds?: string[];
+            sensitive?: boolean;
+            allowedUserIds?: string[];
+        };
+        RegistrationIn: {
+            /** @enum {string} */
+            kind: "GSTIN" | "TAN" | "CIN" | "LLPIN" | "DIN" | "UDYAM" | "IEC" | "PF" | "ESI" | "PT" | "FSSAI" | "SHOPS" | "OTHER";
+            number: string;
+            stateCode?: string | null;
+            status?: string | null;
+            registeredOn?: string | null;
+            isPrimary?: boolean;
+        };
+        ContactIn: {
+            name: string;
+            role?: string | null;
+            email?: string | null;
+            phone?: string | null;
+            whatsapp?: string | null;
+            dob?: string | null;
+            anniversary?: string | null;
+            isPrimary?: boolean;
+        };
+        ClientCreate: components["schemas"]["ClientFields"] & components["schemas"]["ClientAccess"] & {
+            registrations?: components["schemas"]["RegistrationIn"][];
+            contacts?: components["schemas"]["ContactIn"][];
+        };
+        Client: {
+            id: string;
+            fileNo?: string | null;
+            name: string;
+            tradeName?: string | null;
+            entityType: components["schemas"]["EntityType"];
+            pan?: string | null;
+            tan?: string | null;
+            cin?: string | null;
+            udyam?: string | null;
+            iec?: string | null;
+            aadhaarLast4?: string | null;
+            bankAccounts?: {
+                bank?: string;
+                ifsc?: string;
+                last4?: string;
+                holder?: string | null;
+            }[];
+            dob?: string | null;
+            email?: string | null;
+            phone?: string | null;
+            addresses?: components["schemas"]["Address"][];
+            source?: string | null;
+            status: string;
+            tags: string[];
+            custom?: {
+                [key: string]: unknown;
+            };
+            notes?: string | null;
+            branchId?: string | null;
+            partnerId?: string | null;
+            managerId?: string | null;
+            teamId?: string | null;
+            staffIds: string[];
+            groupIds: string[];
+            sensitive: boolean;
+            allowedUserIds?: string[];
+            primaryGstin?: string | null;
+            version: number;
+            createdAt?: string;
+            updatedAt?: string;
+        };
+        ClientDetail: components["schemas"]["Client"] & {
+            registrations: {
+                id: string;
+                kind: string;
+                number: string;
+                stateCode?: string | null;
+                status?: string | null;
+                registeredOn?: string | null;
+                isPrimary?: boolean;
+            }[];
+            contacts: (components["schemas"]["ContactIn"] & {
+                id: string;
+                notes?: string | null;
+            })[];
+            groups: {
+                id: string;
+                name: string;
+                kind?: string;
+            }[];
+            counts: {
+                documents: number;
+                secrets: number;
+                inward: number;
+                outward: number;
+            };
+            can: {
+                edit: boolean;
+                delete: boolean;
+                reveal: boolean;
+                vault: boolean;
+            };
+        };
+        GstinDetails: {
+            gstin: string;
+            legalName: string;
+            tradeName?: string | null;
+            status: string;
+            registrationDate?: string | null;
+            constitution?: string | null;
+            entityType?: string | null;
+            stateCode: string;
+            state: string;
+            address?: Record<string, never> | null;
+            source: string;
+        };
+        ClientGroup: {
+            id: string;
+            name: string;
+            kind: string;
+            parentId?: string | null;
+            notes?: string | null;
+            clientCount: number;
+        };
+        CustomField: {
+            id: string;
+            entity?: string;
+            key: string;
+            label: string;
+            type: string;
+            options?: string[];
+            required?: boolean;
+            sort?: number;
+        };
+        ImportPreview: {
+            headers: string[];
+            mapping: {
+                [key: string]: string;
+            };
+            rows: {
+                row: number;
+                data?: components["schemas"]["ClientCreate"] | null;
+                errors: string[];
+                warnings: string[];
+            }[];
+            summary: {
+                total: number;
+                valid: number;
+                withErrors: number;
+                withWarnings: number;
+            };
+        };
+        SecretIn: {
+            portal: components["schemas"]["Portal"];
+            label: string;
+            loginUrl?: string | null;
+            username: string;
+            password: string;
+            extra?: {
+                [key: string]: string;
+            } | null;
+        };
+        SecretPatch: {
+            portal?: components["schemas"]["Portal"];
+            label?: string;
+            loginUrl?: string | null;
+            username?: string;
+            password?: string;
+            extra?: {
+                [key: string]: string;
+            } | null;
+        };
+        Secret: {
+            id: string;
+            clientId: string;
+            clientName: string;
+            portal: components["schemas"]["Portal"];
+            label: string;
+            loginUrl?: string | null;
+            usernameHint: string;
+            rotatedAt?: string | null;
+            lastRevealedAt?: string | null;
+            createdAt: string;
+        };
+        Document: {
+            id: string;
+            clientId?: string | null;
+            clientName?: string | null;
+            fy?: string | null;
+            category: string;
+            name: string;
+            mime: string;
+            size: number;
+            currentVersion: number;
+            tags: string[];
+            permanent: boolean;
+            expiresOn?: string | null;
+            legalHold: boolean;
+            createdAt: string;
+            updatedAt: string;
+            deletedAt?: string | null;
+        };
+        ShareLink: {
+            id: string;
+            expiresAt: string;
+            maxDownloads?: number | null;
+            downloads: number;
+            passwordProtected: boolean;
+            revokedAt?: string | null;
+            createdAt: string;
+        };
+        RegisterItem: {
+            description: string;
+            qty?: number;
+            original?: boolean;
+        };
+        /** @description inward uses received_on/from_*\/returnable/due_back/returned_on; outward uses sent_on/to_*\/courier_name/tracking_no/original/to_be_received_back/received_back_on */
+        RegisterEntryIn: {
+            client_id?: string;
+            /** Format: date */
+            received_on?: string;
+            /** Format: date */
+            sent_on?: string;
+            mode?: string;
+            from_name?: string | null;
+            from_phone?: string | null;
+            to_name?: string | null;
+            to_phone?: string | null;
+            courier_name?: string | null;
+            tracking_no?: string | null;
+            description?: string;
+            items?: components["schemas"]["RegisterItem"][];
+            returnable?: boolean;
+            due_back?: string | null;
+            returned_on?: string | null;
+            original?: boolean;
+            to_be_received_back?: boolean;
+            received_back_on?: string | null;
+        };
+        RegisterEntry: components["schemas"]["RegisterEntryIn"] & {
+            id: string;
+            number: string;
+            fy: string;
+            client_name: string;
+            signature_doc_id?: string | null;
+            received_by?: string | null;
+            sent_by?: string | null;
+            version?: number;
+            created_at?: string;
+        };
         PreviewRequest: {
             fy: number;
             clients: ({
@@ -823,9 +1726,21 @@ export interface components {
                 "application/json": components["schemas"]["TokenPair"];
             };
         };
+        /** @description Created */
+        Created: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    id: string;
+                };
+            };
+        };
     };
     parameters: {
         Id: string;
+        RegisterKind: "inward" | "outward";
     };
     requestBodies: never;
     headers: never;
@@ -1757,6 +2672,1256 @@ export interface operations {
         responses: {
             /** @description Saved */
             204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    stepUp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    password?: string;
+                    totp?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Elevated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        elevatedUntil: string;
+                    };
+                };
+            };
+            401: components["responses"]["Error"];
+        };
+    };
+    pairExtension: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    firm: string;
+                    code: string;
+                };
+            };
+        };
+        responses: {
+            200: components["responses"]["Tokens"];
+            401: components["responses"]["Error"];
+        };
+    };
+    updateUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    status?: "active" | "disabled";
+                    managerId?: string | null;
+                    branchId?: string;
+                    roleKeys?: string[];
+                    name?: string;
+                    phone?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Saved */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+        };
+    };
+    listClients: {
+        parameters: {
+            query?: {
+                q?: string;
+                status?: "active" | "inactive" | "prospect";
+                groupId?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Clients the caller may see */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        total: number;
+                        items: components["schemas"]["Client"][];
+                    };
+                };
+            };
+        };
+    };
+    createClient: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClientCreate"];
+            };
+        };
+        responses: {
+            201: components["responses"]["Created"];
+            400: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    findDuplicates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name?: string;
+                    pan?: string;
+                    gstin?: string;
+                    phone?: string;
+                    excludeId?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Visible matches; invisible ones only counted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        hidden: number;
+                        matches: {
+                            id: string;
+                            name: string;
+                            pan?: string | null;
+                            fileNo?: string | null;
+                            score: number;
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+    previewImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                    /** @description JSON {header: field} overrides */
+                    mapping?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Validated rows (nothing written) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportPreview"];
+                };
+            };
+        };
+    };
+    commitImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    rows: components["schemas"]["ClientCreate"][];
+                };
+            };
+        };
+        responses: {
+            /** @description Result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        created: number;
+                        ids: string[];
+                        failed: {
+                            index?: number;
+                            error?: string;
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+    exportClients: {
+        parameters: {
+            query?: {
+                format?: "csv" | "xlsx";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description File download */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getClient: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Client 360 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientDetail"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteClient: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateClient: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClientFields"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    setClientAccess: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClientAccess"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+        };
+    };
+    mergeClient: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    intoId: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Merged into intoId */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    revealClientPii: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    field: "aadhaar" | "bankAccounts";
+                };
+            };
+        };
+        responses: {
+            /** @description Decrypted value */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        value?: unknown;
+                    };
+                };
+            };
+            /** @description `code: STEP_UP_REQUIRED` */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    addRegistration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegistrationIn"];
+            };
+        };
+        responses: {
+            201: components["responses"]["Created"];
+            409: components["responses"]["Error"];
+        };
+    };
+    addContact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContactIn"];
+            };
+        };
+        responses: {
+            201: components["responses"]["Created"];
+        };
+    };
+    createSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecretIn"];
+            };
+        };
+        responses: {
+            201: components["responses"]["Created"];
+        };
+    };
+    documentTree: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description FY → category counts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        fy: string;
+                        category: string;
+                        count: number;
+                    }[];
+                };
+            };
+        };
+    };
+    lookupGstin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gstin: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Taxpayer details (provider-dependent) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GstinDetails"];
+                };
+            };
+            400: components["responses"]["Error"];
+        };
+    };
+    listClientGroups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Groups */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientGroup"][];
+                };
+            };
+        };
+    };
+    createClientGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    /** @enum {string} */
+                    kind?: "family" | "group" | "other";
+                    parentId?: string | null;
+                    notes?: string | null;
+                };
+            };
+        };
+        responses: {
+            201: components["responses"]["Created"];
+        };
+    };
+    listCustomFields: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Custom field definitions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomField"][];
+                };
+            };
+        };
+    };
+    createCustomField: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    key: string;
+                    label: string;
+                    /** @enum {string} */
+                    type: "text" | "number" | "date" | "select" | "boolean";
+                    options?: string[];
+                    required?: boolean;
+                    sort?: number;
+                };
+            };
+        };
+        responses: {
+            201: components["responses"]["Created"];
+        };
+    };
+    listSecrets: {
+        parameters: {
+            query?: {
+                clientId?: string;
+                portal?: components["schemas"]["Portal"];
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Metadata only */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Secret"][];
+                };
+            };
+        };
+    };
+    deleteSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecretPatch"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    revealSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    purpose: "view" | "copy" | "autofill";
+                    pageUrl?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Decrypted credential */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        username: string;
+                        password: string;
+                        extra?: {
+                            [key: string]: string;
+                        } | null;
+                    };
+                };
+            };
+            403: components["responses"]["Error"];
+        };
+    };
+    extensionPairCode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One-time code (5 min) */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: string;
+                        expiresInSeconds: number;
+                    };
+                };
+            };
+        };
+    };
+    listDocuments: {
+        parameters: {
+            query?: {
+                clientId?: string;
+                fy?: string;
+                category?: string;
+                q?: string;
+                trashed?: "true" | "false";
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Documents */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        total: number;
+                        items: components["schemas"]["Document"][];
+                    };
+                };
+            };
+        };
+    };
+    uploadDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                    clientId?: string;
+                    fy?: string;
+                    category?: string;
+                    name?: string;
+                    tags?: string;
+                    permanent?: string;
+                    expiresOn?: string;
+                    documentId?: string;
+                    note?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Stored */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        version: number;
+                    };
+                };
+            };
+            422: components["responses"]["Error"];
+        };
+    };
+    trashDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Moved to trash */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name?: string;
+                    category?: string;
+                    fy?: string | null;
+                    tags?: string[];
+                    permanent?: boolean;
+                    expiresOn?: string | null;
+                    legalHold?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Saved */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    restoreDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Restored */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    documentVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        version: number;
+                        size: number;
+                        sha256?: string;
+                        mime?: string;
+                        note?: string | null;
+                        uploadedBy?: string | null;
+                        createdAt: string;
+                    }[];
+                };
+            };
+        };
+    };
+    documentDownloadUrl: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    version?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Signed URL valid 2 minutes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        url: string;
+                        expiresInSeconds: number;
+                    };
+                };
+            };
+        };
+    };
+    documentAccessLog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        at: string;
+                        action: string;
+                        ip?: string | null;
+                        userName?: string | null;
+                        shareLinkId?: string | null;
+                    }[];
+                };
+            };
+        };
+    };
+    listShares: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Share links */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareLink"][];
+                };
+            };
+        };
+    };
+    createShare: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    expiresInHours: number;
+                    password?: string;
+                    maxDownloads?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Link */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        url: string;
+                        passwordRequired: boolean;
+                    };
+                };
+            };
+        };
+    };
+    revokeShare: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    downloadSigned: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description File (attachment) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    downloadShare: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description File */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unavailable, or `code: PASSWORD_REQUIRED` */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    downloadShareWithPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    password: string;
+                };
+            };
+        };
+        responses: {
+            /** @description File */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    listRegister: {
+        parameters: {
+            query?: {
+                q?: string;
+                clientId?: string;
+                from?: string;
+                to?: string;
+                pending?: "true" | "false";
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                kind: components["parameters"]["RegisterKind"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Entries */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        total: number;
+                        items: components["schemas"]["RegisterEntry"][];
+                    };
+                };
+            };
+        };
+    };
+    createRegisterEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: components["parameters"]["RegisterKind"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterEntryIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        number: string;
+                    };
+                };
+            };
+        };
+    };
+    updateRegisterEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: components["parameters"]["RegisterKind"];
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterEntryIn"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    signRegisterEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: components["parameters"]["RegisterKind"];
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Linked */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        documentId?: string;
+                    };
+                };
+            };
+        };
+    };
+    registerReceipt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: components["parameters"]["RegisterKind"];
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description PDF receipt */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

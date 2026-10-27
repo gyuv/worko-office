@@ -85,6 +85,12 @@ export class IdbStore implements LocalStore {
   }
   async setMeta(k: string, v: string) { const data = await this.c.encrypt(v); const t = this.tx(['meta'], 'readwrite'); t.objectStore('meta').put({ k, data }); await this.done(t); }
 
+  async clearRows() {
+    const t = this.tx(['rows', 'meta'], 'readwrite');
+    t.objectStore('rows').clear(); t.objectStore('meta').delete('cursor');
+    await this.done(t);
+  }
+
   async wipe() {
     const t = this.tx(['rows', 'outbox', 'meta'], 'readwrite');
     for (const s of ['rows', 'outbox', 'meta']) t.objectStore(s).clear();

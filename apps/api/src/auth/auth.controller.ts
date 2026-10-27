@@ -5,7 +5,7 @@ import type { Request } from 'express';
 import { z } from 'zod';
 import { ZodPipe } from '../common/zod.pipe.js';
 import { AuthService, type Meta } from './auth.service.js';
-import { CurrentActor, Public, type RequestActor } from './context.js';
+import { CurrentActor, ExtensionAllowed, Public, type RequestActor } from './context.js';
 
 const device = z.object({ platform: z.enum(['web', 'desktop', 'android']), label: z.string().max(100).optional(), deviceId: z.string().max(64).optional() });
 const firm = z.string().trim().min(2).max(63);
@@ -14,6 +14,8 @@ const loginSchema = z.object({ firm, email: z.string().email(), password: z.stri
 const otpRequestSchema = z.object({ firm, phone });
 const otpVerifySchema = z.object({ firm, phone, code: z.string().regex(/^\d{6}$/), device });
 const refreshSchema = z.object({ refreshToken: z.string().min(20).max(300) });
+const stepUpSchema = z.object({ password: z.string().min(1).max(200).optional(), totp: z.string().regex(/^\d{6}$/).optional() })
+  .refine((b) => b.password || b.totp, 'Password or authenticator code required');
 const codeSchema = z.object({ code: z.string().regex(/^\d{6}$/) });
 
 const meta = (req: Request): Meta => ({ ip: req.ip ?? null, userAgent: req.headers['user-agent'] });
@@ -44,7 +46,7 @@ export class AuthController {
     return this.auth.refresh(b.refreshToken, meta(req));
   }
 
-  @Post('logout') @HttpCode(204)
+  @Post('logout') @HttpCode(204) @ExtensionAllowed()
   async logout(@CurrentActor() a: RequestActor) { await this.auth.logout(a); }
 
   @Get('sessions')
@@ -61,6 +63,16 @@ export class AuthController {
   async wipe(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string) {
     await this.assertCanManage(a, id);
     await this.auth.revokeSession(a, id, 'auth.remote_wipe', true);
+  }
+
+  @Public() @Throttle(AUTH_LIMIT) @Post('extension/pair') @HttpCode(200)
+  pairExtension(@Body(new ZodPipe(z.object({ firm, code: z.string().regex(/^\d{4}-\d{4}$/) }))) b: { firm: string; code: string }, @Req() req: Request) {
+    return this.auth.pairExtension(b.firm, b.code, meta(req));
+  }
+
+  @Post('step-up') @ExtensionAllowed() @HttpCode(200) @Throttle(AUTH_LIMIT)
+  stepUp(@CurrentActor() a: RequestActor, @Body(new ZodPipe(stepUpSchema)) b: z.infer<typeof stepUpSchema>, @Req() req: Request) {
+    return this.auth.stepUp(a, b, req.ip ?? null);
   }
 
   @Post('totp/setup')
