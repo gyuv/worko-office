@@ -18,13 +18,17 @@ export const useSession = create<State>((set) => ({
   async init() { set({ tokens: await storage.load(), ready: true }); },
 }));
 
+/** Set by ./sync (avoids a session ↔ sync import cycle). Fallback just signs out. */
+let wipeHandler: () => Promise<void> | void = () => useSession.setState({ tokens: null, wiped: true });
+export const setWipeHandler = (fn: () => Promise<void>) => { wipeHandler = fn; };
+
 export const apiBase = (Constants.expoConfig?.extra?.apiBase as string | undefined) ?? 'http://10.0.2.2:3000/v1';
 
 export const api = createWorkoClient({
   baseUrl: apiBase,
   tokens: { get: () => useSession.getState().tokens, set: (t) => useSession.getState().setTokens(t) },
-  // Remote wipe: tokens are cleared by the client; the local SQLite store (Phase 2) is deleted here too.
-  onWipe: () => useSession.setState({ tokens: null, wiped: true }),
+  // Remote wipe: erase the encrypted DB, its key and scheduled reminders (handler registered by ./sync).
+  onWipe: () => void wipeHandler(),
   onSignedOut: () => useSession.getState().setTokens(null),
 });
 

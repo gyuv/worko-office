@@ -8,6 +8,8 @@ import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, TextIn
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { TABS, type Tab } from './nav';
 import { api, unwrap, useSession } from './session';
+import { getEngine, getStore, startSync, stopSync, syncNow, toReminder, useSync } from './sync';
+import { setupNotifications } from './notifications';
 import { themeFor, type Theme } from './theme';
 
 const t = createTranslator('en-IN', { product: PRODUCT.name });
@@ -18,6 +20,12 @@ export function App() {
   const { tokens, ready, init } = useSession();
   useEffect(() => { void init(); }, [init]);
   useEffect(() => { if (!tokens) qc.clear(); }, [tokens]);
+  // Restart sync only when the signed-in session changes, not on every token refresh.
+  const sessionKey = tokens ? `${tokens.tenantId}:${tokens.userId}:${tokens.sessionId}` : '';
+  useEffect(() => {
+    if (sessionKey) { const [tenantId, userId, sessionId] = sessionKey.split(':') as [string, string, string]; void startSync(tenantId, userId, sessionId); void setupNotifications(); }
+    else void stopSync(false);
+  }, [sessionKey]);
   return (
     <SafeAreaProvider>
       <QueryClientProvider client={qc}>
@@ -78,8 +86,9 @@ function Tabs({ theme }: { theme: Theme }) {
   const current = TABS.find((x) => x.key === tab)!;
   return (
     <View style={{ flex: 1 }}>
+      <StatusStrip theme={theme} />
       <View style={{ flex: 1, padding: 16 }}>
-        {tab === 'home' ? <Home theme={theme} /> : tab === 'more' ? <More theme={theme} />
+        {tab === 'home' ? <Home theme={theme} /> : tab === 'more' ? <More theme={theme} /> : tab === 'inbox' ? <Inbox theme={theme} />
           : <Text style={s.muted}>{t('home.comingSoon', { module: t(current.label), phase: current.phase ?? 0 })}</Text>}
       </View>
       <View style={s.tabbar} accessibilityRole="tablist">
@@ -91,6 +100,68 @@ function Tabs({ theme }: { theme: Theme }) {
         ))}
       </View>
     </View>
+  );
+}
+
+/** Offline banner + sync state (spec §8/§13). */
+function StatusStrip({ theme }: { theme: Theme }) {
+  const { online, status, pending } = useSync();
+  if (online && status !== 'offline' && !pending) return null;
+  const text = !online || status === 'offline' ? t('common.offline') : t('sync.pending', { count: pending });
+  return (
+    <View accessibilityRole="alert" style={{ flexDirection: 'row', gap: 8, alignItems: 'center', padding: 8, backgroundColor: theme.surfaceAlt }}>
+      <Feather name={online ? 'refresh-cw' : 'wifi-off'} size={14} color={theme.text} />
+      <Text style={{ color: theme.text, fontSize: 13, flex: 1 }}>{text}</Text>
+    </View>
+  );
+}
+
+type Item = ReturnType<typeof toReminder> & { requiresAck: boolean; escalationLevel: number };
+
+function useInbox(): Item[] {
+  const v = useSync((x) => x.versions.notification ?? 0);
+  const [rows, setRows] = useState<Item[]>([]);
+  useEffect(() => {
+    let live = true;
+    void getStore()?.list('notification').then((list) => {
+      if (!live) return;
+      const now = new Date();
+      setRows(list.map((r) => ({ ...toReminder(r), requiresAck: !!r.fields.requires_ack, escalationLevel: Number(r.fields.escalation_level ?? 0) }))
+        .filter((r) => new Date(r.fireAt) <= now && !(r.snoozedUntil && new Date(r.snoozedUntil) > now))
+        .sort((a, b) => b.fireAt.localeCompare(a.fireAt)));
+    });
+    return () => { live = false; };
+  }, [v]);
+  return rows;
+}
+
+/** Works offline: read/ack are local writes that sync when the connection returns. */
+function Inbox({ theme }: { theme: Theme }) {
+  const s = styles(theme);
+  const items = useInbox();
+  const act = async (id: string, patch: Record<string, unknown>) => { await getEngine()?.write('notification', id, patch); void syncNow(); };
+  if (!items.length) return <Text style={s.muted}>{t('notif.empty')}</Text>;
+  return (
+    <FlatList data={items} keyExtractor={(x) => x.id} renderItem={({ item }) => {
+      const urgent = item.priority === 'critical' || item.priority === 'high';
+      const now = new Date().toISOString();
+      return (
+        <Pressable style={s.row} onPress={() => !item.readAt && void act(item.id, { read_at: now })} accessibilityRole="button"
+          accessibilityHint={item.readAt ? undefined : t('notif.markRead')}>
+          <Feather name={item.escalationLevel ? 'shield' : urgent ? 'alert-octagon' : 'bell'} size={18} color={urgent ? theme.status.overdue : theme.textMuted} style={{ marginRight: 10 }} />
+          <View style={{ flex: 1 }}>
+            <Text style={[s.text, !item.readAt && { fontWeight: '600' }]}>{item.title}</Text>
+            {!!item.body && <Text style={s.muted}>{item.body}</Text>}
+            <Text style={s.muted}>{relativeTime(item.fireAt)}{item.escalationLevel ? ` · ${t('notif.escalated', { level: item.escalationLevel })}` : ''}</Text>
+          </View>
+          {item.requiresAck && !item.ackedAt && (
+            <Pressable onPress={() => void act(item.id, { acked_at: now, read_at: now })} accessibilityRole="button" style={{ padding: 8 }}>
+              <Text style={{ color: theme.primary, fontWeight: '600' }}>{t('notif.ack')}</Text>
+            </Pressable>
+          )}
+        </Pressable>
+      );
+    }} />
   );
 }
 
@@ -132,7 +203,10 @@ function More({ theme }: { theme: Theme }) {
           </Pressable>}
         </View>
       )} />
-      <Pressable style={s.button} onPress={async () => { await api.POST('/auth/logout').catch(() => undefined); setTokens(null); }} accessibilityRole="button">
+      <Pressable style={s.button} onPress={() => void unwrap(api.POST('/notifications/test')).catch(() => undefined)} accessibilityRole="button">
+        <Text style={s.buttonText}>{t('notif.sendTest')}</Text>
+      </Pressable>
+      <Pressable style={s.button} onPress={async () => { await api.POST('/auth/logout').catch(() => undefined); await stopSync(true); setTokens(null); }} accessibilityRole="button">
         <Text style={s.buttonText}>{t('common.signOut')}</Text>
       </Pressable>
     </View>

@@ -17,14 +17,19 @@ Each phase ends with a runnable build, green tests, reviewer-subagent audit, KNO
 - [x] Electron shell: tray-resident, auto-start, native toasts, badge, safeStorage tokens, wipe handler, link allow-list
 - [x] Expo shell: OTP login, SecureStore tokens, 5-tab bottom nav, devices screen, Android bundle builds in CI
 - [x] `pnpm seed:demo` — demo firm with 5 role users (clients/tasks/invoices added as modules land)
-## Phase 2 — Sync + notifications core (next)
-- [ ] Reviewer-subagent audit of Phase 1 against PRD (carry-over)
-- [ ] ESLint + Prettier config and CI lint step
-- [ ] Teams table + team-scope resolution in the auth guard
+## Phase 2 — Sync + notifications core ✅
+- [x] Reviewer audit of Phase 1 (findings fixed)
+- [x] ESLint config + CI lint step (Prettier deferred — see KNOWN_GAPS)
+- [x] Teams + team membership drives team scope; team lead as escalation fallback
 - [x] Pure sync core + 50-seed simulator (`@worko/sync`)
-- [ ] `/sync/push`, `/sync/pull`, WS gateway, outbox relay; SQLite adapters for desktop/Android; staged initial sync
-- [ ] Notification service: in-app, desktop native, FCM, Web Push; local reminder scheduler; quiet hours; escalation
-## Phase 3 — Clients, groups, vault, documents, inward/outward, GSTIN adapter, import wizard, browser extension
+- [x] `/sync/push`, `/sync/pull` (registry, field-level merge, conflict log + restore, strict tables, idempotency), commit-ordered cursors
+- [x] WebSocket change feed with live session revocation
+- [x] Client SyncEngine + Memory/SQLite/IndexedDB(encrypted) stores + RealtimeClient; wired in web, desktop and Android
+- [x] Notification service: in-app inbox (synced), Web Push (VAPID) + FCM adapter slot, retry/backoff, gone-endpoint cleanup, quiet hours, escalation chain with acknowledgement, cross-device read dedupe
+- [x] Local reminder scheduler (desktop toasts, web toasts, Android exact alarms + channels)
+- [ ] Staged initial sync (essentials first) — single global cursor today; progress shown
+- [ ] Digests (morning/evening summary) — preference stored, sender not built
+## Phase 3 — Clients, groups, vault, documents, inward/outward, GSTIN adapter, import wizard, browser extension (next)
 ## Phase 4 — Service catalogue, tasks, checks, to-dos, auto-creation/assignment
 - [x] Compliance rule engine core + seed pack + golden tests (`@worko/rules`)
 - [ ] Rule pack storage/versions, firm approval flow, matrix view, trackers, late-fee calculators

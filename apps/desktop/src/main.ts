@@ -3,7 +3,8 @@ import { pathToFileURL } from 'node:url';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { DEFAULTS, isAllowedExternal, isAppUrl, isTokenPair, loadSettings, saveSettings } from './settings';
-import { TokenStore } from './token-store';
+import { randomBytes } from 'node:crypto';
+import { DbKeyStore, TokenStore } from './token-store';
 import { trayMenu } from './tray-menu';
 
 const userData = () => app.getPath('userData');
@@ -16,6 +17,7 @@ let badge = 0;
 let quitting = false;
 const appUrl = process.env.WORKO_WEB_URL ?? pathToFileURL(join(__dirname, '../../web/dist/index.html')).toString();
 const tokens = new TokenStore(join(app.getPath('userData'), 'session.bin'), safeStorage);
+const dbKey = new DbKeyStore(join(app.getPath('userData'), 'dbkey.bin'), safeStorage, randomBytes);
 
 if (!app.requestSingleInstanceLock()) app.quit();
 app.on('second-instance', () => showWindow());
@@ -90,8 +92,10 @@ on('worko:notify', (_e, raw) => {
   toast.show();
 });
 /** Remote wipe: erase every local trace (tokens, cache, storage, future SQLite store) and restart clean. */
+handle('worko:dbkey', () => new Uint8Array(dbKey.get()));
 handle('worko:wipe', async () => {
   tokens.set(null);
+  dbKey.destroy();
   await session.defaultSession.clearStorageData();
   await session.defaultSession.clearCache();
   rmSync(join(userData(), 'data'), { recursive: true, force: true });

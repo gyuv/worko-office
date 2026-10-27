@@ -6,7 +6,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 import { base32Decode, totp } from '../src/auth/crypto.js';
-import { MockSmsProvider, SMS_PROVIDER } from '../src/auth/sms.provider.js';
+import { type MockSmsProvider, SMS_PROVIDER } from '../src/auth/sms.provider.js';
 import { migrate } from '../src/db/migrate.js';
 import { freshDatabase } from './db.js';
 

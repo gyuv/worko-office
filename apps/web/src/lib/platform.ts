@@ -11,6 +11,8 @@ export type DesktopBridge = {
   notify(n: { title: string; body: string; id?: string }): void;
   setBadge(count: number): void;
   wipeLocalData(): Promise<void>;
+  /** 32-byte key for the local encrypted store; generated and kept by the OS keychain (safeStorage). */
+  getDbKey(): Promise<Uint8Array>;
   settings: { get(): Promise<{ autoStart: boolean }>; set(s: { autoStart: boolean }): Promise<void> };
 };
 

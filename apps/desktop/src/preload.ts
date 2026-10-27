@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('worko', {
   notify: (n: { title: string; body: string; id?: string }) => ipcRenderer.send('worko:notify', n),
   setBadge: (count: number) => ipcRenderer.send('worko:badge', count),
   wipeLocalData: () => ipcRenderer.invoke('worko:wipe'),
+  getDbKey: () => ipcRenderer.invoke('worko:dbkey'),
   settings: {
     get: () => ipcRenderer.invoke('worko:settings:get'),
     set: (s: { autoStart: boolean }) => ipcRenderer.invoke('worko:settings:set', s),

@@ -10,7 +10,8 @@
     "start": "node dist/main.js",
     "test": "vitest run",
     "migrate": "tsx src/db/migrate.ts",
-    "seed:demo": "tsx src/db/seed-demo.ts"
+    "seed:demo": "tsx src/db/seed-demo.ts",
+    "lint": "eslint . --max-warnings=0"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.7",

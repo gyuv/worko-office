@@ -10,6 +10,8 @@ import { AuditScreen } from '../screens/AuditScreen';
 import { ComingSoon, HomeScreen } from '../screens/HomeScreen';
 import { SecurityScreen } from '../screens/SecurityScreen';
 import { TeamScreen } from '../screens/TeamScreen';
+import { NotificationsScreen } from '../screens/NotificationsScreen';
+import { startSync, stopSync } from '../lib/sync';
 
 function Routes() {
   const t = useT();
@@ -19,6 +21,7 @@ function Routes() {
     case 'security': return <SecurityScreen />;
     case 'audit': return <AuditScreen />;
     case 'team': return <TeamScreen />;
+    case 'notifications': return <NotificationsScreen />;
     default: {
       const n = NAV.find((x) => x.route === route)!;
       return <ComingSoon module={t(n.label)} phase={n.phase ?? 0} />;
@@ -31,8 +34,15 @@ export function App() {
   const qc = useMemo(() => new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } } }), []);
   useEffect(() => { void init(); }, [init]);
   useEffect(() => { if (!tokens) qc.clear(); }, [tokens, qc]);
+  // Sync runs per signed-in session (not per token refresh); it stops, keeping data, if tokens disappear by expiry.
+  const sessionKey = tokens ? `${tokens.tenantId}:${tokens.userId}:${tokens.sessionId}` : '';
+  useEffect(() => {
+    if (sessionKey) { const [tenantId, userId, sessionId] = sessionKey.split(':') as [string, string, string]; void startSync(tenantId, userId, sessionId); }
+    else void stopSync(false);
+  }, [sessionKey]);
 
-  const signOut = async () => { await api.POST('/auth/logout').catch(() => undefined); setTokens(null); };
+  // Explicit sign-out erases the local copy (shared office PCs).
+  const signOut = async () => { await api.POST('/auth/logout').catch(() => undefined); await stopSync(true); setTokens(null); };
 
   if (!ready) return null;
   return (

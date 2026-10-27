@@ -27,6 +27,19 @@ export const en = {
   'status.overdue': 'Overdue', 'status.dueSoon': 'Due soon', 'status.done': 'Done', 'status.waitingClient': 'Waiting on client',
   'status.onHold': 'On hold', 'status.inProgress': 'In progress', 'status.notStarted': 'Not started',
   'sync.synced': 'Synced', 'sync.syncing': 'Syncing…', 'sync.offline': 'Offline', 'sync.conflicts': '{count} conflicts',
+  'sync.idle': 'Not synced yet', 'sync.error': 'Sync problem', 'sync.pending': '{count} change(s) waiting to sync',
+  'sync.lastSynced': 'Last synced {when}', 'sync.live': 'Live updates on', 'sync.notLive': 'Live updates paused',
+  'sync.rejected': '{count} change(s) could not be saved and were undone.', 'sync.initial': 'Downloading your data… {count} items',
+  'nav.notifications': 'Notifications',
+  'notif.inbox': 'Inbox', 'notif.settings': 'Settings', 'notif.empty': 'You are all caught up.', 'notif.markRead': 'Mark read',
+  'notif.markAllRead': 'Mark all read', 'notif.ack': 'Acknowledge', 'notif.ackRequired': 'Needs acknowledgement',
+  'notif.snooze1h': 'Snooze 1 hour', 'notif.snoozeTomorrow': 'Tomorrow 9:00', 'notif.escalated': 'Escalated (level {level})',
+  'notif.unread': '{count} unread', 'notif.quietHours': 'Quiet hours', 'notif.quietHoursHelp': 'Pushes wait until quiet hours end. Critical alerts always come through.',
+  'notif.from': 'From', 'notif.to': 'To', 'notif.categories': 'Categories', 'notif.push': 'Push', 'notif.mute': 'Mute',
+  'notif.digest': 'Summary email', 'notif.digest.off': 'Off', 'notif.digest.morning': 'Every morning', 'notif.digest.morning_evening': 'Morning and evening',
+  'notif.sendTest': 'Send a test notification', 'notif.testSent': 'Sent — it should appear on all your signed-in devices.',
+  'notif.enableBrowser': 'Enable browser notifications', 'notif.browserOn': 'Browser notifications are on for this browser.',
+  'notif.browserUnavailable': 'Browser push is not configured on this server.', 'notif.saved': 'Saved',
 } as const;
 export type MessageKey = keyof typeof en;
 export type Messages = Record<MessageKey, string>;

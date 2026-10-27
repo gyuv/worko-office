@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 /** Tiny hash router: routes are flat module pages; deep links look like #/security. */
-export const ROUTES = ['home', 'tasks', 'clients', 'compliance', 'billing', 'documents', 'reports', 'team', 'security', 'audit'] as const;
+export const ROUTES = ['home', 'tasks', 'clients', 'compliance', 'billing', 'documents', 'reports', 'notifications', 'team', 'security', 'audit'] as const;
 export type Route = (typeof ROUTES)[number];
 
 const parse = (): Route => {

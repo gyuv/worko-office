@@ -6,6 +6,7 @@ import { useRoute } from '../lib/router';
 import { useTheme } from '../lib/theme';
 import { useOnline } from '../lib/useOnline';
 import { CommandPalette } from './CommandPalette';
+import { BellButton, SyncIndicator, Toasts } from './SyncIndicator';
 import { NAV } from './nav';
 
 export function Shell({ children, onSignOut }: { children: ReactNode; onSignOut(): void }) {
@@ -59,6 +60,8 @@ export function Shell({ children, onSignOut }: { children: ReactNode; onSignOut(
           <button className="btn flex-1 justify-start text-muted md:max-w-md" onClick={() => dispatchEvent(new Event('worko:palette'))}>
             <Search size={14} aria-hidden /> {t('palette.placeholder')} <kbd className="ml-auto text-xs">Ctrl K</kbd>
           </button>
+          <SyncIndicator />
+          <BellButton />
           <button className="btn" aria-label={t('palette.toggleTheme')} onClick={toggle}>{pref === 'dark' ? <Sun size={14} /> : <Moon size={14} />}</button>
         </header>
         {!online && (
@@ -66,7 +69,7 @@ export function Shell({ children, onSignOut }: { children: ReactNode; onSignOut(
         )}
         <main className="min-h-0 flex-1 overflow-auto p-4">{children}</main>
         <nav aria-label="Main" className="grid grid-cols-5 border-t border-border bg-surface md:hidden">
-          {NAV.filter((n) => ['home', 'tasks', 'clients', 'security', 'audit'].includes(n.route) && (!n.perm || can(...n.perm))).map((n) => (
+          {NAV.filter((n) => ['home', 'tasks', 'clients', 'notifications', 'security'].includes(n.route) && (!n.perm || can(...n.perm))).map((n) => (
             <a key={n.route} href={`#/${n.route}`} className={`flex flex-col items-center py-2 text-xs ${route === n.route ? 'text-primary' : 'text-muted'}`}>
               <n.icon size={18} aria-hidden /> {t(n.label)}
             </a>
@@ -74,6 +77,7 @@ export function Shell({ children, onSignOut }: { children: ReactNode; onSignOut(
         </nav>
       </div>
       <CommandPalette onSignOut={onSignOut} />
+      <Toasts />
     </div>
   );
 }

@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { isAllowedExternal, isAppUrl, isTokenPair, loadSettings } from './settings';
-import { TokenStore, type SafeStorage } from './token-store';
+import { randomBytes } from 'node:crypto';
+import { DbKeyStore, TokenStore, type SafeStorage } from './token-store';
 import { trayMenu } from './tray-menu';
 
 const fakeSafe = (available = true): SafeStorage => ({
@@ -65,5 +66,18 @@ describe('renderer lock-down', () => {
     expect(isTokenPair({ accessToken: 'a', refreshToken: 'r', sessionId: 's', userId: 'u', tenantId: 't', expiresIn: 900 })).toBe(true);
     expect(isTokenPair({ accessToken: 1 })).toBe(false);
     expect(isTokenPair('x')).toBe(false);
+  });
+});
+
+describe('local DB key', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'worko-key-'));
+  it('is stable across restarts, stored only encrypted, and destroyed on wipe', () => {
+    const k1 = new DbKeyStore(join(dir, 'k.bin'), fakeSafe(), randomBytes).get();
+    expect(k1).toHaveLength(32);
+    expect(readFileSync(join(dir, 'k.bin')).includes(Buffer.from(k1.toString('base64')))).toBe(false);
+    const again = new DbKeyStore(join(dir, 'k.bin'), fakeSafe(), randomBytes);
+    expect(again.get().equals(k1)).toBe(true);
+    again.destroy();
+    expect(new DbKeyStore(join(dir, 'k.bin'), fakeSafe(), randomBytes).get().equals(k1)).toBe(false);
   });
 });

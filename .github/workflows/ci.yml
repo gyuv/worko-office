@@ -20,6 +20,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm typecheck
+      - run: pnpm lint
       - run: pnpm test
       - name: OpenAPI client is up to date
         run: pnpm --filter @worko/api-client generate && git diff --exit-code packages/api-client

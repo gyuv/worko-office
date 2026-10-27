@@ -8,10 +8,32 @@
     "userInterfaceStyle": "automatic",
     "android": {
       "package": "in.worko.app",
-      "permissions": [],
-      "blockedPermissions": ["android.permission.READ_EXTERNAL_STORAGE"]
+      "permissions": [
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.SCHEDULE_EXACT_ALARM",
+        "android.permission.RECEIVE_BOOT_COMPLETED"
+      ],
+      "blockedPermissions": [
+        "android.permission.READ_EXTERNAL_STORAGE"
+      ]
     },
-    "extra": { "apiBase": "http://10.0.2.2:3000/v1" },
-    "plugins": ["expo-secure-store"]
+    "extra": {
+      "apiBase": "http://10.0.2.2:3000/v1"
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-sqlite",
+        {
+          "useSQLCipher": true
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "tasks"
+        }
+      ]
+    ]
   }
 }

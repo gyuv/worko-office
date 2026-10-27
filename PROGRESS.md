@@ -1,40 +1,29 @@
 # PROGRESS
 
-_Last session: 2026-10-27._ **Phase 1 complete.** Resume at Phase 2 in docs/ROADMAP.md (carry-overs first: reviewer audit, ESLint, teams).
+_Last session: 2026-10-27._ **Phase 2 complete** (pending reviewer audit fixes, see below). Resume at Phase 3 in docs/ROADMAP.md.
 
-## Test status — 138 tests, all green
+## Test status — all green (lint clean, `--max-warnings=0`)
 | Package | Tests | Notes |
 |---|---|---|
-| `@worko/domain` | 15 | validators, money, FY, permissions incl. escalation guard (groups subset, hidden fields) |
+| `@worko/domain` | 15 | validators, money, FY, permissions + escalation guard |
 | `@worko/rules` | 14 | golden due dates, holidays, extensions, versions |
-| `@worko/sync` | 55 | 50 seeded convergence simulations |
-| `@worko/api` | 28 | real Postgres: signup, login, lockout, OTP, TOTP (RFC vectors), refresh reuse, remote wipe, RLS isolation, audit tamper detection, permissions, contract (routes ≡ openapi.yaml), demo seed |
+| `@worko/sync` | 85 | reference simulator (50 seeds); client engine with memory + SQLite stores, offline/reconnect, optimistic overlay, immediate revert on rejection, 20-seed engine convergence, SQLite restart durability, RealtimeClient |
+| `@worko/notify` | 8 | IST quiet hours across midnight, delivery plan, backoff, reminder scheduler (snooze, restart, prime, OS pre-schedule) |
+| `@worko/api` | 44 | real Postgres: auth suite, review regressions, sync push/pull/paging/permissions/merge+conflict restore/strict/commit-order, push delivery/retry/gone/quiet hours/critical, escalation (manager + team lead), realtime feed + live revoke, client engine ↔ API end-to-end, contract |
 | `@worko/api-client` | 4 | refresh single-flight, wipe, sign-out |
-| `@worko/ui-tokens` | 4 | WCAG AA contrast in both themes |
-| `@worko/i18n` | 3 | interpolation, fallback, IST formatting |
-| `@worko/web` | 6 | login + MFA step, lockout message, permission-hidden nav, Ctrl+K, remote wipe, offline banner |
-| `@worko/desktop` | 7 | encrypted token store, link allow-list, renderer URL lock, IPC payload validation, tray |
-| `@worko/mobile` | 2 | tabs, theme contrast; Android JS bundle built by `pnpm build` |
+| `@worko/web` | 9 | auth flows, palette, wipe, offline; synced inbox (badge, read/ack via outbox); encrypted IndexedDB store |
+| `@worko/desktop` | 8 | token store, DB key (stable, encrypted, destroyed on wipe), renderer lock-down |
+| `@worko/mobile` | 3 | tabs, theme, Android channel mapping; Android bundle builds |
+| `@worko/ui-tokens`, `@worko/i18n` | 4 + 3 | |
 
-Also verified manually this session: API + web + headless Chromium end-to-end (demo login → palette → team → audit verify → security on phone width).
+Verified manually: two browser "devices" against the real API — new notification reached the other device via WebSocket in 84 ms; read on one cleared the other's badge in 82 ms; offline → reconnect → synced.
 
-## Phase 1 review (reviewer subagent) — fixed
-- `idempotency_key` lacked RLS → migration `0003_hardening` adds policy (+ test).
-- TOTP: wrong codes now count toward lockout; time-step replay rejected (+ test).
-- Phone OTP: new requests retire open challenges, 5 codes/hour cap, lockout honoured (+ test).
-- Session revoke/wipe and user creation now check the target's branch and require covering all of the target's roles (+ test).
-- Refresh: device id comes from the server-side session; disabled users can't refresh (+ test).
-- Electron: renderer locked to the exact app URL (navigate/redirect/webview), every IPC handler checks the sender, token payloads validated (+ tests).
-- Deferred with entries in KNOWN_GAPS: field-hiding on responses, sensitive-client storage, 2FA recovery, role editor, audit anchoring, web anti-framing headers.
+## Phase 2 deliverables
+- Migration `0004`: teams, sync tables, notifications, prefs, push subscriptions, deliveries, job queue; commit-ordered cursors.
+- Server sync (`/sync/*`) via registry; conflict log + restore; strict tables; realtime WebSocket with live revoke/wipe.
+- Notifications: push delivery (Web Push real, FCM mock), retry/backoff, quiet hours, critical bypass, escalation with ack, read-anywhere dedupe, prefs, test send.
+- Clients: web/desktop (encrypted IndexedDB, native toasts, badge, Web Push opt-in, sync indicator), Android (SQLCipher store, channels, exact-alarm reminders, offline banner, inbox).
+- ESLint in CI; teams + team scope.
 
-## Phase 1 deliverables
-- Migrations `0001_foundation`, `0002_auth` + runner; RLS via `worko_app` role per transaction.
-- Auth: password + lockout, phone OTP, TOTP 2FA, rotating refresh with reuse detection, device list, remote logout, remote wipe.
-- Global auth guard, `@Perm`, privilege-escalation guard, hash-chained audit log with verify.
-- Firm signup, users, roles, demo seed.
-- OpenAPI contract + generated client; web, desktop and mobile shells; ui-tokens; i18n.
-
-## Next (Phase 2)
-1. Carry-overs: reviewer audit of Phase 1, ESLint/Prettier, teams table.
-2. `/sync/push` + `/sync/pull` on Postgres using `@worko/sync` semantics; WS change feed; SQLite stores (desktop better-sqlite3/SQLCipher, mobile op-sqlite).
-3. Notification service: in-app inbox, desktop toasts with actions, FCM, Web Push; local reminder scheduler; quiet hours; escalation.
+## Next (Phase 3)
+Clients & contacts (GSTIN adapter, groups, import wizard, duplicates), credential vault + browser extension, documents, inward/outward registers — each as a synced registry table where devices need it offline.

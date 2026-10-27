@@ -1,7 +1,7 @@
 # Data model
 
 All tenant tables carry `id uuid (v7) · tenant_id · version · updated_at · deleted_at · updated_by · device_id · sync_cursor` and RLS.
-Implemented so far (`apps/api/db/0001_foundation.sql`, `0002_auth.sql`): `tenant, firm_entity, branch, app_user, role, user_role, device_session, refresh_token, otp_challenge, audit_log, idempotency_key, schema_migration`.
+Implemented so far (`apps/api/db/0001`–`0004`): `tenant, firm_entity, branch, app_user, role, user_role, device_session, refresh_token, otp_challenge, audit_log, idempotency_key, schema_migration, team, team_member, sync_mutation, sync_conflict, notification, notification_pref, push_subscription, notification_delivery, job_queue`.
 
 ```mermaid
 erDiagram

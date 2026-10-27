@@ -110,6 +110,16 @@ export class ReminderScheduler {
     return next;
   }
 
+  /**
+   * Startup: mark everything already due as fired without showing it — those are in the inbox already.
+   * Only reminders that come due (or arrive) while the app runs pop up.
+   */
+  prime(items: LocalReminder[]) {
+    const now = this.opts.now();
+    for (const r of items) if (this.active(r) && this.dueAt(r) <= now) this.fired.add(this.key(r));
+    this.opts.save?.([...this.fired].slice(-2000));
+  }
+
   /** Items that should be pre-scheduled with the OS (Android exact alarms) within `horizonMs`. */
   upcoming(items: LocalReminder[], horizonMs = 7 * 86400_000): Array<{ reminder: LocalReminder; at: number }> {
     const now = this.opts.now();

@@ -13,10 +13,14 @@
     "seed:demo": "pnpm --filter @worko/api seed:demo"
   },
   "devDependencies": {
+    "@types/node": "^22.9.0",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^15.15.0",
     "turbo": "^2.3.0",
     "typescript": "^5.6.3",
-    "vitest": "^2.1.5",
-    "@types/node": "^22.9.0"
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^2.1.5"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -24,5 +28,6 @@
       "esbuild",
       "@swc/core"
     ]
-  }
+  },
+  "type": "module"
 }

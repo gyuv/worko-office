@@ -23,11 +23,8 @@ export const useSession = create<SessionState>((set) => ({
   },
 }));
 
-async function onWipe() {
-  await desktop()?.wipeLocalData();
-  localStorage.clear();
-  useSession.setState({ tokens: null, notice: 'wiped' });
-}
+// Lazy import avoids a session ↔ sync module cycle at load time.
+const onWipe = () => import('./sync').then((m) => m.onRemoteWipe());
 
 export const api = createWorkoClient({
   baseUrl: apiBase(),

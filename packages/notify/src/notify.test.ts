@@ -61,6 +61,14 @@ describe('offline reminder scheduler', () => {
     mk().tick([r('a', '09:00', { snoozedUntil: ist('10:45').toISOString() })]);
     expect(show).toHaveBeenCalledTimes(2);
   });
+  it('prime() silences what was already due at startup, but later arrivals still fire', () => {
+    const now = ist('10:00').getTime();
+    const show = vi.fn();
+    const s = new ReminderScheduler({ now: () => now, show, prefs: defaultPrefs });
+    s.prime([r('old', '09:00')]);
+    s.tick([r('old', '09:00'), r('new', '09:59')]);
+    expect(show.mock.calls.map((c) => c[0].id)).toEqual(['new']);
+  });
   it('lists upcoming reminders for OS pre-scheduling, quiet-hours aware', () => {
     const s = new ReminderScheduler({ now: () => ist('10:00').getTime(), show() {}, prefs: defaultPrefs });
     const up = s.upcoming([r('late', '22:00', { priority: 'normal' }), r('soon', '11:00')]);
