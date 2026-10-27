@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SyncClient, SyncServer } from './index.js';
+import { SyncClient, SyncServer } from './core.js';
 
 /** Deterministic PRNG so failures are reproducible by seed. */
 function rng(seed: number) { return () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32); }

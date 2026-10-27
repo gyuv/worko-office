@@ -1,11 +1,11 @@
 openapi: 3.1.0
 info:
   title: Worko API
-  version: 0.2.0
+  version: 0.3.0
   description: Contract for web, desktop, Android and the public API. Source of truth for @worko/api-client.
 servers: [{ url: /v1 }]
 security: [{ bearer: [] }]
-tags: [{ name: auth }, { name: tenancy }, { name: users }, { name: audit }, { name: rules }, { name: system }]
+tags: [{ name: auth }, { name: tenancy }, { name: users }, { name: audit }, { name: rules }, { name: sync }, { name: notifications }, { name: system }]
 paths:
   /health:
     get: { tags: [system], operationId: health, security: [], responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { status: { type: string }, product: { type: string } } } } } } } }
@@ -120,6 +120,106 @@ paths:
       operationId: extensionImpact
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/PreviewRequest' } } } }
       responses: { '201': { description: '{ dueDatesChanged, clientsAffected, changes[] }' } }
+  /sync/push:
+    post:
+      tags: [sync]
+      operationId: syncPush
+      description: Apply an outbox batch. Each mutation is idempotent by `key`; results are per mutation (one failure never rolls back others).
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [mutations], properties: { mutations: { type: array, maxItems: 200, items: { $ref: '#/components/schemas/Mutation' } } } } } } }
+      responses: { '200': { description: Per-mutation results, content: { application/json: { schema: { type: object, required: [results], properties: { results: { type: array, items: { $ref: '#/components/schemas/MutationResult' } } } } } } } }
+  /sync/pull:
+    get:
+      tags: [sync]
+      operationId: syncPull
+      parameters:
+        - { name: since, in: query, schema: { type: integer, minimum: 0 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 1000 } }
+      responses: { '200': { description: Changes after the cursor, content: { application/json: { schema: { $ref: '#/components/schemas/PullResponse' } } } } }
+  /sync/conflicts:
+    get:
+      tags: [sync]
+      operationId: listConflicts
+      responses: { '200': { description: Unresolved conflicts caused by this user's writes, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Conflict' } } } } } }
+  /sync/conflicts/{id}/resolve:
+    post:
+      tags: [sync]
+      operationId: resolveConflict
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [restore], properties: { restore: { type: boolean, description: 'true = re-apply the losing value' } } } } } }
+      responses: { '204': { description: Resolved } }
+  /notifications:
+    get:
+      tags: [notifications]
+      operationId: listNotifications
+      parameters:
+        - { name: unread, in: query, schema: { type: string, enum: ['true', 'false'] } }
+        - { name: limit, in: query, schema: { type: integer, maximum: 200 } }
+        - { name: before, in: query, schema: { type: string, format: date-time } }
+      responses: { '200': { description: Newest first, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Notification' } } } } } }
+  /notifications/unread-count:
+    get:
+      tags: [notifications]
+      operationId: unreadCount
+      responses: { '200': { description: Count, content: { application/json: { schema: { type: object, required: [count], properties: { count: { type: integer } } } } } } }
+  /notifications/read-all:
+    post: { tags: [notifications], operationId: readAllNotifications, responses: { '204': { description: Done } } }
+  /notifications/{id}/read:
+    post: { tags: [notifications], operationId: readNotification, parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '204': { description: Done }, '404': { $ref: '#/components/responses/Error' } } }
+  /notifications/{id}/ack:
+    post: { tags: [notifications], operationId: ackNotification, description: Acknowledge (also marks read and stops escalation)., parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '204': { description: Done }, '404': { $ref: '#/components/responses/Error' } } }
+  /notifications/{id}/snooze:
+    post:
+      tags: [notifications]
+      operationId: snoozeNotification
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [until], properties: { until: { type: string, format: date-time } } } } } }
+      responses: { '204': { description: Done } }
+  /notifications/test:
+    post:
+      tags: [notifications]
+      operationId: sendTestNotification
+      responses: { '201': { description: Sent to the caller's devices, content: { application/json: { schema: { type: object, properties: { id: { type: string } } } } } } }
+  /notifications/prefs:
+    get:
+      tags: [notifications]
+      operationId: getNotificationPrefs
+      responses: { '200': { description: Preferences, content: { application/json: { schema: { $ref: '#/components/schemas/NotificationPrefs' } } } } }
+    put:
+      tags: [notifications]
+      operationId: putNotificationPrefs
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/NotificationPrefs' } } } }
+      responses: { '204': { description: Saved } }
+  /push/subscriptions:
+    post:
+      tags: [notifications]
+      operationId: subscribePush
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [kind, endpoint], properties: { kind: { type: string, enum: [fcm, webpush] }, endpoint: { type: string, description: 'Web Push endpoint URL or FCM registration token' }, keys: { type: object, properties: { p256dh: { type: string }, auth: { type: string } } } } } } } }
+      responses: { '201': { description: Registered, content: { application/json: { schema: { type: object, properties: { id: { type: string } } } } } } }
+  /push/subscriptions/{id}:
+    delete: { tags: [notifications], operationId: unsubscribePush, parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '204': { description: Removed } } }
+  /push/vapid-public-key:
+    get:
+      tags: [notifications]
+      operationId: vapidPublicKey
+      security: []
+      responses: { '200': { description: VAPID key (null when Web Push is not configured), content: { application/json: { schema: { type: object, properties: { key: { type: [string, 'null'] } } } } } } }
+  /teams:
+    get:
+      tags: [users]
+      operationId: listTeams
+      responses: { '200': { description: Teams, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Team' } } } } } }
+    post:
+      tags: [users]
+      operationId: createTeam
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [name], properties: { name: { type: string }, leadUserId: { type: [string, 'null'] }, branchId: { type: string }, memberIds: { type: array, items: { type: string } } } } } } }
+      responses: { '201': { description: Created, content: { application/json: { schema: { type: object, properties: { id: { type: string } } } } } } }
+  /teams/{id}/members:
+    put:
+      tags: [users]
+      operationId: setTeamMembers
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [userIds], properties: { userIds: { type: array, items: { type: string } } } } } } }
+      responses: { '204': { description: Saved } }
 components:
   securitySchemes:
     bearer: { type: http, scheme: bearer, bearerFormat: JWT }
@@ -181,6 +281,40 @@ components:
       type: object
       required: [seq, at, action, entity]
       properties: { seq: { type: string }, at: { type: string }, action: { type: string }, entity: { type: string }, entityId: { type: [string, 'null'] }, diff: {}, ip: { type: [string, 'null'] }, actorId: { type: [string, 'null'] }, actorName: { type: [string, 'null'] } }
+    Mutation:
+      type: object
+      required: [key, table, id, baseVersion]
+      properties: { key: { type: string, description: Idempotency key }, table: { type: string }, id: { type: string, format: uuid }, baseVersion: { type: integer }, patch: { type: object, additionalProperties: true }, delete: { type: boolean } }
+    MutationResult:
+      type: object
+      required: [key, status]
+      properties: { key: { type: string }, status: { type: string, enum: [applied, duplicate, rejected_stale, rejected] }, version: { type: integer }, reason: { type: string } }
+    Change:
+      type: object
+      required: [table, id, version, cursor, deleted, fields]
+      properties: { table: { type: string }, id: { type: string }, version: { type: integer }, cursor: { type: integer }, deleted: { type: boolean }, fields: { type: object, additionalProperties: true } }
+    PullResponse:
+      type: object
+      required: [changes, cursor, hasMore]
+      properties: { changes: { type: array, items: { $ref: '#/components/schemas/Change' } }, cursor: { type: integer }, hasMore: { type: boolean } }
+    Conflict:
+      type: object
+      required: [id, table, rowId, field, createdAt]
+      properties: { id: { type: string }, table: { type: string }, rowId: { type: string }, field: { type: string }, lost: {}, kept: {}, createdAt: { type: string } }
+    Notification:
+      type: object
+      required: [id, category, priority, title, body, fireAt, requiresAck, escalationLevel, version]
+      properties: { id: { type: string }, category: { type: string }, priority: { type: string, enum: [low, normal, high, critical] }, title: { type: string }, body: { type: string }, entityType: { type: [string, 'null'] }, entityId: { type: [string, 'null'] }, fireAt: { type: string }, readAt: { type: [string, 'null'] }, ackedAt: { type: [string, 'null'] }, snoozedUntil: { type: [string, 'null'] }, requiresAck: { type: boolean }, escalationLevel: { type: integer }, version: { type: integer } }
+    NotificationPrefs:
+      type: object
+      properties:
+        quietHours: { type: ['object', 'null'], properties: { start: { type: string, pattern: '^\d{2}:\d{2}$' }, end: { type: string, pattern: '^\d{2}:\d{2}$' } } }
+        categories: { type: object, additionalProperties: { type: object, properties: { push: { type: boolean }, muted: { type: boolean } } } }
+        digest: { type: string, enum: ['off', morning, morning_evening] }
+    Team:
+      type: object
+      required: [id, name, memberIds]
+      properties: { id: { type: string }, name: { type: string }, branchId: { type: [string, 'null'] }, leadUserId: { type: [string, 'null'] }, memberIds: { type: array, items: { type: string } } }
     PreviewRequest:
       type: object
       required: [fy, clients]

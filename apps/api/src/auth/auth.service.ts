@@ -10,6 +10,7 @@ import { base32Encode, hashPassword, numericCode, randomToken, sha256, verifyPas
 import { decryptField, encryptField } from './field-crypto.js';
 import { SMS_PROVIDER, type SmsProvider } from './sms.provider.js';
 import { TokenService } from './token.service.js';
+import { RealtimeService } from '../realtime/realtime.service.js';
 
 export type Device = { platform: 'web' | 'desktop' | 'android'; label?: string; deviceId?: string };
 export type Meta = { ip: string | null; userAgent?: string };
@@ -28,7 +29,7 @@ const badCredentials = () => new UnauthorizedException('Invalid credentials');
 export class AuthService {
   constructor(
     private db: DbService, private tokens: TokenService, private audit: AuditService,
-    @Inject(SMS_PROVIDER) private sms: SmsProvider,
+    @Inject(SMS_PROVIDER) private sms: SmsProvider, private realtime: RealtimeService,
   ) {}
 
   async tenantIdBySlug(slug: string): Promise<string | null> {
@@ -184,8 +185,12 @@ export class AuthService {
       const r = await tx.query(
         `UPDATE device_session SET revoked_at = COALESCE(revoked_at, now()) ${wipe ? ', wipe_requested_at = now()' : ''} WHERE id = $1 RETURNING user_id`, [sessionId]);
       if (!r.rowCount) throw new NotFoundException();
+      // Stop pushes to that device too.
+      await tx.query(`UPDATE push_subscription SET disabled_at = now(), last_error = 'session revoked' WHERE session_id = $1 AND disabled_at IS NULL`, [sessionId]);
       await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: wipe ? 'auth.remote_wipe' : action, entity: 'device_session', entityId: sessionId, diff: { userId: r.rows[0].user_id } });
     });
+    // Live sockets of that session are told immediately (and close); offline devices learn on next contact.
+    this.realtime.publish({ type: 'session_revoked', tenantId: a.tenantId, sessionId, wipe });
   }
 
   async sessionOwner(a: RequestActor, sessionId: string): Promise<{ userId: string; branchId: string | null; roles: Role[] } | null> {

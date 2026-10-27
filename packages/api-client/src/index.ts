@@ -69,3 +69,4 @@ export function createWorkoClient(o: ClientOptions) {
 }
 
 export type WorkoClient = ReturnType<typeof createWorkoClient>;
+export { createHttpTransport } from './transport.js';

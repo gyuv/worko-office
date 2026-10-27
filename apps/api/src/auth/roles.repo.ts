@@ -8,6 +8,10 @@ export async function loadUserRoles(tx: Tx, userId: string): Promise<Role[]> {
   return r.rows.map((x) => ({ key: x.key, name: x.name, system: x.system, grants: x.grants, hiddenFields: x.hidden_fields }));
 }
 
-export async function loadTeamIds(_tx: Tx, _userId: string): Promise<string[]> {
-  return []; // Teams table arrives with Phase 3 (staff directory); team scope then resolves via membership.
+/** Teams the user belongs to, plus teams they lead. Drives `team` permission scope. */
+export async function loadTeamIds(tx: Tx, userId: string): Promise<string[]> {
+  const r = await tx.query(
+    `SELECT team_id AS id FROM team_member m JOIN team t ON t.id = m.team_id WHERE m.user_id = $1 AND t.deleted_at IS NULL
+     UNION SELECT id FROM team WHERE lead_user_id = $1 AND deleted_at IS NULL`, [userId]);
+  return r.rows.map((x) => x.id);
 }
