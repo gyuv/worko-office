@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root { height: 100%; }
+body { font-family: Inter, 'Segoe UI', system-ui, -apple-system, 'Noto Sans', sans-serif; font-size: 13px; -webkit-font-smoothing: antialiased; }
+:focus-visible { outline: 2px solid var(--w-focus); outline-offset: 2px; }
+@layer components {
+  .btn { @apply inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 font-medium hover:bg-surface-alt disabled:opacity-50; }
+  .btn-primary { @apply border-transparent bg-primary text-primary-fg hover:opacity-90 hover:bg-primary; }
+  .btn-danger { @apply text-overdue; }
+  .input { @apply w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-fg placeholder:text-muted; }
+  .label { @apply mb-1 block text-sm font-medium text-muted; }
+  .card { @apply rounded-lg border border-border bg-surface; }
+  .table th { @apply border-b border-border px-3 py-1.5 text-left text-xs font-semibold uppercase tracking-wide text-muted; }
+  .table td { @apply border-b border-border px-3 py-1.5; }
+}

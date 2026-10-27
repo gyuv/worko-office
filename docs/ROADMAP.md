@@ -3,20 +3,24 @@
 Each phase ends with a runnable build, green tests, reviewer-subagent audit, KNOWN_GAPS update and a conventional commit.
 
 ## Phase 0 — Planning docs ✅
-## Phase 1 — Foundation (in progress)
+## Phase 1 — Foundation ✅
 - [x] Monorepo (pnpm, Turborepo, TS strict ESM), CI workflow, docker-compose, .env.example
 - [x] `@worko/domain`: config constant, PAN/GSTIN(checksum)/TAN/UDIN validators, INR + lakh/crore, GST split, FY/regime labels, permission matrix + system roles
 - [x] Foundation migration with RLS + sync trigger (verified against Postgres 16)
 - [x] NestJS API skeleton (health, rules endpoints, zod pipe) + tests
-- [ ] DB access layer (Drizzle) with per-request `SET LOCAL app.tenant_id` transaction interceptor
-- [ ] Auth: email+password (argon2), phone OTP, TOTP 2FA, refresh rotation, device sessions, remote logout
-- [ ] Permission guard decorator + audit interceptor with hash chain
-- [ ] OpenAPI generation from controllers + `@worko/api-client` codegen + contract tests
-- [ ] `@worko/ui-tokens`, i18n (i18next) setup, light/dark theme
-- [ ] Web shell (Vite + React + Tailwind + shadcn, Ctrl+K palette, login)
-- [ ] Electron shell (tray, auto-start, toasts), Expo shell (bottom nav)
-- [ ] Seed tooling + demo firm skeleton
-## Phase 2 — Sync + notifications core
+- [x] DB layer: migration runner, per-request tenant transaction as `worko_app` (RLS), UUIDv7 ids
+- [x] Auth: email+password (scrypt) + lockout, phone OTP (mock SMS), TOTP 2FA, refresh rotation with reuse detection, device sessions, remote logout + remote wipe
+- [x] Global auth guard + `@Perm` permission checks, privilege-escalation guard, hash-chained audit log + verify endpoint
+- [x] Contract-first `openapi.yaml`, generated `@worko/api-client` (refresh/wipe aware), routes≡spec contract test, CI staleness check
+- [x] `@worko/ui-tokens` (WCAG-tested palette, status semantics), `@worko/i18n`, light/dark/system theme
+- [x] Web shell: login (password/TOTP/OTP), sidebar + mobile bottom nav, Ctrl+K palette, g-shortcuts, home, team, security (devices, wipe, 2FA), audit viewer, offline banner, PWA manifest
+- [x] Electron shell: tray-resident, auto-start, native toasts, badge, safeStorage tokens, wipe handler, link allow-list
+- [x] Expo shell: OTP login, SecureStore tokens, 5-tab bottom nav, devices screen, Android bundle builds in CI
+- [x] `pnpm seed:demo` — demo firm with 5 role users (clients/tasks/invoices added as modules land)
+## Phase 2 — Sync + notifications core (next)
+- [ ] Reviewer-subagent audit of Phase 1 against PRD (carry-over)
+- [ ] ESLint + Prettier config and CI lint step
+- [ ] Teams table + team-scope resolution in the auth guard
 - [x] Pure sync core + 50-seed simulator (`@worko/sync`)
 - [ ] `/sync/push`, `/sync/pull`, WS gateway, outbox relay; SQLite adapters for desktop/Android; staged initial sync
 - [ ] Notification service: in-app, desktop native, FCM, Web Push; local reminder scheduler; quiet hours; escalation

@@ -3,7 +3,7 @@
 | # | Decision | Why |
 |---|---|---|
 | D1 | pnpm + Turborepo monorepo, TypeScript ESM everywhere (API included) | Shared zod schemas/types across API, web, desktop, mobile; ESM avoids CJS/ESM interop errors with shared packages. |
-| D2 | **Drizzle** over Prisma, with hand-written ordered SQL migrations in `apps/api/db` | RLS policies, triggers, procedures and partial indexes are first-class in SQL; Prisma's migration engine fights RLS. Drizzle gives typed queries without owning the schema DDL. |
+| D2 | Hand-written ordered SQL migrations (`apps/api/db`, own runner) + parameterised queries via `pg`. **Revised in Phase 1:** Drizzle deferred until module tables (Phase 3) where typed query building pays off; not Prisma. | RLS policies, triggers, procedures and grants are first-class in SQL; Prisma's migration engine fights RLS. Auth/audit queries are few and security-sensitive, so explicit SQL is easier to review. |
 | D3 | Tenant isolation via Postgres RLS on `current_setting('app.tenant_id')` set with `SET LOCAL` per transaction; tables use `FORCE ROW LEVEL SECURITY` | Defence in depth: a missing `WHERE tenant_id` in app code cannot leak data. Verified locally (cross-tenant insert rejected). |
 | D4 | Sync cursor = global Postgres sequence bumped by trigger on every insert/update | Monotonic, gap-tolerant, no clock dependence; clients pull `cursor > n`. |
 | D5 | Field-level LWW by **server receive order** (not client clocks); losing values go to a conflict log. "Strict" tables (invoice, receipt, filed status) use optimistic concurrency and reject stale writes | Immune to device clock skew; money/legal records never silently overwritten (spec §8). |
@@ -18,3 +18,14 @@
 | D14 | UDIN: record + validate format + deep-link to the official ICAI portal only | ICAI warns against look-alike interfaces; we never imitate generation. |
 | D15 | GSTIN checksum validated locally (mod-36 algorithm) before any provider lookup | Saves paid lookup credits, instant feedback. |
 | D16 | Audit log is append-only (no UPDATE/DELETE policy) and hash-chained (`prev_hash` → `hash`) | Tamper-evidence for finance and credential reveals (spec §11). |
+| D17 | Requests run as non-superuser role `worko_app` via `SET LOCAL ROLE` inside each transaction, plus `set_config('app.tenant_id', …, true)` | Superusers and table owners bypass RLS; switching role per transaction guarantees policies apply whatever the pool's login role is. |
+| D18 | Passwords: scrypt (N=2^15) via Node crypto instead of argon2 | No native build on Windows desktops/CI; scrypt is memory-hard and OWASP-acceptable. Format is versioned (`scrypt$N$r$p$…`) so argon2id can be added later. |
+| D19 | Access JWT 15 min (HS256, `jose`); refresh token `<tenantId>.<random>` stored hashed, rotated on every use; replaying a rotated token revokes the session | Reuse detection (stolen-token defence); tenant prefix lets refresh run inside the right RLS context without a global lookup. |
+| D20 | Login identifies the firm by slug ("Firm ID") | Users are unique per tenant, not globally; avoids a cross-tenant email directory. Client-portal custom domains will map domain → tenant. |
+| D21 | Remote wipe = session revoked + `wipe_requested_at`; every authenticated call and refresh returns `401 {code: DEVICE_WIPE}`; clients erase local data on that code | Works for devices that are offline at wipe time — they comply on next contact. |
+| D22 | Contract-first API: `docs/openapi.yaml` is hand-maintained; a test asserts routes ≡ spec; `@worko/api-client` is generated with openapi-typescript and CI fails if it's stale | Spec can't drift from code; all three apps share typed calls. |
+| D23 | No UI component library yet (shadcn deferred); small Tailwind component classes over CSS variables from `@worko/ui-tokens`; hand-rolled hash router | Keeps the shell small (84 KB gz). shadcn/TanStack Table/Router come with the data-heavy modules in Phase 3. |
+| D24 | Web stores tokens in localStorage under a strict CSP; desktop uses Electron `safeStorage` (DPAPI/Keychain/libsecret) and keeps tokens memory-only if unavailable; Android uses SecureStore (Keystore) | Per-platform best available secure storage; never plaintext on desktop disk. |
+| D25 | Own tiny i18n (`@worko/i18n`) instead of i18next | Same code on web, Electron and React Native; typed keys; English fallback. Hindi/Tamil catalogues plug in via `registerLocale`. |
+| D26 | API dev mode compiles with `tsc` and runs `node --watch` (not tsx) | esbuild/tsx doesn't emit decorator metadata, which Nest DI needs (verified: DI failed under tsx). |
+| D27 | Mobile defaults to phone-OTP login; web/desktop default to email + password | Spec "less input"; phones already receive the SMS. Users with TOTP enabled must use password + TOTP. |

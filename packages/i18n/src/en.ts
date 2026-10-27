@@ -1,0 +1,32 @@
+/** English source strings. Other locales must provide the same keys (enforced by the Messages type). */
+export const en = {
+  'app.name': '{product}',
+  'app.tagline': 'Practice & office management',
+  'common.save': 'Save', 'common.cancel': 'Cancel', 'common.search': 'Search', 'common.loading': 'Loading…',
+  'common.retry': 'Retry', 'common.close': 'Close', 'common.signOut': 'Sign out', 'common.never': 'Never',
+  'common.error': 'Something went wrong', 'common.offline': 'You are offline — changes will sync when you reconnect',
+  'nav.home': 'Home', 'nav.tasks': 'Tasks', 'nav.clients': 'Clients', 'nav.compliance': 'Compliance', 'nav.billing': 'Billing',
+  'nav.documents': 'Documents', 'nav.inbox': 'Inbox', 'nav.reports': 'Reports', 'nav.team': 'Team', 'nav.settings': 'Settings',
+  'nav.security': 'Security', 'nav.audit': 'Audit log', 'nav.more': 'More',
+  'auth.title': 'Sign in to your firm', 'auth.firm': 'Firm ID', 'auth.firmHint': 'e.g. sharma-associates',
+  'auth.email': 'Email', 'auth.password': 'Password', 'auth.totp': 'Authenticator code', 'auth.signIn': 'Sign in',
+  'auth.usePhone': 'Use phone OTP instead', 'auth.useEmail': 'Use email and password', 'auth.phone': 'Mobile number',
+  'auth.sendOtp': 'Send code', 'auth.otp': 'Code sent by SMS', 'auth.invalid': 'Those details did not match. Check and try again.',
+  'auth.locked': 'Too many attempts. Try again in a few minutes.', 'auth.mfaRequired': 'Enter the 6-digit code from your authenticator app.',
+  'auth.wiped': 'This device was signed out remotely and its local data erased.',
+  'palette.placeholder': 'Type a command or search…', 'palette.empty': 'No matches', 'palette.toggleTheme': 'Toggle light/dark theme',
+  'palette.goto': 'Go to {page}',
+  'home.greeting': 'Good {partOfDay}, {name}', 'home.comingSoon': '{module} arrives in phase {phase}.',
+  'home.firm': 'Firm', 'home.roles': 'Your roles',
+  'security.sessions': 'Signed-in devices', 'security.thisDevice': 'This device', 'security.lastSeen': 'Last seen {when}',
+  'security.revoke': 'Sign out', 'security.wipe': 'Erase & sign out', 'security.wipeConfirm': 'Erase all Worko data on "{device}" and sign it out?',
+  'security.twoFactor': 'Two-factor authentication', 'security.twoFactorOn': 'On', 'security.twoFactorOff': 'Off',
+  'security.enable2fa': 'Set up authenticator app', 'security.scan': 'Add this key in your authenticator app, then enter the code it shows.',
+  'audit.title': 'Audit log', 'audit.verify': 'Verify integrity', 'audit.intact': 'Chain intact — {count} entries checked',
+  'audit.broken': 'Tampering detected at entry #{seq}', 'audit.when': 'When', 'audit.who': 'Who', 'audit.action': 'Action', 'audit.entity': 'Record',
+  'status.overdue': 'Overdue', 'status.dueSoon': 'Due soon', 'status.done': 'Done', 'status.waitingClient': 'Waiting on client',
+  'status.onHold': 'On hold', 'status.inProgress': 'In progress', 'status.notStarted': 'Not started',
+  'sync.synced': 'Synced', 'sync.syncing': 'Syncing…', 'sync.offline': 'Offline', 'sync.conflicts': '{count} conflicts',
+} as const;
+export type MessageKey = keyof typeof en;
+export type Messages = Record<MessageKey, string>;

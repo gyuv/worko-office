@@ -1,26 +1,33 @@
 # Worko — agent conventions
 
 Practice & office management for Indian CA/CS firms. Web + Electron desktop + Expo Android, one NestJS backend.
-Full spec: docs/PRD.md. Status: PROGRESS.md (update after every session). Gaps: docs/KNOWN_GAPS.md.
+Full spec: docs/PRD.md. Status: PROGRESS.md (update after every session). Gaps: docs/KNOWN_GAPS.md. Choices: docs/DECISIONS.md.
 
 ## Commands
-- `pnpm install` · `pnpm build` · `pnpm test` · `pnpm typecheck`
-- `docker compose up -d` (Postgres 16 + Redis + MinIO + Mailpit) · `pnpm dev` (API + web)
-- `pnpm --filter @worko/<pkg> test` for one package
+- `pnpm install` · `pnpm build` · `pnpm typecheck` · `pnpm test` (API integration tests need `TEST_DATABASE_URL`)
+- `docker compose up -d` → Postgres 16, Redis, MinIO, Mailpit
+- `cp .env.example .env` then `pnpm --filter @worko/api migrate` and `pnpm seed:demo` (firm `demo`, password `Demo@12345`)
+- `pnpm dev` (API :3000 + web :5173) · `pnpm desktop:dev` · `pnpm mobile:dev`
+- After editing `docs/openapi.yaml`: `pnpm --filter @worko/api-client generate` (CI fails if stale)
 
 ## Folder map
-- `packages/domain` — config constant, identifiers (PAN/GSTIN/TAN/UDIN), INR/paise money, FY helpers, permission matrix
+- `packages/domain` — product config, PAN/GSTIN/TAN/UDIN validators, paise money, FY helpers, permission matrix
 - `packages/rules` — compliance rule engine; `packs/*.json` are data, not code
-- `packages/sync` — pure sync core (outbox, cursor pull, merge, conflict log) + simulator tests
-- `apps/api` — NestJS (ESM). `db/*.sql` = ordered migrations with RLS
-- `docs/` — PRD, ARCHITECTURE, DATA_MODEL, API (+ openapi.yaml), DECISIONS, COMPLIANCE_RULES, ROADMAP, INTEGRATIONS
+- `packages/sync` — pure sync core + convergence simulator
+- `packages/api-client` — generated from openapi.yaml; handles refresh + remote wipe
+- `packages/ui-tokens`, `packages/i18n` — shared by all three apps
+- `apps/api` — NestJS (ESM). `db/*.sql` ordered migrations; `src/db/db.service.ts` tenantTx; `test/` integration tests
+- `apps/web` — Vite React SPA (also Electron's renderer); `apps/desktop` — Electron main/preload; `apps/mobile` — Expo
 
 ## Conventions
-- TypeScript strict, ESM, zod for every external input. Money is integer paise. Dates are IST calendar ISO strings.
-- Never hard-code statutory due dates or prices in code — they live in rule packs / rate tables.
-- Every tenant table: sync columns + `CALL make_tenant_table(...)` (RLS + version/cursor trigger).
-- Uncertain external behaviour → adapter interface + mock + `// VERIFY AGAINST OFFICIAL DOCS` + KNOWN_GAPS entry.
-- Product name only via `PRODUCT` in `@worko/domain`. All UI strings through i18n.
+- TypeScript strict, ESM, zod on every external input. Money = integer paise. Dates = IST.
+- All tenant queries go through `db.tenantTx(tenantId, …)` — never query tenant tables from `systemTx`.
+- Every mutation writes an audit entry in the same transaction (`AuditService.record`). Never log secrets.
+- New route ⇒ add it to `docs/openapi.yaml`, regenerate the client, add `@Perm` (or `@Public` deliberately).
+- New tenant table ⇒ sync columns + `CALL make_tenant_table(...)` + grants to `worko_app` in its migration.
+- Never hard-code statutory due dates or prices — rule packs / rate tables.
+- Uncertain external behaviour ⇒ adapter + mock + `// VERIFY AGAINST OFFICIAL DOCS` + KNOWN_GAPS entry.
+- UI strings via `@worko/i18n` keys; colours via `@worko/ui-tokens`; product name via `PRODUCT`.
 
 ## Definition of done (per module)
 Migration · API with validation + permission check + audit entry · web screen · mobile screen · desktop behaviour ·

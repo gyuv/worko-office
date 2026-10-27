@@ -18,11 +18,26 @@ flowchart LR
 ```
 
 ## Request path
-1. JWT access token (15 min) + rotating refresh token bound to a `device_session`.
-2. Every request runs in a transaction that does `SET LOCAL app.tenant_id` → RLS applies to every query.
-3. zod validation → permission check (`can()` from `@worko/domain`, module × action × scope + sensitive-client list) → handler.
-4. Mutations write the row **and** an `audit_log` entry **and** an `outbox_event` in the same transaction (outbox pattern).
-5. Outbox relay publishes to Redis pub/sub → WebSocket gateway pushes "changed: table/cursor" hints to connected devices.
+1. JWT access token (15 min) + rotating refresh token bound to a `device_session` (reuse ⇒ session revoked).
+2. Global `AuthGuard` verifies the JWT, checks the session isn't revoked or wipe-flagged, loads roles, then enforces `@Perm(module, action)`.
+3. Every query runs in `DbService.tenantTx`: `BEGIN; SET LOCAL ROLE worko_app; set_config('app.tenant_id', …, true)` → RLS applies even if a query forgets a filter.
+4. zod validation → row-level permission check (`can()` from `@worko/domain`, module × action × scope + sensitive-client list) → handler.
+5. Mutations write the row **and** an `audit_log` entry **and** an `outbox_event` in the same transaction (outbox pattern).
+6. Outbox relay publishes to Redis pub/sub → WebSocket gateway pushes "changed: table/cursor" hints to connected devices.
+
+## Auth flows
+```mermaid
+sequenceDiagram
+  participant App
+  participant API
+  App->>API: POST /auth/login {firm, email, password, totp?, device}
+  API-->>App: 401 MFA_REQUIRED (if TOTP on) / 429 locked after 5 failures
+  API-->>App: {accessToken 15m, refreshToken, sessionId}
+  App->>API: any call → 401
+  App->>API: POST /auth/refresh (single-flight)
+  API-->>App: new pair (old token marked rotated)
+  Note over App,API: replaying a rotated token ⇒ session revoked<br/>wiped session ⇒ 401 DEVICE_WIPE ⇒ app erases local data
+```
 
 ## Sync (`packages/sync`)
 ```mermaid

@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "Worko",
+    "slug": "worko",
+    "version": "0.1.0",
+    "scheme": "worko",
+    "orientation": "default",
+    "userInterfaceStyle": "automatic",
+    "android": {
+      "package": "in.worko.app",
+      "permissions": [],
+      "blockedPermissions": ["android.permission.READ_EXTERNAL_STORAGE"]
+    },
+    "extra": { "apiBase": "http://10.0.2.2:3000/v1" },
+    "plugins": ["expo-secure-store"]
+  }
+}

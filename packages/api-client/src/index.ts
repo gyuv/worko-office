@@ -25,7 +25,8 @@ export type ClientOptions = {
  * refresh (deduplicated across concurrent requests) and retries once.
  */
 export function createWorkoClient(o: ClientOptions) {
-  const f = o.fetch ?? globalThis.fetch.bind(globalThis);
+  // Resolved per call so polyfills or test stubs installed after creation are honoured.
+  const f: typeof fetch = (input, init) => (o.fetch ?? globalThis.fetch)(input, init);
   let refreshing: Promise<boolean> | null = null;
 
   async function refresh(): Promise<boolean> {
