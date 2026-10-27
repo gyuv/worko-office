@@ -16,8 +16,6 @@
 | Android | JS bundle builds (`expo export`); native Gradle/AAB build, SQLCipher open, exact-alarm persistence across reboot and FCM token registration are unverified on a device (need `google-services.json`). No biometric app lock yet. | Next session with a device/emulator. |
 | Client portal users | `app_user.kind` supports `client`, but portal login flow is not built. | Phase 9. |
 | Super-admin | Signup is self-serve (disable with `ALLOW_SIGNUP=false`); no super-admin console yet. | Phase 12. |
-| Field hiding | `role.hidden_fields` is stored, loaded and enforced in role-grant escalation checks, but no API response is filtered by it yet (no fee/password fields exist until Phase 3). | Response serializer that strips hidden fields, built with the client module (Phase 3). |
-| Sensitive clients | `can()` honours `sensitive` + `allowedUserIds`, but there is no table/column or endpoint using it yet. | Client master (Phase 3). |
 | 2FA lifecycle | No 2FA disable, recovery codes, or admin-enforced 2FA policy. | Phase 2 carry-over. |
 | Role management | Only system roles are seeded; no create/edit-role API or role editor UI. | Settings (Phase 2/3). |
 | Audit anchoring | Hash chain is verified on demand only; a DB superuser could rewrite the whole chain. | Scheduled verification + periodic external anchoring of the chain head (e.g. write-once object storage) in Phase 12. |
@@ -27,7 +25,6 @@
 | Push content | Push payloads include title/body (may name a client). Web Push is end-to-end encrypted; FCM payloads are visible to Google. | Per-firm "content-free push" option before FCM goes live. |
 | Cross-device OS tray | Reading on one device stops *future* pushes elsewhere and clears in-app badges, but an OS notification already shown on another device stays until dismissed. | Send a silent "dismiss" data message (FCM/Web Push) on read. |
 | Staged initial sync | One global cursor; a first sync pulls everything in cursor order (with progress), not essentials-first. | Per-table priority pull when clients/tasks volume lands (Phase 3/4). |
-| Sync revocation | Synced tables are user-owned or firm-wide today, so scope changes never revoke rows. Scope-based tables (clients by group/branch, sensitive clients) need "revoked" ids in pull. | Phase 3 with the client master. |
 | Digests | Digest preference is stored; morning/evening summary sender not built. | With the Daily Office Digest agent (Phase 10) / email channel (Phase 7). |
 | Escalation text | Escalation notification titles are generated in English server-side. | Move to i18n keys rendered client-side. |
 | Load/chaos tests | Convergence proven by seeded simulators and real-API tests; no 100k-client/1M-task load test or chaos test yet. | Phase 12 hardening. |
@@ -35,4 +32,14 @@
 | Email/WhatsApp/SMS channels | Allowed in `notification_delivery.channel`, but no senders are wired to notifications yet. | Phase 7 (communication hub). |
 | Dead-letter jobs | Jobs that exhaust retries are marked `dead_at` and logged; no admin view, alert or replay. | Settings → System health (Phase 12) + automation-failure notifications (Phase 10). |
 | Sync housekeeping | `sync_mutation` (idempotency) and resolved `sync_conflict` rows are never pruned; `/sync/push` volume is only bounded by the global rate limit. | Retention job (e.g. 30 days) + per-device push quota. |
-| Deactivation flow | Sockets and refresh now stop for disabled users, but there is no UI/API yet to deactivate a user. | Users module (Phase 3). |
+| GSTIN / PAN lookup | `MockGstinLookup` derives state/constitution from the GSTIN itself and returns synthetic names; no licensed GSP/ASP adapter yet. PAN/TAN/CIN/DIN lookups not implemented (format validation only). | Needs a provider contract (INTEGRATIONS.md). |
+| GST state codes | `GST_STATES` table typed from memory. | VERIFY AGAINST OFFICIAL DOCS (CBIC/GSTN). |
+| Portal hosts & selectors | `PORTAL_HOSTS` and the extension's login-field selectors are best guesses. | VERIFY AGAINST LIVE PORTALS before release; keep allow-list tight. |
+| KMS | `LocalKms` (env key). No AWS KMS adapter, no DEK rotation job. | Before production (Phase 12). |
+| Documents | No resumable/chunked uploads (25 MB single request), no OCR/text extraction (`extracted_text` empty), no watermark on download, no thumbnails, retention policy fields stored but not enforced, no zip download. Virus scanning is a mock (EICAR only). | OCR + ClamAV adapter + chunked uploads in Phase 12 hardening; retention job with DPDP tooling. |
+| Offline uploads | Document/signature uploads need connectivity (metadata and register entries work offline). | Background upload queue on desktop/Android. |
+| Tally / other-tool import | Import accepts Excel/CSV with header aliases; no direct Tally masters pull yet. | Desktop Tally connector (Phase 5). |
+| Firm documents | Documents without a client need firm-wide `documents` scope and are not synced to devices. | Revisit with firm-level folders. |
+| Client groups | Groups are flat for permissions (no inheritance through `parent_id`); group edit/delete endpoints not built. | Phase 4 (group billing/reports). |
+| Desktop "print/scan to folder" | Drag-and-drop from Explorer works via the web renderer; no virtual printer / scanner (TWAIN/WIA) integration. | Phase 12 desktop polish. |
+| Revocation fan-out cost | Access changes evaluate every active user's visibility (fine at ≤ a few hundred users per firm). | Batch/approximate for very large tenants. |

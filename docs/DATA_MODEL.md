@@ -1,7 +1,9 @@
 # Data model
 
 All tenant tables carry `id uuid (v7) · tenant_id · version · updated_at · deleted_at · updated_by · device_id · sync_cursor` and RLS.
-Implemented so far (`apps/api/db/0001`–`0004`): `tenant, firm_entity, branch, app_user, role, user_role, device_session, refresh_token, otp_challenge, audit_log, idempotency_key, schema_migration, team, team_member, sync_mutation, sync_conflict, notification, notification_pref, push_subscription, notification_delivery, job_queue`.
+Implemented so far (`apps/api/db/0001`–`0005`): `tenant, firm_entity, branch, app_user, role, user_role, device_session, refresh_token, otp_challenge, audit_log, idempotency_key, schema_migration, team, team_member, sync_mutation, sync_conflict, notification, notification_pref, push_subscription, notification_delivery, job_queue, tenant_key, client_group, client, client_registration, contact, custom_field_def, sync_revocation, vault_secret, extension_pair_code, document, document_version, share_link, document_access_log, register_counter, inward_entry, outward_entry`.
+
+Client membership in groups, staff assignment and the sensitive allow-list are uuid[] columns on `client` (GIN-indexed) so one row carries everything that decides visibility.
 
 ```mermaid
 erDiagram

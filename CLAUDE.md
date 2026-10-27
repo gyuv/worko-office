@@ -18,7 +18,7 @@ Full spec: docs/PRD.md. Status: PROGRESS.md (update after every session). Gaps: 
 - `packages/api-client` — generated from openapi.yaml; handles refresh + remote wipe
 - `packages/ui-tokens`, `packages/i18n` — shared by all three apps
 - `apps/api` — NestJS (ESM). `db/*.sql` ordered migrations; `src/db/db.service.ts` tenantTx; `src/sync/registry.ts` syncable tables; `src/jobs` Postgres job queue; `test/` integration tests (`helpers.ts` boots an app on a fresh DB)
-- `apps/web` — Vite React SPA (also Electron's renderer); `apps/desktop` — Electron main/preload; `apps/mobile` — Expo
+- `apps/web` — Vite React SPA (also Electron's renderer); `apps/desktop` — Electron main/preload; `apps/mobile` — Expo; `apps/extension` — MV3 vault autofill
 
 ## Conventions
 - TypeScript strict, ESM, zod on every external input. Money = integer paise. Dates = IST.
@@ -28,6 +28,8 @@ Full spec: docs/PRD.md. Status: PROGRESS.md (update after every session). Gaps: 
 - New tenant table ⇒ sync columns (+ `field_versions` if synced) + `CALL make_tenant_table(...)` + grants to `worko_app`; to sync it to devices add a registry entry.
 - Server-side changes to synced rows ⇒ `SyncService.serverPatch` (keeps field versions) and `RealtimeService.publish` after commit.
 - Tests must not depend on the wall clock (quiet hours!) — pin prefs/times.
+- Client-scoped data: filter lists with `clientScopeSql(actor, module, action, params)`; check single rows with `can(actor, module, action, clientCtx(visibilityOf(row)))`; answer 404 for invisible rows. Visibility changes only via `ClientsService.setAccess` (revocations).
+- Secrets/PII: encrypt with `KeyService` (AAD `entity:id:field`), reveal only behind `requireElevated(actor)` + audit; never put plaintext in audit diffs, logs or sync.
 - Never hard-code statutory due dates or prices — rule packs / rate tables.
 - Uncertain external behaviour ⇒ adapter + mock + `// VERIFY AGAINST OFFICIAL DOCS` + KNOWN_GAPS entry.
 - UI strings via `@worko/i18n` keys; colours via `@worko/ui-tokens`; product name via `PRODUCT`.
