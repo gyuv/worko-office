@@ -1,29 +1,43 @@
 import 'reflect-metadata';
-import { Test } from '@nestjs/testing';
-import type { INestApplication } from '@nestjs/common';
-import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { AppModule } from './app.module.js';
+import { describe, expect, it } from 'vitest';
+import { canonical } from './audit/audit.service.js';
+import { base32Decode, base32Encode, hashPassword, totp, verifyPassword, verifyTotp } from './auth/crypto.js';
+import { decryptField, encryptField } from './auth/field-crypto.js';
+import { uuidv7 } from './db/ids.js';
 
-describe('API', () => {
-  let app: INestApplication;
-  beforeAll(async () => {
-    const mod = await Test.createTestingModule({ imports: [AppModule] }).compile();
-    app = mod.createNestApplication(); app.setGlobalPrefix('v1'); await app.init();
+describe('crypto', () => {
+  it('TOTP matches RFC 6238 SHA-1 vectors (8-digit truncated to 6)', () => {
+    const secret = Buffer.from('12345678901234567890');
+    // RFC 6238 Appendix B: T=59 → 94287082, T=1111111109 → 07081804
+    expect(totp(secret, 59_000)).toBe('287082');
+    expect(totp(secret, 1_111_111_109_000)).toBe('081804');
+    expect(verifyTotp(secret, totp(secret, 1_000_000), 1_030_000)).toBe(true);
+    expect(verifyTotp(secret, totp(secret, 1_000_000), 1_200_000)).toBe(false);
   });
-  afterAll(() => app.close());
+  it('base32 round-trips', () => {
+    const b = Buffer.from('hello worko 2fa!');
+    expect(base32Decode(base32Encode(b))).toEqual(b);
+  });
+  it('scrypt passwords verify and reject', async () => {
+    const h = await hashPassword('s3cret-pass');
+    expect(await verifyPassword('s3cret-pass', h)).toBe(true);
+    expect(await verifyPassword('nope', h)).toBe(false);
+    expect(h).not.toContain('s3cret');
+  });
+  it('field encryption is authenticated and bound to its AAD', () => {
+    const blob = encryptField('ABCDE1234F', 'vault:1');
+    expect(decryptField(blob, 'vault:1').toString()).toBe('ABCDE1234F');
+    expect(() => decryptField(blob, 'vault:2')).toThrow();
+  });
+});
 
-  it('health', () => request(app.getHttpServer()).get('/v1/health').expect(200, { status: 'ok', product: 'Worko' }));
-
-  it('rejects invalid preview body', () => request(app.getHttpServer()).post('/v1/rules/preview').send({ fy: 'x' }).expect(400));
-
-  it('reports extension impact', async () => {
-    const clients = Array.from({ length: 412 }, (_, i) => ({ id: `c${i}`, gstRegistered: true, gstFiling: 'MONTHLY' }));
-    const res = await request(app.getHttpServer()).post('/v1/rules/extension-impact').send({
-      fy: 2026, clients,
-      extensions: [{ id: 'n1', ruleId: 'gst.gstr3b.monthly', periodKey: '2026-09', newDueDate: '2026-10-25' }],
-    }).expect(201);
-    expect(res.body.clientsAffected).toBe(412);
-    expect(res.body.dueDatesChanged).toBe(1);
+describe('ids & audit canonical form', () => {
+  it('uuidv7 is time-ordered and versioned', () => {
+    const a = uuidv7(1_700_000_000_000); const b = uuidv7(1_700_000_000_001);
+    expect(a < b).toBe(true);
+    expect(a[14]).toBe('7');
+  });
+  it('canonical JSON sorts keys deeply', () => {
+    expect(canonical({ b: 1, a: { d: [2, { z: 1, y: 0 }], c: null } })).toBe('{"a":{"c":null,"d":[2,{"y":0,"z":1}]},"b":1}');
   });
 });

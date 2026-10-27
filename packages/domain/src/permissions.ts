@@ -56,6 +56,13 @@ export function can(actor: Actor, module: Module, action: Action, res: ResourceC
   }
 }
 
+/** True if the actor already holds `g` at the same or a wider scope — used to block privilege escalation. */
+export function covers(actor: Actor, g: Grant): boolean {
+  if (actor.superAdmin || g.scope === 'none') return true;
+  const mine = effectiveScope(actor, g.module, g.action);
+  return !!mine && SCOPE_RANK[mine.scope] >= SCOPE_RANK[g.scope];
+}
+
 const all = (scope: Scope, actions: readonly Action[] = ACTIONS, mods: readonly Module[] = MODULES): Grant[] =>
   mods.flatMap((module) => actions.map((action) => ({ module, action, scope })));
 
@@ -64,10 +71,8 @@ export const SYSTEM_ROLES: Role[] = [
   { key: 'partner', name: 'Partner', system: true, grants: all('all') },
   {
     key: 'manager', name: 'Manager', system: true, hiddenFields: [],
-    grants: [
-      ...all('team', ['view', 'create', 'edit', 'assign', 'approve', 'export', 'print']),
-      ...all('none', ['view'], ['settings', 'users', 'audit_log']),
-    ],
+    grants: all('team', ['view', 'create', 'edit', 'assign', 'approve', 'export', 'print'],
+      MODULES.filter((m) => !['settings', 'users', 'audit_log', 'vault'].includes(m))),
   },
   {
     key: 'senior', name: 'Senior', system: true, hiddenFields: ['client.fees'],

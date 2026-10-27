@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Post } from '@nestjs/common';
 import { extensionSchema } from '@worko/rules';
 import { z } from 'zod';
+import { Perm } from '../auth/context.js';
 import { ZodPipe } from '../common/zod.pipe.js';
 import { RulesService } from './rules.service.js';
 
@@ -15,15 +16,15 @@ type PreviewBody = z.infer<typeof previewSchema>;
 export class RulesController {
   constructor(private readonly rules: RulesService) {}
 
-  @Get('pack')
+  @Get('pack') @Perm('compliance', 'view')
   pack() {
     const { id, version, notes, rules } = this.rules.pack;
     return { id, version, notes, rules: rules.map((r) => ({ id: r.id, form: r.form, regime: r.regime, frequency: r.frequency, verified: r.verified })) };
   }
 
-  @Post('preview')
+  @Post('preview') @Perm('compliance', 'view')
   preview(@Body(new ZodPipe(previewSchema)) b: PreviewBody) { return this.rules.preview(b.clients, b.fy, b.extensions); }
 
-  @Post('extension-impact')
+  @Post('extension-impact') @Perm('compliance', 'view')
   impact(@Body(new ZodPipe(previewSchema)) b: PreviewBody) { return this.rules.extensionImpact(b.clients, b.fy, b.extensions); }
 }

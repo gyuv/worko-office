@@ -1,23 +1,186 @@
 openapi: 3.1.0
-info: { title: Worko API, version: 0.1.0 }
+info:
+  title: Worko API
+  version: 0.2.0
+  description: Contract for web, desktop, Android and the public API. Source of truth for @worko/api-client.
 servers: [{ url: /v1 }]
+security: [{ bearer: [] }]
+tags: [{ name: auth }, { name: tenancy }, { name: users }, { name: audit }, { name: rules }, { name: system }]
 paths:
   /health:
-    get: { operationId: health, responses: { '200': { description: OK } } }
+    get: { tags: [system], operationId: health, security: [], responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { status: { type: string }, product: { type: string } } } } } } } }
+  /tenants/signup:
+    post:
+      tags: [tenancy]
+      operationId: signup
+      security: []
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SignupRequest' } } } }
+      responses:
+        '201': { description: Firm created, content: { application/json: { schema: { type: object, required: [tenantId, userId], properties: { tenantId: { type: string, format: uuid }, userId: { type: string, format: uuid } } } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      security: []
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/LoginRequest' } } } }
+      responses:
+        '200': { $ref: '#/components/responses/Tokens' }
+        '401': { description: 'Invalid credentials, or `code: MFA_REQUIRED`', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '429': { $ref: '#/components/responses/Error' }
+  /auth/otp/request:
+    post:
+      tags: [auth]
+      operationId: requestOtp
+      security: []
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [firm, phone], properties: { firm: { type: string }, phone: { type: string } } } } } }
+      responses: { '202': { description: Always accepted (no user enumeration) } }
+  /auth/otp/verify:
+    post:
+      tags: [auth]
+      operationId: verifyOtp
+      security: []
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [firm, phone, code, device], properties: { firm: { type: string }, phone: { type: string }, code: { type: string, pattern: '^\d{6}$' }, device: { $ref: '#/components/schemas/Device' } } } } } }
+      responses: { '200': { $ref: '#/components/responses/Tokens' }, '401': { $ref: '#/components/responses/Error' } }
+  /auth/refresh:
+    post:
+      tags: [auth]
+      operationId: refresh
+      security: []
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [refreshToken], properties: { refreshToken: { type: string }, deviceId: { type: string } } } } } }
+      responses: { '200': { $ref: '#/components/responses/Tokens' }, '401': { description: 'Expired/reused token, or `code: DEVICE_WIPE`', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } } }
+  /auth/logout:
+    post: { tags: [auth], operationId: logout, responses: { '204': { description: Session revoked } } }
+  /auth/sessions:
+    get:
+      tags: [auth]
+      operationId: listSessions
+      responses: { '200': { description: Device sessions, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Session' } } } } } }
+  /auth/sessions/{id}/revoke:
+    post: { tags: [auth], operationId: revokeSession, parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '204': { description: Revoked }, '403': { $ref: '#/components/responses/Error' } } }
+  /auth/sessions/{id}/wipe:
+    post: { tags: [auth], operationId: wipeSession, description: Revokes the session and makes the device erase local data on next contact., parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '204': { description: Wipe requested }, '403': { $ref: '#/components/responses/Error' } } }
+  /auth/totp/setup:
+    post:
+      tags: [auth]
+      operationId: totpSetup
+      responses: { '201': { description: Secret for authenticator app, content: { application/json: { schema: { type: object, required: [secret, otpauthUrl], properties: { secret: { type: string }, otpauthUrl: { type: string } } } } } } }
+  /auth/totp/enable:
+    post:
+      tags: [auth]
+      operationId: totpEnable
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [code], properties: { code: { type: string } } } } } }
+      responses: { '204': { description: Enabled }, '401': { $ref: '#/components/responses/Error' } }
+  /me:
+    get:
+      tags: [users]
+      operationId: me
+      responses: { '200': { description: Current user, content: { application/json: { schema: { $ref: '#/components/schemas/Me' } } } } }
+  /users:
+    get:
+      tags: [users]
+      operationId: listUsers
+      responses: { '200': { description: Staff users, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/User' } } } } }, '403': { $ref: '#/components/responses/Error' } }
+    post:
+      tags: [users]
+      operationId: createUser
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateUserRequest' } } } }
+      responses: { '201': { description: Created, content: { application/json: { schema: { type: object, properties: { id: { type: string } } } } } }, '403': { $ref: '#/components/responses/Error' }, '409': { $ref: '#/components/responses/Error' } }
+  /roles:
+    get:
+      tags: [users]
+      operationId: listRoles
+      responses: { '200': { description: Roles, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Role' } } } } } }
+  /audit:
+    get:
+      tags: [audit]
+      operationId: listAudit
+      parameters:
+        - { name: before, in: query, schema: { type: integer } }
+        - { name: limit, in: query, schema: { type: integer, maximum: 500 } }
+        - { name: entity, in: query, schema: { type: string } }
+      responses: { '200': { description: Newest first, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/AuditEntry' } } } } } }
+  /audit/verify:
+    get:
+      tags: [audit]
+      operationId: verifyAudit
+      responses: { '200': { description: Hash-chain verification, content: { application/json: { schema: { type: object, required: [ok, checked], properties: { ok: { type: boolean }, checked: { type: integer }, brokenAt: { type: [integer, 'null'] } } } } } } }
   /rules/pack:
-    get: { operationId: getRulePack, responses: { '200': { description: Active rule pack summary } } }
+    get: { tags: [rules], operationId: getRulePack, responses: { '200': { description: Active rule pack summary } } }
   /rules/preview:
     post:
+      tags: [rules]
       operationId: previewSchedule
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/PreviewRequest' } } } }
-      responses: { '201': { description: Due items }, '400': { description: Validation error } }
+      responses: { '201': { description: Due items }, '400': { $ref: '#/components/responses/Error' } }
   /rules/extension-impact:
     post:
+      tags: [rules]
       operationId: extensionImpact
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/PreviewRequest' } } } }
       responses: { '201': { description: '{ dueDatesChanged, clientsAffected, changes[] }' } }
 components:
+  securitySchemes:
+    bearer: { type: http, scheme: bearer, bearerFormat: JWT }
+  parameters:
+    Id: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+  responses:
+    Error: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    Tokens: { description: Tokens, content: { application/json: { schema: { $ref: '#/components/schemas/TokenPair' } } } }
   schemas:
+    Error:
+      type: object
+      required: [statusCode, message]
+      properties: { statusCode: { type: integer }, message: { type: string }, code: { type: string }, issues: { type: array, items: { type: object } } }
+    Device:
+      type: object
+      required: [platform]
+      properties: { platform: { type: string, enum: [web, desktop, android] }, label: { type: string }, deviceId: { type: string } }
+    LoginRequest:
+      type: object
+      required: [firm, email, password, device]
+      properties: { firm: { type: string }, email: { type: string, format: email }, password: { type: string }, totp: { type: string }, device: { $ref: '#/components/schemas/Device' } }
+    TokenPair:
+      type: object
+      required: [accessToken, refreshToken, expiresIn, sessionId, userId, tenantId]
+      properties: { accessToken: { type: string }, refreshToken: { type: string }, expiresIn: { type: integer }, sessionId: { type: string }, userId: { type: string }, tenantId: { type: string } }
+    SignupRequest:
+      type: object
+      required: [firmName, slug, stateCode, partner]
+      properties:
+        firmName: { type: string }
+        slug: { type: string }
+        stateCode: { type: string, pattern: '^\d{2}$' }
+        partner: { type: object, required: [name, email, password], properties: { name: { type: string }, email: { type: string }, password: { type: string, minLength: 10 }, phone: { type: string } } }
+    Session:
+      type: object
+      required: [id, platform, current, createdAt]
+      properties: { id: { type: string }, platform: { type: string }, label: { type: [string, 'null'] }, ip: { type: [string, 'null'] }, userAgent: { type: [string, 'null'] }, lastSeenAt: { type: [string, 'null'] }, createdAt: { type: string }, revokedAt: { type: [string, 'null'] }, wipeRequestedAt: { type: [string, 'null'] }, current: { type: boolean } }
+    Grant:
+      type: object
+      required: [module, action, scope]
+      properties: { module: { type: string }, action: { type: string }, scope: { type: string } }
+    Me:
+      type: object
+      required: [id, name, email, firmName, firmSlug, roles, grants, totpEnabled]
+      properties: { id: { type: string }, name: { type: string }, email: { type: string }, phone: { type: [string, 'null'] }, totpEnabled: { type: boolean }, firmName: { type: string }, firmSlug: { type: string }, roles: { type: array, items: { type: string } }, grants: { type: array, items: { $ref: '#/components/schemas/Grant' } } }
+    User:
+      type: object
+      required: [id, name, email, status, roles, totpEnabled]
+      properties: { id: { type: string }, name: { type: string }, email: { type: string }, phone: { type: [string, 'null'] }, status: { type: string }, branchId: { type: [string, 'null'] }, totpEnabled: { type: boolean }, roles: { type: array, items: { type: string } } }
+    CreateUserRequest:
+      type: object
+      required: [name, email, password, roleKeys]
+      properties: { name: { type: string }, email: { type: string }, phone: { type: string }, password: { type: string, minLength: 10 }, roleKeys: { type: array, items: { type: string } }, branchId: { type: string } }
+    Role:
+      type: object
+      required: [id, key, name, system, grants]
+      properties: { id: { type: string }, key: { type: string }, name: { type: string }, system: { type: boolean }, grants: { type: array, items: { $ref: '#/components/schemas/Grant' } }, hiddenFields: { type: array, items: { type: string } } }
+    AuditEntry:
+      type: object
+      required: [seq, at, action, entity]
+      properties: { seq: { type: string }, at: { type: string }, action: { type: string }, entity: { type: string }, entityId: { type: [string, 'null'] }, diff: {}, ip: { type: [string, 'null'] }, actorId: { type: [string, 'null'] }, actorName: { type: [string, 'null'] } }
     PreviewRequest:
       type: object
       required: [fy, clients]

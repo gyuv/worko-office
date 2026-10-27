@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  can, formatCompactINR, formatINR, fyLabel, fyStartYear, gstinCheckChar, incomeTaxPeriodLabel,
+  can, covers, formatCompactINR, formatINR, fyLabel, fyStartYear, gstinCheckChar, incomeTaxPeriodLabel,
   isValidGstin, isValidPan, isValidUdin, maskAadhaar, panFromGstin, splitGst, SYSTEM_ROLES, type Actor,
 } from './index.js';
 
@@ -59,7 +59,13 @@ describe('permissions', () => {
   it('manager sees team work', () => {
     expect(can(actor('manager'), 'tasks', 'view', { teamId: 't1' })).toBe(true);
     expect(can(actor('manager'), 'tasks', 'view', { teamId: 't2' })).toBe(false);
-    expect(can(actor('manager'), 'settings', 'view')).toBe(false);
+    expect(can(actor('manager'), 'settings', 'view', { teamId: 't1' })).toBe(false);
+    expect(can(actor('manager'), 'users', 'create', { teamId: 't1' })).toBe(false);
+  });
+  it('covers() blocks granting wider scope than you hold', () => {
+    expect(covers(actor('partner'), { module: 'billing', action: 'edit', scope: 'all' })).toBe(true);
+    expect(covers(actor('manager'), { module: 'tasks', action: 'view', scope: 'team' })).toBe(true);
+    expect(covers(actor('manager'), { module: 'tasks', action: 'view', scope: 'all' })).toBe(false);
   });
   it('sensitive client restricts even partners', () => {
     expect(can(actor('partner'), 'clients', 'view', { sensitive: true, allowedUserIds: ['u9'] })).toBe(false);
