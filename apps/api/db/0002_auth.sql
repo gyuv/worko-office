@@ -1,7 +1,10 @@
 -- Runtime role used for every request transaction (SET LOCAL ROLE worko_app). Not a superuser,
 -- so RLS always applies. In production the API's login role is a member of worko_app.
+-- Roles are cluster-wide: databases migrating concurrently (parallel test files, several environments on one
+-- cluster) race between the existence check and CREATE, so tolerate the loser's duplicate error.
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'worko_app') THEN CREATE ROLE worko_app NOLOGIN; END IF;
+EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL;
 END $$;
 
 ALTER TABLE tenant ADD COLUMN slug text UNIQUE;
