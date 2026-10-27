@@ -29,8 +29,16 @@ Each phase ends with a runnable build, green tests, reviewer-subagent audit, KNO
 - [x] Local reminder scheduler (desktop toasts, web toasts, Android exact alarms + channels)
 - [ ] Staged initial sync (essentials first) — single global cursor today; progress shown
 - [ ] Digests (morning/evening summary) — preference stored, sender not built
-## Phase 3 — Clients, groups, vault, documents, inward/outward, GSTIN adapter, import wizard, browser extension (next)
-## Phase 4 — Service catalogue, tasks, checks, to-dos, auto-creation/assignment
+## Phase 3 — Clients, groups, vault, documents, inward/outward, GSTIN adapter, import wizard, browser extension ✅
+- [x] Client master (registrations, contacts, groups, custom fields, encrypted Aadhaar/bank), 360 view on web, offline list/detail on Android
+- [x] Visibility (own/team/branch/groups/all + sensitive allow-list) — SQL ≡ can() property test; revocations to exactly the devices that held the rows; scope-key re-pull
+- [x] GSTIN checksum + lookup adapter (mock), duplicate detection, merge, import wizard (xlsx/csv) + export
+- [x] Credential vault (envelope encryption, step-up reveal, audit) + MV3 browser extension (pairing, allow-listed autofill)
+- [x] Documents (storage adapters, versions, signed downloads, share links, legal hold, trash, access log, search), mobile scan-upload, desktop drag-and-drop
+- [x] Inward/outward registers (per-FY numbers incl. offline entries, signatures, PDF receipts)
+- [x] Users PATCH (deactivate, roles, manager, branch); field hiding on REST + sync
+- [ ] Licensed GSTIN/PAN/TAN/CIN lookups, OCR, chunked uploads, watermarking, Tally masters import (see KNOWN_GAPS)
+## Phase 4 — Service catalogue, tasks, checks, to-dos, auto-creation/assignment (next)
 - [x] Compliance rule engine core + seed pack + golden tests (`@worko/rules`)
 - [ ] Rule pack storage/versions, firm approval flow, matrix view, trackers, late-fee calculators
 ## Phase 5 — Billing, receipts, ageing, auto-billing, follow-ups, reimbursements, payment links, Tally connector, exports
