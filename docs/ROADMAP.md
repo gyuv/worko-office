@@ -38,9 +38,9 @@ Each phase ends with a runnable build, green tests, reviewer-subagent audit, KNO
 - [x] Inward/outward registers (per-FY numbers incl. offline entries, signatures, PDF receipts)
 - [x] Users PATCH (deactivate, roles, manager, branch); field hiding on REST + sync
 - [ ] Licensed GSTIN/PAN/TAN/CIN lookups, OCR, chunked uploads, watermarking, Tally masters import (see KNOWN_GAPS)
-## Phase 4 — Service catalogue, tasks, checks, to-dos, auto-creation/assignment (next)
+## Phase 4 — Service catalogue, tasks, checks, to-dos, auto-creation/assignment ✅
 - [x] Compliance rule engine core + seed pack + golden tests (`@worko/rules`)
-- [ ] Rule pack storage/versions, firm approval flow, matrix view, trackers, late-fee calculators
+- [x] Rule pack storage/versions, firm approval flow, matrix view, trackers, late-fee calculators
 ## Phase 5 — Billing, receipts, ageing, auto-billing, follow-ups, reimbursements, payment links, Tally connector, exports
 ## Phase 6 — Time, costing, capacity; attendance (geofence), leave, expenses
 ## Phase 7 — Email, WhatsApp/SMS, broadcasts, team chat, calendar sync, appointments

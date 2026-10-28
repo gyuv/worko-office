@@ -7,10 +7,15 @@ import * as SecureStore from 'expo-secure-store';
 import * as SQLite from 'expo-sqlite';
 import { create } from 'zustand';
 import { scheduleUpcoming, cancelAllScheduled } from './notifications';
+import { planTaskReminders, toTaskItem } from './logic/tasks';
+import { createTranslator } from '@worko/i18n';
+import { PRODUCT } from '@worko/domain';
 import { api, apiBase, setWipeHandler, useSession } from './session';
 
 type MobileSync = SyncState & { versions: Record<string, number>; online: boolean; connected: boolean };
 export const useSync = create<MobileSync>(() => ({ status: 'idle', pending: 0, rejected: [], lastSyncedAt: null, versions: {}, online: true, connected: false }));
+
+const tr = createTranslator('en-IN', { product: PRODUCT.name });
 
 let db: SQLite.SQLiteDatabase | null = null;
 let engine: SyncEngine | null = null;
@@ -59,7 +64,11 @@ async function reschedule() {
   if (!store) return;
   const p = await prefs();
   const s = new ReminderScheduler({ now: Date.now, show: () => undefined, prefs: () => p });
-  await scheduleUpcoming(s.upcoming((await store.list('notification')).map(toReminder)));
+  // Server notifications plus device-planned act-by reminders for my own open tasks (work offline).
+  const userId = useSession.getState().tokens?.userId ?? '';
+  const tasks = (await store.list('task')).filter((r) => !r.deleted).map(toTaskItem);
+  const own = planTaskReminders(tasks, userId, { soon: (x) => tr('m.task.remind.soon', { title: x.title }), today: (x) => tr('m.task.remind.today', { title: x.title }) });
+  await scheduleUpcoming(s.upcoming([...(await store.list('notification')).map(toReminder), ...own]));
 }
 
 function bump(tables: Set<string>) {
@@ -68,7 +77,7 @@ function bump(tables: Set<string>) {
     for (const t of tables) versions[t] = (versions[t] ?? 0) + 1;
     return { versions };
   });
-  if (tables.has('notification') || tables.has('notification_pref')) void reschedule();
+  if (tables.has('notification') || tables.has('notification_pref') || tables.has('task')) void reschedule();
 }
 
 export async function startSync(tenantId: string, userId: string, sessionId: string) {

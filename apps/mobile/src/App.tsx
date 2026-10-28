@@ -92,7 +92,7 @@ function Tabs({ theme }: { theme: Theme }) {
     <View style={{ flex: 1 }}>
       <StatusStrip theme={theme} />
       <View style={{ flex: 1, padding: 16 }}>
-        {tab === 'home' ? <Home theme={theme} /> : tab === 'clients' ? <Stack theme={theme} root={{ name: 'clients' }} />
+        {tab === 'home' ? <Home theme={theme} /> : tab === 'tasks' ? <Stack theme={theme} root={{ name: 'tasks' }} /> : tab === 'clients' ? <Stack theme={theme} root={{ name: 'clients' }} />
           : tab === 'more' ? (registers ? <View style={{ flex: 1 }}>
             <Pressable onPress={() => setRegisters(false)} accessibilityRole="button" style={{ minHeight: 48, justifyContent: 'center' }}>
               <Text style={{ color: theme.primary, fontWeight: '600' }}>{t('nav.more')}</Text></Pressable>

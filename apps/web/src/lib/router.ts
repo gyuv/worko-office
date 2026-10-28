@@ -4,7 +4,7 @@ import { create } from 'zustand';
  * Tiny hash router. Top-level modules are flat (`#/security`); some modules take sub-paths
  * (`#/clients/<uuid>`, `#/clients/import`). `route` is always the module; `params` the remaining segments.
  */
-export const ROUTES = ['home', 'tasks', 'clients', 'compliance', 'billing', 'documents', 'registers', 'reports', 'notifications', 'team', 'security', 'audit'] as const;
+export const ROUTES = ['home', 'tasks', 'clients', 'compliance', 'billing', 'documents', 'registers', 'reports', 'notifications', 'team', 'security', 'audit', 'todos', 'settings'] as const;
 export type Route = (typeof ROUTES)[number];
 export type Location = { route: Route; params: string[] };
 

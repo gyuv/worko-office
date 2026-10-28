@@ -7,10 +7,12 @@ import { t, ui } from '../ui';
 import { ClientDetail, ClientList } from './Clients';
 import { DocUpload } from './DocUpload';
 import { EntryDetail, RegisterForm, RegisterList } from './Registers';
+import { Compliance, TaskDetail, TaskList, Todos } from './Tasks';
 
 export type Route =
   | { name: 'clients' } | { name: 'client'; id: string } | { name: 'upload'; clientId: string }
-  | { name: 'registers'; clientId?: string } | { name: 'regForm'; kind: RegisterKind; clientId?: string } | { name: 'entry'; kind: RegisterKind; id: string };
+  | { name: 'registers'; clientId?: string } | { name: 'regForm'; kind: RegisterKind; clientId?: string } | { name: 'entry'; kind: RegisterKind; id: string }
+  | { name: 'tasks' } | { name: 'task'; id: string } | { name: 'todos' } | { name: 'compliance' };
 export type Nav = { push(r: Route): void; pop(): void; replace(r: Route): void; reset(r?: Route): void };
 
 /** A tiny stack (no navigation library). On tablets the root list stays on the left and the top route shows on the right. */
@@ -51,5 +53,9 @@ function render(r: Route, nav: Nav, theme: Theme, isRoot: boolean, placeholder =
     case 'registers': return <RegisterList theme={theme} nav={nav} clientId={r.clientId} onBack={back} />;
     case 'regForm': return scroll(<RegisterForm theme={theme} nav={nav} kind={r.kind} clientId={r.clientId} onBack={back} />);
     case 'entry': return scroll(<EntryDetail key={r.id} theme={theme} kind={r.kind} id={r.id} onBack={back} />);
+    case 'tasks': return <TaskList theme={theme} nav={nav} />;
+    case 'task': return scroll(<TaskDetail key={r.id} theme={theme} id={r.id} onBack={back} />);
+    case 'todos': return <Todos theme={theme} onBack={back} />;
+    case 'compliance': return <Compliance theme={theme} nav={nav} onBack={back} />;
   }
 }

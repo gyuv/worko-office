@@ -15,6 +15,11 @@ import { startSync, stopSync } from '../lib/sync';
 import { ClientsRoute } from '../screens/clients/ClientsScreen';
 import { DocumentsScreen } from '../screens/documents/DocumentsScreen';
 import { RegistersScreen } from '../screens/registers/RegistersScreen';
+import { ComplianceScreen } from '../screens/compliance/ComplianceScreen';
+import { ServicesSettings } from '../screens/settings/ServicesSettings';
+import { TasksScreen } from '../screens/tasks/TasksScreen';
+import { TodosScreen } from '../screens/todos/TodosScreen';
+import { ToastHost } from '../components/Toast';
 
 function Routes() {
   const t = useT();
@@ -28,6 +33,10 @@ function Routes() {
     case 'clients': return <ClientsRoute />;
     case 'documents': return <DocumentsScreen />;
     case 'registers': return <RegistersScreen />;
+    case 'tasks': return <TasksScreen />;
+    case 'compliance': return <ComplianceScreen />;
+    case 'todos': return <TodosScreen />;
+    case 'settings': return <ServicesSettings />;
     default: {
       const n = NAV.find((x) => x.route === route)!;
       return <ComingSoon module={t(n.label)} phase={n.phase ?? 0} />;
@@ -54,7 +63,7 @@ export function App() {
   return (
     <I18nProvider>
       <QueryClientProvider client={qc}>
-        {tokens ? <Shell onSignOut={signOut}><Routes /></Shell> : <LoginScreen />}
+        {tokens ? <Shell onSignOut={signOut}><Routes /><ToastHost /></Shell> : <LoginScreen />}
       </QueryClientProvider>
     </I18nProvider>
   );
