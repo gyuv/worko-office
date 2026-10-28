@@ -87,7 +87,7 @@ function Tabs({ theme }: { theme: Theme }) {
   const s = styles(theme);
   const [tab, setTab] = useState<Tab>('home');
   const current = TABS.find((x) => x.key === tab)!;
-  const [sub, setSub] = useState<'registers' | 'collections' | null>(null);
+  const [sub, setSub] = useState<'registers' | 'collections' | 'hr' | null>(null);
   useSignatureRetry();
   return (
     <View style={{ flex: 1 }}>
@@ -98,7 +98,7 @@ function Tabs({ theme }: { theme: Theme }) {
             <Pressable onPress={() => setSub(null)} accessibilityRole="button" style={{ minHeight: 48, justifyContent: 'center' }}>
               <Text style={{ color: theme.primary, fontWeight: '600' }}>{t('nav.more')}</Text></Pressable>
             <Stack key={sub} theme={theme} root={{ name: sub }} /></View>
-            : <More theme={theme} onRegisters={() => setSub('registers')} onCollections={() => setSub('collections')} />) : tab === 'inbox' ? <Inbox theme={theme} />
+            : <More theme={theme} onRegisters={() => setSub('registers')} onCollections={() => setSub('collections')} onHr={() => setSub('hr')} />) : tab === 'inbox' ? <Inbox theme={theme} />
           : <Text style={s.muted}>{t('home.comingSoon', { module: t(current.label), phase: current.phase ?? 0 })}</Text>}
       </View>
       <View style={s.tabbar} accessibilityRole="tablist">
@@ -196,7 +196,7 @@ function Home({ theme }: { theme: Theme }) {
   );
 }
 
-function More({ theme, onRegisters, onCollections }: { theme: Theme; onRegisters(): void; onCollections(): void }) {
+function More({ theme, onRegisters, onCollections, onHr }: { theme: Theme; onRegisters(): void; onCollections(): void; onHr(): void }) {
   const s = styles(theme);
   const qcl = useQueryClient();
   const setTokens = useSession((x) => x.setTokens);
@@ -214,6 +214,11 @@ function More({ theme, onRegisters, onCollections }: { theme: Theme; onRegisters
         <Text style={[s.text, { flex: 1 }]}>{t('m.bill.collections')}</Text>
         <Feather name="chevron-right" size={18} color={theme.textMuted} />
       </Pressable>}
+      <Pressable style={[s.row, { minHeight: 48 }]} onPress={onHr} accessibilityRole="button">
+        <Feather name="clock" size={18} color={theme.primary} style={{ marginRight: 10 }} />
+        <Text style={[s.text, { flex: 1 }]}>{t('m.time.hub')}</Text>
+        <Feather name="chevron-right" size={18} color={theme.textMuted} />
+      </Pressable>
       <Pressable style={[s.row, { minHeight: 48 }]} onPress={onRegisters} accessibilityRole="button">
         <Feather name="book" size={18} color={theme.primary} style={{ marginRight: 10 }} />
         <Text style={[s.text, { flex: 1 }]}>{t('m.reg.title')}</Text>

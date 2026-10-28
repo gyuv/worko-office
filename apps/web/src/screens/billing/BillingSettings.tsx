@@ -12,6 +12,7 @@ import { useCan } from '../../lib/me';
 import { useRoute } from '../../lib/router';
 import { api, unwrap } from '../../lib/session';
 import { ServicesSettings } from '../settings/ServicesSettings';
+import { HrSettings } from '../hr/HrSettings';
 import { useServiceTypes } from '../tasks/shared';
 import { parseRupees, TALLY_ACCOUNT_KEYS } from './logic';
 import { download, MockBadge, Money, RupeeInput, useBillingSettings, useEntities } from './shared';
@@ -24,11 +25,13 @@ export function SettingsRoute() {
   const params = useRoute((s) => s.params);
   const go = useRoute((s) => s.go);
   const can = useCan();
-  const view = params[0] === 'billing' && can('billing', 'view') ? 'billing' : 'services';
+  const view = params[0] === 'billing' && can('billing', 'view') ? 'billing' : params[0] === 'hr' && can('hr', 'view') ? 'hr' : 'services';
+  const tabs: Array<['services' | 'billing' | 'hr', string]> = [['services', t('svc.title')], ...(can('billing', 'view') ? [['billing', t('nav.billing')] as ['billing', string]] : []),
+    ...(can('hr', 'view') ? [['hr', t('p6.hs.tab')] as ['hr', string]] : [])];
   return (
     <div className="space-y-3">
-      {can('billing', 'view') && <Tabs label={t('nav.settings')} tabs={[['services', t('svc.title')], ['billing', t('nav.billing')]]} value={view} onChange={(v) => go(v === 'billing' ? 'settings/billing' : 'settings')} />}
-      {view === 'billing' ? <BillingSettings /> : <ServicesSettings />}
+      {tabs.length > 1 && <Tabs label={t('nav.settings')} tabs={tabs} value={view} onChange={(v) => go(v === 'services' ? 'settings' : `settings/${v}`)} />}
+      {view === 'billing' ? <BillingSettings /> : view === 'hr' ? <HrSettings /> : <ServicesSettings />}
     </div>
   );
 }

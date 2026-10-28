@@ -22,6 +22,11 @@ import { ReceiptsScreen } from '../screens/billing/ReceiptsScreen';
 import { TasksScreen } from '../screens/tasks/TasksScreen';
 import { TodosScreen } from '../screens/todos/TodosScreen';
 import { ToastHost } from '../components/Toast';
+import { TimeScreen } from '../screens/time/TimeScreen';
+import { ReportsScreen } from '../screens/reports/ReportsScreen';
+import { AttendanceScreen } from '../screens/hr/AttendanceScreen';
+import { LeaveScreen } from '../screens/hr/LeaveScreen';
+import { ExpensesScreen } from '../screens/hr/ExpensesScreen';
 
 function Routes() {
   const t = useT();
@@ -41,6 +46,11 @@ function Routes() {
     case 'settings': return <SettingsRoute />;
     case 'billing': return <BillingRoute />;
     case 'receipts': return <ReceiptsScreen />;
+    case 'time': return <TimeScreen />;
+    case 'attendance': return <AttendanceScreen />;
+    case 'leave': return <LeaveScreen />;
+    case 'expenses': return <ExpensesScreen />;
+    case 'reports': return <ReportsScreen />;
     default: {
       const n = NAV.find((x) => x.route === route)!;
       return <ComingSoon module={t(n.label)} phase={n.phase ?? 0} />;

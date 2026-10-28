@@ -9,6 +9,7 @@ import { CommandPalette } from './CommandPalette';
 import { BellButton, SyncIndicator, Toasts } from './SyncIndicator';
 import { NAV } from './nav';
 import { StepUpDialog } from './StepUpDialog';
+import { TimerWidget } from '../screens/time/TimerWidget';
 
 export function Shell({ children, onSignOut }: { children: ReactNode; onSignOut(): void }) {
   const t = useT();
@@ -61,6 +62,7 @@ export function Shell({ children, onSignOut }: { children: ReactNode; onSignOut(
           <button className="btn flex-1 justify-start text-muted md:max-w-md" onClick={() => dispatchEvent(new Event('worko:palette'))}>
             <Search size={14} aria-hidden /> {t('palette.placeholder')} <kbd className="ml-auto text-xs">Ctrl K</kbd>
           </button>
+          <TimerWidget />
           <SyncIndicator />
           <BellButton />
           <button className="btn" aria-label={t('palette.toggleTheme')} onClick={toggle}>{pref === 'dark' ? <Sun size={14} /> : <Moon size={14} />}</button>

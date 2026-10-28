@@ -8,13 +8,16 @@ import { ClientOutstanding, Collections, InvoiceDetail, InvoiceList, RecordRecei
 import { ClientDetail, ClientList } from './Clients';
 import { DocUpload } from './DocUpload';
 import { EntryDetail, RegisterForm, RegisterList } from './Registers';
+import { Approvals, Attendance, ExpenseForm, Expenses, HrHub, Leave, LeaveApply, MyTime, TimeEntryForm, Timer } from './Hr';
 import { Compliance, TaskDetail, TaskList, Todos } from './Tasks';
 
 export type Route =
   | { name: 'clients' } | { name: 'client'; id: string } | { name: 'upload'; clientId: string }
   | { name: 'registers'; clientId?: string } | { name: 'regForm'; kind: RegisterKind; clientId?: string } | { name: 'entry'; kind: RegisterKind; id: string }
   | { name: 'tasks' } | { name: 'task'; id: string } | { name: 'todos' } | { name: 'compliance' }
-  | { name: 'collections' } | { name: 'invoices' } | { name: 'invoice'; id: string } | { name: 'outstanding'; clientId: string } | { name: 'receipt'; clientId: string };
+  | { name: 'collections' } | { name: 'invoices' } | { name: 'invoice'; id: string } | { name: 'outstanding'; clientId: string } | { name: 'receipt'; clientId: string }
+  | { name: 'hr' } | { name: 'timer' } | { name: 'myTime' } | { name: 'timeEntry'; id?: string } | { name: 'attendance' } | { name: 'leave' } | { name: 'leaveApply' }
+  | { name: 'expenses' } | { name: 'expenseForm' } | { name: 'approvals' };
 export type Nav = { push(r: Route): void; pop(): void; replace(r: Route): void; reset(r?: Route): void };
 
 /** A tiny stack (no navigation library). On tablets the root list stays on the left and the top route shows on the right. */
@@ -64,5 +67,15 @@ function render(r: Route, nav: Nav, theme: Theme, isRoot: boolean, placeholder =
     case 'invoice': return scroll(<InvoiceDetail key={r.id} theme={theme} nav={nav} id={r.id} onBack={back} />);
     case 'outstanding': return <ClientOutstanding key={r.clientId} theme={theme} nav={nav} clientId={r.clientId} onBack={back} />;
     case 'receipt': return scroll(<RecordReceipt key={r.clientId} theme={theme} clientId={r.clientId} onBack={back} />);
+    case 'hr': return <HrHub theme={theme} nav={nav} onBack={back} />;
+    case 'timer': return scroll(<Timer theme={theme} nav={nav} onBack={back} />);
+    case 'myTime': return <MyTime theme={theme} nav={nav} onBack={back} />;
+    case 'timeEntry': return scroll(<TimeEntryForm key={r.id ?? 'new'} theme={theme} nav={nav} id={r.id} onBack={back} />);
+    case 'attendance': return <Attendance theme={theme} onBack={back} />;
+    case 'leave': return <Leave theme={theme} nav={nav} onBack={back} />;
+    case 'leaveApply': return scroll(<LeaveApply theme={theme} nav={nav} onBack={back} />);
+    case 'expenses': return <Expenses theme={theme} nav={nav} onBack={back} />;
+    case 'expenseForm': return scroll(<ExpenseForm theme={theme} nav={nav} onBack={back} />);
+    case 'approvals': return <Approvals theme={theme} onBack={back} />;
   }
 }

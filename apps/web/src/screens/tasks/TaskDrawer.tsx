@@ -11,6 +11,9 @@ import { useT } from '../../lib/i18n';
 import { useCan } from '../../lib/me';
 import { api, unwrap } from '../../lib/session';
 import { isOverdue, moveError } from './logic';
+import { LogTimeDialog } from '../time/shared';
+import { startTimerFor } from '../time/TimerWidget';
+import { fmtMinutes, parseMinutes } from '../hr/logic';
 import { PersonSelect, useRuleMessage, useStatusLabel, useUsers } from './shared';
 
 type TaskIn = Schemas['TaskIn'];
@@ -28,13 +31,14 @@ export function TaskDrawer({ id, onClose }: { id: string; onClose(): void }) {
   const q = useQuery({ queryKey: ['task', id], queryFn: () => unwrap(api.GET('/tasks/{id}', { params: { path: { id } } })), retry: false });
   const [issue, setIssue] = useState('');
   const [closing, setClosing] = useState(false);
+  const [logging, setLogging] = useState(false);
   useEffect(() => { setIssue(q.data?.pendingIssue ?? ''); }, [q.data?.pendingIssue]);
   useEffect(() => {
     box.current?.focus();
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape' && !closing) onClose(); };
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape' && !closing && !logging) onClose(); };
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
-  }, [onClose, closing]);
+  }, [onClose, closing, logging]);
   const refresh = () => { void qc.invalidateQueries({ queryKey: ['task', id] }); void qc.invalidateQueries({ queryKey: ['tasks'] }); };
   const patch = useMutation({
     mutationFn: (body: TaskIn) => unwrap(api.PATCH('/tasks/{id}', { params: { path: { id } }, body })),
@@ -112,6 +116,20 @@ export function TaskDrawer({ id, onClose }: { id: string; onClose(): void }) {
               )}
             </section>
 
+            <section aria-labelledby="td-time">
+              <h3 id="td-time" className="mb-1 font-semibold">{t('p6.task.time')}</h3>
+              <div className="flex flex-wrap items-end gap-2">
+                <label><span className="label">{t('p6.task.estimate')}</span>
+                  <input className="input w-24" disabled={!editable} defaultValue={x.estimateMinutes ? fmtMinutes(x.estimateMinutes) : ''} key={x.estimateMinutes ?? ''} placeholder="h:mm"
+                    onBlur={(e) => { const m = parseMinutes(e.target.value); if (m === null) { toast({ text: t('p6.time.badDuration'), tone: 'error' }); return; }
+                      if ((m || null) !== (x.estimateMinutes ?? null)) patch.mutate({ estimate_minutes: m || null }); }} /></label>
+                {can('time', 'edit') && <>
+                  <button className="btn" onClick={() => setLogging(true)}>{t('p6.time.log')}</button>
+                  <button className="btn" onClick={() => startTimerFor({ id: x.id, title: x.title, clientId: x.clientId ?? null, clientName: x.clientName ?? null })}>{t('p6.timer.start')}</button>
+                </>}
+              </div>
+            </section>
+
             <section aria-labelledby="td-checks">
               <h3 id="td-checks" className="mb-1 font-semibold">{t('tasks.checks')} <span className="font-normal text-muted">{x.checks.filter((c) => c.done).length}/{x.checks.length}</span></h3>
               {!x.checks.length && <p className="text-muted">{t('tasks.noChecks')}</p>}
@@ -139,6 +157,7 @@ export function TaskDrawer({ id, onClose }: { id: string; onClose(): void }) {
             )}
           </div>
         )}
+        {logging && x && <LogTimeDialog task={{ id: x.id, title: x.title, clientId: x.clientId ?? null, clientName: x.clientName ?? null }} onClose={() => setLogging(false)} />}
         {closing && x && <CloseDialog task={x} onClose={() => setClosing(false)} onDone={() => { setClosing(false); refresh(); onClose(); }} />}
       </aside>
     </div>

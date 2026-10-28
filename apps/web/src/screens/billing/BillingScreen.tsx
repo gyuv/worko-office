@@ -15,9 +15,10 @@ import { AutoBillingWizard, RetainersWizard } from './AutoBilling';
 import { InvoiceView, NewInvoice } from './InvoiceView';
 import { download, Money, StatusBadge, useEntities } from './shared';
 import { UnbilledReport } from './UnbilledReport';
+import { ReimbursableReport } from './ReimbursableReport';
 
-type View = 'invoices' | 'unbilled' | 'auto' | 'retainers' | 'ageing';
-const VIEWS: View[] = ['invoices', 'unbilled', 'auto', 'retainers', 'ageing'];
+type View = 'invoices' | 'unbilled' | 'auto' | 'retainers' | 'ageing' | 'reimbursable';
+const VIEWS: View[] = ['invoices', 'unbilled', 'auto', 'retainers', 'ageing', 'reimbursable'];
 
 export function BillingRoute() {
   const params = useRoute((s) => s.params);
@@ -33,7 +34,7 @@ function BillingScreen({ view }: { view: View }) {
   const tabs: Array<[View, string]> = [
     ['invoices', t('bill.tab.invoices')], ['unbilled', t('bill.tab.unbilled')],
     ...(can('billing', 'create') ? [['auto', t('bill.tab.auto')] as [View, string], ['retainers', t('bill.tab.retainers')] as [View, string]] : []),
-    ['ageing', t('bill.tab.ageing')],
+    ['ageing', t('bill.tab.ageing')], ['reimbursable', t('p6.reimb.title')],
   ];
   return (
     <div className="space-y-3">
@@ -47,6 +48,7 @@ function BillingScreen({ view }: { view: View }) {
       {view === 'auto' && <AutoBillingWizard />}
       {view === 'retainers' && <RetainersWizard />}
       {view === 'ageing' && <AgeingReport />}
+      {view === 'reimbursable' && <ReimbursableReport />}
     </div>
   );
 }
