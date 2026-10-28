@@ -16,9 +16,10 @@ import { ClientServicesTab } from './ClientServicesTab';
 import { useCan } from '../../lib/me';
 import { useEntityLabel } from './labels';
 import { ClientBillingTab } from '../billing/ClientBillingTab';
+import { TimelineTab } from '../comm/TimelineTab';
 
 type Detail = Schemas['ClientDetail'];
-type Tab = 'overview' | 'billing' | 'services' | 'documents' | 'credentials' | 'registers' | 'access' | 'merge';
+type Tab = 'overview' | 'timeline' | 'billing' | 'services' | 'documents' | 'credentials' | 'registers' | 'access' | 'merge';
 
 export const waLink = (phone: string) => `https://wa.me/${phone.replace(/\D/g, '').replace(/^(\d{10})$/, '91$1')}`;
 
@@ -43,6 +44,7 @@ export function Client360({ id }: { id: string }) {
   const gstins = c.registrations.filter((r) => r.kind === 'GSTIN');
   const tabs: Array<[Tab, string]> = [
     ['overview', t('client360.overview')],
+    ...(can('communication', 'view') ? [['timeline', t('p7.tl.title')] as [Tab, string]] : []),
     ...(can('billing', 'view') ? [['billing', t('nav.billing')] as [Tab, string]] : []),
     ...(can('tasks', 'view') ? [['services', t('svc.tab')] as [Tab, string]] : []),
     ...(c.counts.documents !== null ? [['documents', `${t('nav.documents')} (${c.counts.documents})`] as [Tab, string]] : []),
@@ -77,6 +79,7 @@ export function Client360({ id }: { id: string }) {
       </header>
       <Tabs label={c.name} tabs={tabs} value={tab} onChange={pick} />
       {panel('overview', <Overview c={c} />)}
+      {panel('timeline', <TimelineTab client={{ id: c.id, name: c.name, email: c.email ?? null, phone: c.phone ?? null, contacts: c.contacts }} />)}
       {panel('billing', <ClientBillingTab client={{ id: c.id, name: c.name }} />)}
       {panel('services', <ClientServicesTab clientId={c.id} />)}
       {panel('documents', <DocumentsPanel clientId={c.id} />)}

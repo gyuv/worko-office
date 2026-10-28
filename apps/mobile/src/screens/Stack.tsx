@@ -9,6 +9,7 @@ import { ClientDetail, ClientList } from './Clients';
 import { DocUpload } from './DocUpload';
 import { EntryDetail, RegisterForm, RegisterList } from './Registers';
 import { Approvals, Attendance, ExpenseForm, Expenses, HrHub, Leave, LeaveApply, MyTime, TimeEntryForm, Timer } from './Hr';
+import { Appointments, Calendar, ChatList, ChatThread, ClientTimeline, EventForm } from './Comm';
 import { Compliance, TaskDetail, TaskList, Todos } from './Tasks';
 
 export type Route =
@@ -17,7 +18,8 @@ export type Route =
   | { name: 'tasks' } | { name: 'task'; id: string } | { name: 'todos' } | { name: 'compliance' }
   | { name: 'collections' } | { name: 'invoices' } | { name: 'invoice'; id: string } | { name: 'outstanding'; clientId: string } | { name: 'receipt'; clientId: string }
   | { name: 'hr' } | { name: 'timer' } | { name: 'myTime' } | { name: 'timeEntry'; id?: string } | { name: 'attendance' } | { name: 'leave' } | { name: 'leaveApply' }
-  | { name: 'expenses' } | { name: 'expenseForm' } | { name: 'approvals' };
+  | { name: 'expenses' } | { name: 'expenseForm' } | { name: 'approvals' }
+  | { name: 'chat' } | { name: 'chatThread'; id: string } | { name: 'calendar' } | { name: 'eventForm'; id?: string; date?: string } | { name: 'timeline'; clientId: string } | { name: 'appointments' };
 export type Nav = { push(r: Route): void; pop(): void; replace(r: Route): void; reset(r?: Route): void };
 
 /** A tiny stack (no navigation library). On tablets the root list stays on the left and the top route shows on the right. */
@@ -77,5 +79,11 @@ function render(r: Route, nav: Nav, theme: Theme, isRoot: boolean, placeholder =
     case 'expenses': return <Expenses theme={theme} nav={nav} onBack={back} />;
     case 'expenseForm': return scroll(<ExpenseForm theme={theme} nav={nav} onBack={back} />);
     case 'approvals': return <Approvals theme={theme} onBack={back} />;
+    case 'chat': return <ChatList theme={theme} nav={nav} onBack={back} />;
+    case 'chatThread': return <ChatThread key={r.id} theme={theme} id={r.id} onBack={back} />;
+    case 'calendar': return <Calendar theme={theme} nav={nav} onBack={back} />;
+    case 'eventForm': return scroll(<EventForm key={r.id ?? 'new'} theme={theme} nav={nav} id={r.id} date={r.date} onBack={back} />);
+    case 'timeline': return <ClientTimeline key={r.clientId} theme={theme} clientId={r.clientId} onBack={back} />;
+    case 'appointments': return <Appointments theme={theme} onBack={back} />;
   }
 }
