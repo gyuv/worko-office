@@ -65,13 +65,22 @@ import { HrConfigService } from './hr/config.service.js';
 import { AttendanceService } from './hr/attendance.service.js';
 import { LeaveService } from './hr/leave.service.js';
 import { ExpensesService } from './hr/expenses.service.js';
+import { BroadcastService } from './comm/broadcast.service.js';
+import { CalendarService } from './comm/calendar.service.js';
+import { channelAdaptersFactory, ChannelMessenger, COMM_CHANNELS_TOKEN, commAllMock, INBOUND_PROVIDERS, inboundProvidersFactory, MockChannelHub, OAUTH_PROVIDERS, oauthProvidersFactory, type ChannelAdapters } from './comm/channels.js';
+import { BookingAdminController, BookingPublicController, CalendarController, ChatController } from './comm/chat.controller.js';
+import { ChatService } from './comm/chat.service.js';
+import { CommController, TimelineController } from './comm/comm.controller.js';
+import { CommService } from './comm/comm.service.js';
+import { ConnectionsService } from './comm/connections.service.js';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ limit: Number(process.env.RATE_LIMIT ?? 300), ttl: 60_000 }])],
   controllers: [HealthController, RulesController, AuthController, UsersController, AuditController, TenancyController,
     SyncController, NotificationsController, TeamsController,
     ImportController, ClientsController, VaultController, DocumentsController, RegistersController,
-    TasksController, ComplianceController, BillingController, TimeController, HrController],
+    TasksController, ComplianceController, BillingController, TimeController, HrController,
+    CommController, TimelineController, ChatController, CalendarController, BookingAdminController, BookingPublicController],
   providers: [
     DbService, AuditService, TokenService, AuthService, TenancyService, UsersService, RulesService,
     RealtimeService, RealtimeGateway, JobQueueService, SyncService, NotificationsService,
@@ -81,7 +90,13 @@ import { ExpensesService } from './hr/expenses.service.js';
     { provide: Clock, useFactory: () => new Clock() },
     BillingConfigService, InvoicesService, ReceiptsService, BillingAutoService, BillingReportsService, CollectionsService,
     TimeService, TimeReportsService, HrConfigService, AttendanceService, LeaveService, ExpensesService,
-    { provide: CLIENT_MESSENGER, useFactory: () => new MockMessenger() },
+    CommService, BroadcastService, ChatService, CalendarService, ConnectionsService,
+    { provide: MockChannelHub, useFactory: () => new MockChannelHub() },
+    { provide: COMM_CHANNELS_TOKEN, useFactory: channelAdaptersFactory, inject: [MockChannelHub] },
+    { provide: INBOUND_PROVIDERS, useFactory: inboundProvidersFactory },
+    { provide: OAUTH_PROVIDERS, useFactory: oauthProvidersFactory },
+    // Billing messages use the shared channel layer once a real channel is configured; all-mock keeps billing's own outbox (D98).
+    { provide: CLIENT_MESSENGER, useFactory: (ch: ChannelAdapters) => (commAllMock() ? new MockMessenger() : new ChannelMessenger(ch)), inject: [COMM_CHANNELS_TOKEN] },
     { provide: PAYMENT_PROVIDERS, useFactory: paymentProvidersFactory },
     { provide: KMS_PROVIDER, useFactory: () => new LocalKms() },
     { provide: STORAGE, useFactory: storageFactory },

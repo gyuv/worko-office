@@ -6,6 +6,7 @@ import { clientScopeSql, visibilityOf, type Params } from '../clients/scope.js';
 import type { Tx } from '../db/db.service.js';
 import { checkOutError, checkOutFields, evaluateCheckIn } from '../hr/common.js';
 import { RejectError } from './reject.js';
+import { calendarEventError, calendarScopeSql, calendarWritable, canDeleteChatMessage, chatMessageAfter, chatMessageDerive, chatMessageError, chatMessageWritable, isMember, memberSql, ownEditable } from '../comm/sync-rules.js';
 import { taskForEntry, timeEntryError } from '../time/rules.js';
 import { actorChangeError, canTaskRow, checkPeopleAndRevoke, clientOfTask, PEOPLE_COLS, stampChecks, stateOf, taskScopeSql, ymd } from '../tasks/scope.js';
 
@@ -41,11 +42,13 @@ export type SyncTableDef = {
   /** Server-assigned columns on insert (owner, numbering…). Overrides anything the client sent. */
   beforeInsert?: (a: RequestActor, row: Record<string, unknown>, tx: Tx, ctx: HookCtx) => Promise<Record<string, unknown>> | Record<string, unknown>;
   canUpdate: (a: RequestActor, row: Record<string, unknown>, tx: Tx) => boolean | Promise<boolean>;
-  canDelete?: (a: RequestActor, row: Record<string, unknown>, tx: Tx) => boolean | Promise<boolean>;
+  canDelete?: (a: RequestActor, row: Record<string, unknown>, tx: Tx, ctx: HookCtx) => boolean | Promise<boolean>;
   /** Business rules over the row as it would be after the change (cur = null on insert); returns a reject reason. */
   validate?: (a: RequestActor, cur: Record<string, unknown> | null, next: Record<string, unknown>, tx: Tx, ctx: HookCtx) => Promise<string | null> | string | null;
   /** Server-derived columns written alongside a valid change (timestamps, stamps); bypass `writable`. */
   derive?: (a: RequestActor, cur: Record<string, unknown> | null, patch: Record<string, unknown>, ctx: HookCtx) => Record<string, unknown> | Promise<Record<string, unknown>>;
+  /** Side effects after a successful insert/update in the same transaction (e.g. mention notifications); may return a cursor to publish. */
+  afterWrite?: (a: RequestActor, cur: Record<string, unknown> | null, row: Record<string, unknown>, ctx: HookCtx) => Promise<number | void> | number | void;
   /** Whether client mutations are audit-logged (read-receipts are not: they'd drown the log). */
   audit: boolean;
 };
@@ -448,6 +451,63 @@ export const SYNC_TABLES: Record<string, SyncTableDef> = {
     visible: (a) => canOwn(a, 'hr'),
     canUpdate: () => false,
     audit: false,
+  },
+  // ---------- Phase 7 (D106): team chat to members only; calendar events own + attended (client-linked only while visible) ----------
+  // Channels and membership change via REST (kind-specific membership rules, client visibility of every member).
+  chat_channel: {
+    table: 'chat_channel',
+    columns: ['kind', 'name', 'team_id', 'branch_id', 'client_id', 'archived', 'created_by', 'created_at'],
+    writable: {},
+    scope: (a, p) => memberSql(a, p, 'x.id'),
+    visible: (a) => !!a.roles.length || !!a.superAdmin,
+    canUpdate: () => false,
+    audit: true,
+  },
+  // Members see who else is in their channels; each user writes only their own read cursor / mute.
+  chat_member: {
+    table: 'chat_member',
+    columns: ['channel_id', 'user_id', 'role', 'last_read_message_id', 'last_read_at', 'muted', 'joined_at'],
+    writable: { last_read_message_id: uuid.nullable(), last_read_at: iso, muted: z.boolean() },
+    scope: (a, p) => memberSql(a, p, 'x.channel_id'),
+    visible: (a) => !!a.roles.length || !!a.superAdmin,
+    canUpdate: async (a, row, tx) => row.user_id === a.userId && !row.deleted_at && (await isMember(tx, a, row.channel_id)),
+    validate: async (_a, cur, next, tx) => {
+      if (!next.last_read_message_id || next.last_read_message_id === cur?.last_read_message_id) return null;
+      return (await tx.query('SELECT 1 FROM chat_message WHERE id = $1 AND channel_id = $2', [next.last_read_message_id, next.channel_id])).rowCount ? null : 'invalid:last_read_message_id';
+    },
+    audit: false, // read receipts would drown the log
+  },
+  chat_message: {
+    table: 'chat_message',
+    columns: ['channel_id', 'author_id', 'body', 'mentions', 'attachment_doc_ids', 'edited_at', 'created_at'],
+    writable: chatMessageWritable,
+    immutable: ['channel_id'],
+    // Bodies never go into audit diffs (D104).
+    auditOmit: ['body'],
+    scope: (a, p) => memberSql(a, p, 'x.channel_id'),
+    visible: (a) => !!a.roles.length || !!a.superAdmin,
+    canInsert: (a, row, tx) => isMember(tx, a, row.channel_id),
+    beforeInsert: (a, _row, _tx, ctx) => ({ author_id: a.userId, created_at: ctx.now.toISOString(), edited_at: null }),
+    canUpdate: async (a, row, tx) => row.author_id === a.userId && !row.deleted_at && (await isMember(tx, a, row.channel_id)),
+    canDelete: async (a, row, tx, ctx) => (await canDeleteChatMessage(a, row, tx, ctx)) && (await isMember(tx, a, row.channel_id)),
+    validate: (a, cur, next, tx, ctx) => chatMessageError(a, cur, next, tx, ctx),
+    derive: (a, cur, patch, ctx) => chatMessageDerive(a, cur, { channel_id: cur?.channel_id, ...patch }, ctx),
+    afterWrite: (a, cur, row, ctx) => chatMessageAfter(a, cur, row, ctx),
+    audit: true,
+  },
+  // Devices create/edit their own meetings and personal events; appointment and external (synced-in) events are read-only.
+  calendar_event: {
+    table: 'calendar_event',
+    columns: ['owner_id', 'kind', 'title', 'description', 'location', 'starts_at', 'ends_at', 'all_day', 'client_id', 'attendee_ids', 'appointment_id', 'busy', 'created_at'],
+    writable: calendarWritable,
+    scope: (a, p) => calendarScopeSql(a, p),
+    visible: (a) => !!a.roles.length || !!a.superAdmin,
+    canInsert: (a) => !!a.roles.length || !!a.superAdmin,
+    beforeInsert: (a, row, _tx, ctx) => ({ owner_id: a.userId, kind: row.kind ?? 'meeting', created_by: a.userId, created_at: ctx.now.toISOString() }),
+    canUpdate: (a, row) => ownEditable(a, row),
+    canDelete: (a, row) => ownEditable(a, row),
+    validate: (a, cur, next, tx) => calendarEventError(a, cur, next, tx),
+    audit: true,
   },
 };
 

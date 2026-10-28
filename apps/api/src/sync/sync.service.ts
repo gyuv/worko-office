@@ -122,11 +122,12 @@ export class SyncService {
         throw e;
       }
       if (def.audit) await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: `${def.table}.created`, entity: def.table, entityId: m.id, diff: this.auditDiff(def, row) });
-      return { result: { key: m.key, status: 'applied', version: r.rows[0].version }, cursor: Number(r.rows[0].sync_cursor) };
+      const extra = Number((await def.afterWrite?.(a, null, { id: m.id, ...row }, ctx)) ?? 0);
+      return { result: { key: m.key, status: 'applied', version: r.rows[0].version }, cursor: Math.max(Number(r.rows[0].sync_cursor), extra) };
     }
 
     if ((def.immutable ?? []).some((c) => c in patch && !sameValue(cur[c], patch[c]))) return reject('immutable_field');
-    if (m.delete ? !(await def.canDelete?.(a, cur, tx)) : !(await def.canUpdate(a, cur, tx))) return reject('forbidden');
+    if (m.delete ? !(await def.canDelete?.(a, cur, tx, { now: this.clock.now(), tx })) : !(await def.canUpdate(a, cur, tx))) return reject('forbidden');
     if (def.strict && m.baseVersion !== cur.version) {
       return { result: { key: m.key, status: 'rejected_stale', version: cur.version }, cursor: 0 };
     }
@@ -138,7 +139,8 @@ export class SyncService {
     if (!m.delete && def.derive) Object.assign(patch, await def.derive(a, cur, patch, uctx));
     const next = await this.writePatch(tx, a, def, cur, patch, m.baseVersion, m.key, m.delete ?? false);
     if (def.audit) await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: m.delete ? `${def.table}.deleted` : `${def.table}.updated`, entity: def.table, entityId: m.id, diff: this.auditDiff(def, patch) });
-    return { result: { key: m.key, status: 'applied', version: next.version }, cursor: next.cursor };
+    const extra = m.delete ? 0 : Number((await def.afterWrite?.(a, cur, { ...cur, ...patch }, uctx)) ?? 0);
+    return { result: { key: m.key, status: 'applied', version: next.version }, cursor: Math.max(next.cursor, extra) };
   }
 
   /**

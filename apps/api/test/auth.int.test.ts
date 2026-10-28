@@ -5,6 +5,7 @@ import pg from 'pg';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
+import { Clock } from '../src/common/clock.js';
 import { base32Decode, totp } from '../src/auth/crypto.js';
 import { type MockSmsProvider, SMS_PROVIDER } from '../src/auth/sms.provider.js';
 import { migrate } from '../src/db/migrate.js';
@@ -247,6 +248,27 @@ describe('demo seed', () => {
     const pnl = (await http().get('/v1/reports/job-pnl?from=2026-01-01&to=2026-12-31&groupBy=client').set(P).expect(200)).body;
     expect(pnl.totals.costPaise).toBeGreaterThan(0);
     expect((await http().get('/v1/reports/capacity?weeks=4&from=2026-10-12').set(M).expect(200)).body.users.length).toBeGreaterThanOrEqual(3);
+    // Phase 7: templates, consents (one opted out), a mixed timeline, triage inbox, broadcasts, team chat, calendar, booking.
+    const tpls = (await http().get('/v1/comm/templates').set(P).expect(200)).body as Array<{ status: string; name: string }>;
+    expect(new Set(tpls.map((x) => x.status))).toEqual(new Set(['approved', 'draft']));
+    const q = async <T,>(text: string) => { const c = new pg.Client({ connectionString: db.url }); await c.connect(); try { return (await c.query(text)).rows as T[]; } finally { await c.end(); } };
+    const firstClient = (await q<{ id: string }>(`SELECT id FROM client ORDER BY file_no LIMIT 1`))[0]!.id;
+    const tl = (await http().get(`/v1/clients/${firstClient}/timeline`).set(P).expect(200)).body.items as Array<{ kind: string; channel: string | null }>;
+    for (const ch of ['email', 'whatsapp', 'sms', 'note', 'call']) expect(tl.some((x) => x.kind === 'message' && x.channel === ch)).toBe(true);
+    expect(tl.some((x) => x.kind === 'document')).toBe(true);
+    expect((await http().get('/v1/comm/inbox').set(M).expect(200)).body).toHaveLength(1);
+    const cons = await q<{ status: string }>(`SELECT status FROM comm_consent`);
+    expect(cons.filter((x) => x.status === 'opted_out')).toHaveLength(1);
+    const bcs = (await http().get('/v1/comm/broadcasts').set(P).expect(200)).body as Array<{ status: string; id: string }>;
+    expect(bcs.map((b) => b.status).sort()).toEqual(['completed', 'draft']);
+    expect((await http().get(`/v1/comm/broadcasts/${bcs.find((b) => b.status === 'completed')!.id}`).set(P)).body.progress.counts).toEqual({ sent: 5, skipped_optout: 1 });
+    const chans = (await http().get('/v1/chat/channels').set(bearer(tok.senior!)).expect(200)).body as Array<{ kind: string }>;
+    expect(chans.map((c) => c.kind).sort()).toEqual(['client', 'team']);
+    expect((await http().get('/v1/notifications').set(A).expect(200)).body.some((n: { category: string }) => n.category === 'chat.mentioned')).toBe(true);
+    expect((await http().get('/v1/calendar/events?from=2026-10-15&to=2026-10-31').set(M).expect(200)).body.filter((i: { source: string }) => i.source === 'event').length).toBeGreaterThanOrEqual(3);
+    expect((await http().get('/v1/booking/appointments').set(P).expect(200)).body).toHaveLength(2);
+    app.get(Clock).set(new Date('2026-10-15T12:00:00+05:30')); // slots depend on "now"
+    try { expect((await http().get('/v1/book/demo/consult?from=2026-10-16&to=2026-10-22').expect(200)).body.slots.length).toBeGreaterThan(10); } finally { app.get(Clock).set(null); }
   });
 });
 

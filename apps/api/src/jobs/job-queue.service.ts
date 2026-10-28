@@ -8,6 +8,11 @@ export type JobHandler = (job: Job, at: Date) => Promise<void>;
 /** Thrown by a handler to re-run the job later without counting it as a failure (e.g. snoozed). */
 export class Reschedule extends Error { constructor(readonly at: Date) { super('reschedule'); } }
 
+/** Enqueue inside a tenant transaction without the service (registry hooks). */
+export function enqueueTx(tx: Tx, tenantId: string, kind: string, refId: string, runAt: Date = new Date()) {
+  return tx.query('INSERT INTO job_queue (tenant_id, kind, ref_id, run_at) VALUES ($1,$2,$3,$4)', [tenantId, kind, refId, runAt]);
+}
+
 /**
  * Postgres-backed queue (SELECT … FOR UPDATE SKIP LOCKED). Chosen over BullMQ for now so jobs commit
  * atomically with the data that creates them (no lost/phantom jobs) and tests need no Redis.
@@ -24,9 +29,7 @@ export class JobQueueService implements OnModuleInit, OnApplicationShutdown {
   register(kind: string, h: JobHandler) { this.handlers.set(kind, h); }
 
   /** Enqueue inside the caller's tenant transaction, so the job exists iff the data commits. */
-  enqueue(tx: Tx, tenantId: string, kind: string, refId: string, runAt: Date = new Date()) {
-    return tx.query('INSERT INTO job_queue (tenant_id, kind, ref_id, run_at) VALUES ($1,$2,$3,$4)', [tenantId, kind, refId, runAt]);
-  }
+  enqueue(tx: Tx, tenantId: string, kind: string, refId: string, runAt: Date = new Date()) { return enqueueTx(tx, tenantId, kind, refId, runAt); }
 
   onModuleInit() {
     const ms = Number(process.env.JOB_POLL_MS ?? (process.env.NODE_ENV === 'test' ? 0 : 2000));

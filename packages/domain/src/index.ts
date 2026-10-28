@@ -9,3 +9,4 @@ export * from './tasks.js';
 export * from './billing.js';
 export * from './tally.js';
 export * from './hr.js';
+export * from './comm.js';

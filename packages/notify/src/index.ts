@@ -5,7 +5,7 @@ export const CATEGORIES = [
   'task.assigned', 'task.mentioned', 'task.commented', 'task.stage_changed', 'task.due_today', 'task.due_soon', 'task.overdue',
   'compliance.deadline', 'notice.response_due', 'notice.hearing', 'invoice.due', 'payment.received',
   'dsc.expiring', 'licence.expiring', 'leave.approval', 'attendance.approval', 'document.received', 'client.uploaded',
-  'whatsapp.reply', 'automation.failed', 'system.security', 'system.test',
+  'whatsapp.reply', 'comm.inbound', 'chat.mentioned', 'broadcast.approval', 'appointment.booked', 'automation.failed', 'system.security', 'system.test',
 ] as const;
 export type Category = (typeof CATEGORIES)[number];
 export type Priority = 'low' | 'normal' | 'high' | 'critical';
