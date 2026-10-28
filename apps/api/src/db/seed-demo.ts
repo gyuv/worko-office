@@ -11,6 +11,17 @@ import { TenancyService } from '../tenancy/tenancy.service.js';
 import { DbService } from './db.service.js';
 import { uuidv7 } from './ids.js';
 import { migrate } from './migrate.js';
+import { RulesService } from '../rules/rules.service.js';
+import { RulePackService } from '../compliance/rule-pack.service.js';
+import { CatalogueService } from '../tasks/catalogue.service.js';
+import { AutoTaskService } from '../tasks/auto.service.js';
+import { systemActor } from '../tasks/system-actor.js';
+import { RealtimeService } from '../realtime/realtime.service.js';
+import { SyncService } from '../sync/sync.service.js';
+import { SYNC_TABLES } from '../sync/registry.js';
+import { JobQueueService } from '../jobs/job-queue.service.js';
+import { todayIst } from '../compliance/facts.js';
+import { dates } from '@worko/rules';
 
 export const DEMO = { firm: 'demo', password: 'Demo@12345', users: [
   { name: 'Anita Sharma', email: 'partner@demo.worko.in', role: 'partner', phone: '+919800000001' },
@@ -24,7 +35,9 @@ export const DEMO = { firm: 'demo', password: 'Demo@12345', users: [
  * Demo firm for local development and screenshots. Re-runnable: drops nothing, skips if the firm exists.
  * Clients, tasks, invoices, DSCs and notices are added by later phases as their modules land.
  */
-export async function seedDemo(url: string) {
+export async function seedDemo(url: string, opts: { today?: string } = {}) {
+  // Reference date for "current" tasks/registers; tests pin it so the seed is identical on every run.
+  const today = opts.today ?? todayIst();
   await migrate(url);
   process.env.DATABASE_URL = url;
   const db = new DbService();
@@ -49,7 +62,8 @@ export async function seedDemo(url: string) {
         await tx.query('INSERT INTO user_role (tenant_id, user_id, role_id) SELECT $1, $2, id FROM role WHERE key = $3', [tenantId, id, u.role]);
       }
       await tx.query('UPDATE app_user SET manager_id = $1 WHERE id = ANY($2)', [userIds.manager, [userIds.senior, userIds.article]]);
-      await seedPractice(tx, tenantId, branch, userIds);
+      await seedPractice(tx, tenantId, branch, userIds, today);
+      await seedTasks(db, tx, tenantId, userIds, today);
     });
     return { created: true, tenantId };
   } finally {
@@ -67,7 +81,7 @@ const CITIES: Array<[string, string, string, string]> = [['Pune', 'Maharashtra',
 const KINDS: Array<[EntityType, string, string]> = [['PRIVATE_COMPANY', 'C', 'Pvt Ltd'], ['PARTNERSHIP', 'F', ''], ['PROPRIETORSHIP', 'P', ''], ['LLP', 'F', 'LLP'], ['INDIVIDUAL', 'P', ''], ['HUF', 'H', 'HUF']];
 
 /** 50 clients with groups, a GST team, GSTINs, contacts, credentials, documents and register entries. */
-async function seedPractice(tx: Tx, tenantId: string, branch: string, users: Record<string, string>) {
+async function seedPractice(tx: Tx, tenantId: string, branch: string, users: Record<string, string>, today: string) {
   const r = rng(42);
   const pick = <T,>(xs: readonly T[]) => xs[Math.floor(r() * xs.length)]!;
   const keys = new KeyService(new LocalKms());
@@ -82,7 +96,6 @@ async function seedPractice(tx: Tx, tenantId: string, branch: string, users: Rec
     groups.push(id);
   }
   await tx.query(`INSERT INTO custom_field_def (id, tenant_id, entity, key, label, type, options) VALUES ($1,$2,'client','industry','Industry','select','["Manufacturing","Trading","Services","Professional"]')`, [uuidv7(), tenantId]);
-  const today = new Date().toISOString().slice(0, 10);
   const fy = (() => { const [y, m] = today.split('-').map(Number) as [number, number]; const s = m >= 4 ? y : y - 1; return `${s}-${String((s + 1) % 100).padStart(2, '0')}`; })();
   const pdf = Buffer.from('%PDF-1.4\n% Worko demo document\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n');
   let inward = 0;
@@ -144,6 +157,58 @@ async function seedPractice(tx: Tx, tenantId: string, branch: string, users: Rec
     }
   }
   await tx.query(`INSERT INTO register_counter (tenant_id, kind, fy, next) VALUES ($1,'IN',$2,$3)`, [tenantId, fy, inward + 1]);
+}
+
+/**
+ * Phase 4: default catalogue, subscriptions (GST monthly → GSTR-1 + GSTR-3B; TAN → TDS deposit), auto-created tasks for
+ * the two periods ending before `today`'s month, a spread of statuses (done/billed, review, pending, overdue), to-dos
+ * and one draft due-date extension. Deterministic for a given `today`.
+ */
+async function seedTasks(db: DbService, tx: Tx, tenantId: string, users: Record<string, string>, today: string) {
+  const audit = new AuditService(); const realtime = new RealtimeService();
+  const packs = new RulePackService(new RulesService(), audit);
+  const sync = new SyncService(db, audit, realtime, SYNC_TABLES);
+  const sys = systemActor(tenantId);
+  await new CatalogueService(db, audit, sync, realtime, packs).installDefaultsTx(tx, sys);
+  await tx.query(`INSERT INTO client_service (id, tenant_id, client_id, service_type_id)
+    SELECT gen_random_uuid(), c.tenant_id, c.id, s.id FROM client c JOIN service_type s ON s.key IN ('GSTR1','GSTR3B')
+    WHERE c.compliance_profile->>'gstFiling' = 'MONTHLY' AND c.deleted_at IS NULL`);
+  await tx.query(`INSERT INTO client_service (id, tenant_id, client_id, service_type_id)
+    SELECT gen_random_uuid(), c.tenant_id, c.id, s.id FROM client c JOIN service_type s ON s.key = 'TDS_DEPOSIT'
+    WHERE (c.compliance_profile->>'hasTan')::boolean AND c.deleted_at IS NULL`);
+  const [y, m] = today.split('-').map(Number) as [number, number];
+  const ym = (n: number) => { const x = dates.addMonths(y, m, n); return `${x.y}-${String(x.m).padStart(2, '0')}`; };
+  const auto = new AutoTaskService(db, packs, audit, realtime, new JobQueueService(db));
+  const older = await auto.commitTx(tx, sys, ym(-2));
+  const recent = await auto.commitTx(tx, sys, ym(-1));
+  const r = rng(7);
+  const tick = `(SELECT jsonb_agg(c || jsonb_build_object('done', true, 'doneBy', t.assignee_id, 'doneAt', now())) FROM jsonb_array_elements(t.checks) c)`;
+  for (const id of older.ids) {
+    const x = r();
+    if (x < 0.75) await tx.query(`UPDATE task t SET checks = ${tick}, status = 'done', completed_at = now(), outcome = $2, closed_at = CASE WHEN $2::text IS NULL THEN NULL ELSE now() END WHERE id = $1`, [id, x < 0.5 ? 'billed' : null]);
+    // the rest stay open → overdue in the demo
+  }
+  for (const id of recent.ids) {
+    const x = r();
+    if (x < 0.2) await tx.query(`UPDATE task t SET status = 'in_progress' WHERE id = $1`, [id]);
+    else if (x < 0.35) await tx.query(`UPDATE task t SET checks = ${tick}, status = 'review', reviewer_id = coalesce(reviewer_id, $2) WHERE id = $1`, [id, users.manager]);
+    else if (x < 0.45) await tx.query(`UPDATE task t SET status = 'pending_client', pending_issue = 'Purchase register / bank statement awaited from client' WHERE id = $1`, [id]);
+    else if (x < 0.55) await tx.query(`UPDATE task t SET checks = ${tick}, status = 'done', completed_at = now() WHERE id = $1`, [id]);
+  }
+  await tx.query(`INSERT INTO task (id, tenant_id, title, description, statutory_due, act_by, assignee_id, manager_id, priority, created_by)
+    VALUES ($1,$2,'Renew professional indemnity insurance','Firm task (no client)',$3,$3,$4,$4,'high',$4)`, [uuidv7(), tenantId, dates.addDays(today, 20), users.partner]);
+  const todos: Array<[string, string, number]> = [[users.article!, 'Collect bank statements from Laxmi Traders', 1], [users.article!, 'Scan inward papers to client folders', 0],
+    [users.senior!, 'Call client about pending GSTR-2B mismatches', 2], [users.manager!, 'Review this week\'s GSTR-3B workings', 3]];
+  for (const [owner, title, d] of todos) {
+    await tx.query(`INSERT INTO todo (id, tenant_id, owner_id, title, due_at) VALUES ($1,$2,$3,$4,$5)`, [uuidv7(), tenantId, owner, title, new Date(`${dates.addDays(today, d)}T18:00:00+05:30`)]);
+  }
+  await tx.query(`INSERT INTO todo_template (id, tenant_id, name, items) VALUES ($1,$2,'GST month-end','[{"title":"Chase sales & purchase data","offsetDays":0},{"title":"Share 3B working with client","offsetDays":12},{"title":"Confirm challan payment","offsetDays":17}]')`, [uuidv7(), tenantId]);
+  // A draft extension waiting for approval (sample — not a real notification).
+  const due = (await tx.query(`SELECT statutory_due::text AS d FROM task WHERE rule_id = 'gst.gstr3b.monthly' AND period_key = $1 LIMIT 1`, [ym(-1)])).rows[0]?.d as string | undefined;
+  if (due) {
+    await tx.query(`INSERT INTO rule_extension (id, tenant_id, rule_id, period_key, new_due_date, notification) VALUES ($1,$2,'gst.gstr3b.monthly',$3,$4,'DEMO — sample extension, not a real notification')`,
+      [uuidv7(), tenantId, ym(-1), dates.addDays(due, 5)]);
+  }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

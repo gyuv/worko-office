@@ -3,7 +3,8 @@ import { backoffMs } from '@worko/notify';
 import { DbService, type Tx } from '../db/db.service.js';
 
 export type Job = { id: string; tenant_id: string; kind: string; ref_id: string; attempts: number; max_attempts: number };
-export type JobHandler = (job: Job) => Promise<void>;
+/** `at` is the queue's clock for this run (injectable in tests via `runOnce(batch, now)`). */
+export type JobHandler = (job: Job, at: Date) => Promise<void>;
 /** Thrown by a handler to re-run the job later without counting it as a failure (e.g. snoozed). */
 export class Reschedule extends Error { constructor(readonly at: Date) { super('reschedule'); } }
 
@@ -59,7 +60,7 @@ export class JobQueueService implements OnModuleInit, OnApplicationShutdown {
     const h = this.handlers.get(j.kind);
     try {
       if (!h) throw new Error(`No handler for ${j.kind}`);
-      await h(j);
+      await h(j, at);
       await this.db.systemTx((tx) => tx.query('DELETE FROM job_queue WHERE id = $1', [j.id]));
     } catch (e) {
       if (e instanceof Reschedule) {

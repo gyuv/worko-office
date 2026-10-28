@@ -94,7 +94,10 @@ export class SyncService {
     const cur = (await tx.query(`SELECT * FROM ${t} WHERE id = $1 FOR UPDATE`, [m.id])).rows[0];
     if (!cur) {
       if (m.delete || !def.canInsert || !(await def.canInsert(a, patch, tx))) return reject('not_found');
-      const row = { ...patch, ...(await def.beforeInsert?.(a, patch, tx)) };
+      const base = { ...patch, ...(await def.beforeInsert?.(a, patch, tx)) };
+      const why = await def.validate?.(a, null, { id: m.id, ...base }, tx);
+      if (why) return reject(why);
+      const row = { ...base, ...def.derive?.(a, null, base) };
       const cols = Object.keys(row);
       const fv = Object.fromEntries(cols.map((c) => [c, 1]));
       let r;
@@ -117,6 +120,11 @@ export class SyncService {
     if (def.strict && m.baseVersion !== cur.version) {
       return { result: { key: m.key, status: 'rejected_stale', version: cur.version }, cursor: 0 };
     }
+    if (!m.delete && def.validate) {
+      const why = await def.validate(a, cur, { ...cur, ...patch }, tx);
+      if (why) return reject(why);
+    }
+    if (!m.delete && def.derive) Object.assign(patch, def.derive(a, cur, patch));
     const next = await this.writePatch(tx, a, def, cur, patch, m.baseVersion, m.key, m.delete ?? false);
     if (def.audit) await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: m.delete ? `${def.table}.deleted` : `${def.table}.updated`, entity: def.table, entityId: m.id, diff: patch });
     return { result: { key: m.key, status: 'applied', version: next.version }, cursor: next.cursor };

@@ -1,9 +1,10 @@
-import { can, clientCtx, ENTITY_TYPES, hiddenFieldsOf, isValidPan, isValidTan, type ClientVisibility } from '@worko/domain';
+import { can, clientCtx, effectiveScope, ENTITY_TYPES, hiddenFieldsOf, isValidPan, isValidTan, TASK_PRIORITIES, TASK_STATUSES, taskChangeError, type TaskCheck } from '@worko/domain';
 import { prefsSchema } from '@worko/notify';
 import { z, type ZodTypeAny } from 'zod';
 import type { RequestActor } from '../auth/context.js';
-import { clientScopeSql, type Params } from '../clients/scope.js';
+import { clientScopeSql, visibilityOf, type Params } from '../clients/scope.js';
 import type { Tx } from '../db/db.service.js';
+import { canTaskRow, checkPeopleAndRevoke, clientOfTask, PEOPLE_COLS, stampChecks, stateOf, taskScopeSql } from '../tasks/scope.js';
 
 /**
  * Every table that devices sync. Only listed columns ever leave or enter the server; `writable` columns may be
@@ -33,6 +34,10 @@ export type SyncTableDef = {
   beforeInsert?: (a: RequestActor, row: Record<string, unknown>, tx: Tx) => Promise<Record<string, unknown>> | Record<string, unknown>;
   canUpdate: (a: RequestActor, row: Record<string, unknown>, tx: Tx) => boolean | Promise<boolean>;
   canDelete?: (a: RequestActor, row: Record<string, unknown>, tx: Tx) => boolean | Promise<boolean>;
+  /** Business rules over the row as it would be after the change (cur = null on insert); returns a reject reason. */
+  validate?: (a: RequestActor, cur: Record<string, unknown> | null, next: Record<string, unknown>, tx: Tx) => Promise<string | null> | string | null;
+  /** Server-derived columns written alongside a valid change (timestamps, stamps); bypass `writable`. */
+  derive?: (a: RequestActor, cur: Record<string, unknown> | null, patch: Record<string, unknown>) => Record<string, unknown>;
   /** Whether client mutations are audit-logged (read-receipts are not: they'd drown the log). */
   audit: boolean;
 };
@@ -42,18 +47,14 @@ const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable();
 const short = (n = 200) => z.string().trim().max(n).nullable();
 const uuid = z.string().uuid();
 
-export const visibilityOf = (r: Record<string, unknown>): ClientVisibility => ({
-  branchId: (r.branch_id as string) ?? null, partnerId: (r.partner_id as string) ?? null, managerId: (r.manager_id as string) ?? null,
-  teamId: (r.team_id as string) ?? null, staffIds: (r.staff_ids as string[]) ?? [], groupIds: (r.group_ids as string[]) ?? [],
-  sensitive: !!r.sensitive, allowedUserIds: (r.allowed_user_ids as string[]) ?? [],
-});
+export { visibilityOf };
 
 /** Loads a client row for permission checks on child records. */
 async function parentClient(tx: Tx, clientId: unknown) {
   if (typeof clientId !== 'string') return null;
   return (await tx.query('SELECT * FROM client WHERE id = $1 AND deleted_at IS NULL', [clientId])).rows[0] ?? null;
 }
-const childOf = (module: 'clients' | 'documents' | 'registers') => ({
+const childOf = (module: 'clients' | 'documents' | 'registers' | 'tasks') => ({
   scope: (a: RequestActor, p: Params) => `EXISTS (SELECT 1 FROM client c WHERE c.id = x.client_id AND ${clientScopeSql(a, 'clients', 'view', p)}${module === 'clients' ? '' : ` AND ${clientScopeSql(a, module, 'view', p)}`})`,
   canInsert: async (a: RequestActor, row: Record<string, unknown>, tx: Tx) => {
     const c = await parentClient(tx, row.client_id);
@@ -81,6 +82,17 @@ export function fyOf(isoDate: string): string {
   const s = m >= 4 ? y : y - 1;
   return `${s}-${String((s + 1) % 100).padStart(2, '0')}`;
 }
+
+export const checkSchema = z.object({
+  key: z.string().regex(/^[a-z0-9_]{1,40}$/), label: z.string().trim().min(1).max(200), required: z.boolean().default(false),
+  done: z.boolean().default(false), doneBy: z.string().uuid().nullable().optional(), doneAt: z.string().datetime({ offset: true }).nullable().optional(),
+});
+export const taskWritable = {
+  client_id: uuid.nullable(), service_type_id: uuid.nullable(), period_key: short(30), title: z.string().trim().min(1).max(300),
+  description: z.string().max(5000).nullable(), status: z.enum(TASK_STATUSES), priority: z.enum(TASK_PRIORITIES),
+  statutory_due: date, act_by: date, leader_id: uuid.nullable(), manager_id: uuid.nullable(), assignee_id: uuid.nullable(), reviewer_id: uuid.nullable(),
+  checks: z.array(checkSchema).max(50), pending_issue: z.string().max(2000).nullable(),
+};
 
 const items = z.array(z.object({ description: z.string().max(300), qty: z.number().int().min(1).max(10_000).default(1), original: z.boolean().default(false) })).max(100);
 
@@ -215,9 +227,86 @@ export const SYNC_TABLES: Record<string, SyncTableDef> = {
     },
     audit: true,
   },
+  // Firm-wide catalogue: read-only on devices (edited via REST with settings:edit).
+  service_type: {
+    table: 'service_type',
+    columns: ['key', 'name', 'category', 'description', 'frequency', 'rule_id', 'sla_days', 'default_checks', 'leader_id', 'manager_id', 'reviewer_id', 'assignee_id', 'billable', 'active'],
+    json: ['default_checks'],
+    writable: {},
+    scope: () => 'TRUE',
+    visible: (a) => !!a.superAdmin || (effectiveScope(a, 'tasks', 'view')?.scope ?? 'none') !== 'none',
+    canUpdate: () => false,
+    audit: true,
+  },
+  client_service: {
+    table: 'client_service',
+    columns: ['client_id', 'service_type_id', 'start_period', 'end_period', 'leader_id', 'manager_id', 'reviewer_id', 'assignee_id', 'active', 'notes'],
+    writable: {},
+    ...childOf('tasks'),
+    canInsert: () => false, // subscriptions change via REST (validated people + periods)
+    canUpdate: () => false,
+    canDelete: () => false,
+    audit: true,
+  },
+  task: {
+    table: 'task',
+    columns: ['client_id', 'service_type_id', 'period_key', 'period_label', 'title', 'description', 'status', 'priority', 'statutory_due', 'act_by',
+      'leader_id', 'manager_id', 'assignee_id', 'reviewer_id', 'checks', 'pending_issue', 'outcome', 'closed_at', 'completed_at', 'source', 'rule_id',
+      'extension_id', 'created_by', 'created_at'],
+    json: ['checks'],
+    writable: taskWritable,
+    immutable: ['client_id', 'service_type_id', 'period_key'],
+    // clients:view on the client AND tasks:view on the task (its people count as owners) — D52 + D55.
+    scope: (a, p) => `EXISTS (SELECT 1 FROM (SELECT 1) _v LEFT JOIN client c ON c.id = x.client_id WHERE ${taskScopeSql(a, 'view', p, 'x', 'c')})`,
+    visible: (a) => !!a.superAdmin || (effectiveScope(a, 'tasks', 'view')?.scope ?? 'none') !== 'none',
+    canInsert: async (a, row, tx) => {
+      const c = await clientOfTask(tx, row.client_id);
+      if (row.client_id && !c) return false;
+      return canTaskRow(a, 'create', row, tx, c);
+    },
+    beforeInsert: (a) => ({ source: 'manual', created_by: a.userId, outcome: null }),
+    canUpdate: (a, row, tx) => canTaskRow(a, 'edit', row, tx),
+    canDelete: () => false, // tasks end via close (billed/free/deleted), never a bare delete
+    validate: async (a, cur, next, tx) => {
+      // Changing who works on a task is 'assign' (an assignee may move status/checks, not hand the task on).
+      const peopleChanged = PEOPLE_COLS.some((f) => (cur ? (cur[f] ?? null) !== (next[f] ?? null) : !!next[f] && next[f] !== a.userId));
+      if (peopleChanged && !(await canTaskRow(a, 'assign', cur ?? next, tx))) return 'forbidden';
+      const why = taskChangeError(cur ? stateOf(cur) : null, stateOf(next));
+      if (why) return why;
+      if (!next.title && !cur) return 'invalid:title';
+      return checkPeopleAndRevoke(tx, a.tenantId, cur, next);
+    },
+    derive: (a, cur, patch) => {
+      const out: Record<string, unknown> = {};
+      if ('checks' in patch) out.checks = stampChecks((cur?.checks as TaskCheck[]) ?? [], patch.checks as TaskCheck[], a.userId);
+      if ('status' in patch && patch.status !== cur?.status) out.completed_at = patch.status === 'done' ? new Date().toISOString() : null;
+      return out;
+    },
+    audit: true,
+  },
+  // Personal to-dos: only ever synced to (and written by) their owner.
+  todo: {
+    table: 'todo',
+    columns: ['owner_id', 'title', 'notes', 'due_at', 'done', 'done_at', 'task_id', 'sort', 'created_at'],
+    writable: { title: z.string().trim().min(1).max(300), notes: z.string().max(2000).nullable(), due_at: iso, done: z.boolean(), done_at: iso,
+      task_id: uuid.nullable(), sort: z.number().int().min(-1_000_000).max(1_000_000) },
+    scope: (a, p) => `x.owner_id = ${p.add(a.userId)}::uuid`,
+    visible: (a) => !!a.roles.length || !!a.superAdmin,
+    canInsert: () => true,
+    beforeInsert: (a) => ({ owner_id: a.userId }),
+    canUpdate: (a, row) => row.owner_id === a.userId,
+    canDelete: (a, row) => row.owner_id === a.userId,
+    validate: async (a, _cur, next, tx) => {
+      // A to-do may point at a task only if the owner can see that task.
+      if (!next.task_id) return null;
+      const t = (await tx.query('SELECT * FROM task WHERE id = $1 AND deleted_at IS NULL', [next.task_id])).rows[0];
+      return t && (await canTaskRow(a, 'view', t, tx)) ? null : 'invalid:task_id';
+    },
+    audit: false,
+  },
 };
 
 /** Child tables whose visibility follows their client (used for revocations). */
-export const CLIENT_CHILD_TABLES = ['contact', 'client_registration', 'document', 'inward_entry', 'outward_entry'] as const;
+export const CLIENT_CHILD_TABLES = ['contact', 'client_registration', 'document', 'inward_entry', 'outward_entry', 'client_service', 'task'] as const;
 
 export const SYNC_TABLES_TOKEN = 'SYNC_TABLES';

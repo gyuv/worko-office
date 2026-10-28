@@ -1,0 +1,24 @@
+{
+  "id": "in-latefees-seed",
+  "version": "0.1.0",
+  "notes": "SAMPLE DATA ONLY — UNVERIFIED. Indicative late fees/interest typed from general knowledge; caps vary by turnover and by notification. Confirm every figure against official CBIC/CBDT notifications before use.",
+  "entries": [
+    { "ruleIds": ["gst.gstr3b.monthly", "gst.gstr1.monthly", "gst.gstr1.qrmp"], "effectiveFrom": "2017-07-01", "verified": false,
+      "source": "CGST s.47 + SGST equivalent; s.50 interest (indicative)",
+      "components": [
+        { "kind": "per_day", "label": "Late fee (CGST+SGST)", "perDayPaise": 5000, "maxPaise": 1000000, "nilPerDayPaise": 2000, "nilMaxPaise": 50000 },
+        { "kind": "interest", "label": "Interest on tax (s.50, indicative)", "basis": "per_day", "ratePctPerAnnum": 18 }
+      ] },
+    { "ruleIds": ["gst.gstr9"], "effectiveFrom": "2017-07-01", "verified": false,
+      "components": [{ "kind": "per_day", "label": "Late fee (CGST+SGST)", "perDayPaise": 20000 }] },
+    { "ruleIds": ["tds.quarterly_return"], "effectiveFrom": "2017-04-01", "verified": false, "source": "s.234E (indicative)",
+      "components": [{ "kind": "per_day", "label": "Fee u/s 234E", "perDayPaise": 20000, "capAtTax": true }] },
+    { "ruleIds": ["tds.deposit"], "effectiveFrom": "2017-04-01", "verified": false, "source": "s.201(1A) (indicative)",
+      "components": [{ "kind": "interest", "label": "Interest u/s 201(1A) (late deposit)", "basis": "per_month_or_part", "ratePctPerMonth": 1.5 }] },
+    { "ruleIds": ["it.itr.non_audit", "it.itr.audit"], "effectiveFrom": "2017-04-01", "verified": false, "source": "s.234F / s.234A (indicative)",
+      "components": [
+        { "kind": "flat", "label": "Fee u/s 234F (indicative; lower for small incomes)", "amountPaise": 500000 },
+        { "kind": "interest", "label": "Interest u/s 234A", "basis": "per_month_or_part", "ratePctPerMonth": 1 }
+      ] }
+  ]
+}

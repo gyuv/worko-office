@@ -30,6 +30,8 @@ export type ResourceCtx = {
   clientGroupIds?: string[];
   sensitive?: boolean;
   allowedUserIds?: string[];
+  /** Firm-level record (no client): branch scope does not reach it; only 'all' scope or owners do. */
+  firmWide?: boolean;
 };
 export type Actor = { userId: string; teamIds: string[]; branchId: string | null; roles: Role[]; superAdmin?: boolean };
 
@@ -49,7 +51,7 @@ export function can(actor: Actor, module: Module, action: Action, res: ResourceC
   if (!g || g.scope === 'none') return false;
   switch (g.scope) {
     case 'all': return true;
-    case 'branch': return !res.branchId || res.branchId === actor.branchId;
+    case 'branch': return !res.firmWide && (!res.branchId || res.branchId === actor.branchId);
     case 'groups': return (res.clientGroupIds ?? []).some((id) => g.clientGroupIds?.includes(id));
     case 'team': return (!!res.teamId && actor.teamIds.includes(res.teamId)) || (res.ownerUserIds ?? []).includes(actor.userId);
     case 'own': return (res.ownerUserIds ?? []).includes(actor.userId);

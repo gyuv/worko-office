@@ -28,6 +28,10 @@ Typed client `@worko/api-client` is generated from it (`pnpm --filter @worko/api
 | Documents | `GET/POST /documents`, `PATCH/DELETE /documents/{id}`, `POST /documents/{id}/restore|download-url|shares`, `GET /documents/{id}/versions|access-log|shares`, `DELETE /shares/{id}`, `GET /clients/{id}/document-tree`, public `GET /files/{token}`, `GET|POST /share/{token}` |
 | Registers | `GET/POST /registers/{inward|outward}`, `PATCH /registers/{kind}/{id}`, `POST /registers/{kind}/{id}/signature`, `GET /registers/{kind}/{id}/receipt.pdf` |
 | Users | `PATCH /users/{id}` (deactivate, manager, branch, roles) |
+| Service catalogue | `GET/POST /service-types`, `PATCH /service-types/{id}`, `POST /service-types/install-defaults`, `GET /clients/{id}/services`, `PUT /clients/{id}/services/{serviceTypeId}` |
+| Tasks | `GET/POST /tasks`, `GET /tasks/calendar`, `GET/PATCH /tasks/{id}`, `POST /tasks/{id}/checks|close`, `POST /tasks/bulk`, `/tasks/bulk/undo`, `POST /tasks/auto/preview|commit` |
+| To-dos | `GET/POST /todos`, `PATCH/DELETE /todos/{id}`, `GET/POST /todo-templates`, `POST /todo-templates/{id}/apply` |
+| Compliance | `GET/POST /compliance/packs`, `GET /compliance/packs/{id}/diff`, `POST /compliance/packs/{id}/approve`, `GET/POST /compliance/extensions`, `GET /compliance/extensions/{id}/impact`, `POST /compliance/extensions/{id}/approve`, `GET /compliance/matrix`, `POST /compliance/late-fee` (indicative) |
 | Realtime | `GET /v1/realtime` (WebSocket; first message `{type:'auth', token}`; server sends `ready`, `changed{cursor}`, `revoked{wipe}`) |
 
-Errors are `{ statusCode, message, code?, issues? }`. Special codes: `MFA_REQUIRED`, `DEVICE_WIPE`, `STEP_UP_REQUIRED`, `PASSWORD_REQUIRED` (share links). Invisible records return 404 (never 403) so existence isn't confirmed.
+Errors are `{ statusCode, message, code?, issues? }`. Task rule codes (400): `required_checks_pending`, `reviewer_required`, `pending_issue_required`, `act_by_after_due`, `task_closed`, `task_not_done`, `person_cannot_see_task:<field>`. Special codes: `MFA_REQUIRED`, `DEVICE_WIPE`, `STEP_UP_REQUIRED`, `PASSWORD_REQUIRED` (share links). Invisible records return 404 (never 403) so existence isn't confirmed.

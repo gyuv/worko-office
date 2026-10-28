@@ -49,7 +49,8 @@ erDiagram
 
 ## Key invariants
 - `task.billing_state ∈ {unbilled, billed, free(reason), deleted}`; "completed & unbilled" is a first-class report.
-- `task` unique on `(client_service_id, period_key)` → auto-creation is idempotent.
+- `task` unique on `(tenant_id, client_id, service_type_id, period_key) WHERE deleted_at IS NULL` (+ NOT EXISTS over deleted rows) → auto-creation is idempotent and never resurrects deleted tasks. `task.outcome ∈ {billed, free, deleted}` is set only by the close action; `act_by <= statutory_due` (CHECK).
+- Phase 4 tables (0007): `service_type` (catalogue, synced read-only; no prices), `client_service` (subscription + people overrides, synced read-only, client-scoped), `task` (synced; `checks` jsonb `[{key,label,required,done,doneBy,doneAt}]`), `task_bulk_undo` (10-min snapshots), `todo` (synced to owner only), `todo_template`, `rule_pack` (per tenant, one approved), `rule_extension` (draft/approved).
 - Money columns are `bigint` paise; invoices/receipts are strict-sync tables.
 - `invoice.number` unique per `(firm_entity_id, series, fy)`.
 - `vault_secret.ciphertext` + `dek_id`; plaintext never stored or logged.

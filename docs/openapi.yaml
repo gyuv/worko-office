@@ -1,11 +1,11 @@
 openapi: 3.1.0
 info:
   title: Worko API
-  version: 0.4.0
+  version: 0.5.0
   description: Contract for web, desktop, Android and the public API. Source of truth for @worko/api-client.
 servers: [{ url: /v1 }]
 security: [{ bearer: [] }]
-tags: [{ name: clients }, { name: vault }, { name: documents }, { name: registers }, { name: auth }, { name: tenancy }, { name: users }, { name: audit }, { name: rules }, { name: sync }, { name: notifications }, { name: system }]
+tags: [{ name: tasks }, { name: compliance }, { name: clients }, { name: vault }, { name: documents }, { name: registers }, { name: auth }, { name: tenancy }, { name: users }, { name: audit }, { name: rules }, { name: sync }, { name: notifications }, { name: system }]
 paths:
   /health:
     get: { tags: [system], operationId: health, security: [], responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { status: { type: string }, product: { type: string } } } } } } } }
@@ -510,6 +510,241 @@ paths:
       responses: { '201': { description: Linked, content: { application/json: { schema: { type: object, properties: { documentId: { type: string } } } } } } }
   /registers/{kind}/{id}/receipt.pdf:
     get: { tags: [registers], operationId: registerReceipt, parameters: [{ $ref: '#/components/parameters/RegisterKind' }, { $ref: '#/components/parameters/Id' }], responses: { '200': { description: PDF receipt } } }
+  /service-types:
+    get:
+      tags: [tasks]
+      operationId: listServiceTypes
+      parameters: [{ name: all, in: query, schema: { type: string, enum: ['true', 'false'] } }]
+      responses: { '200': { description: Catalogue, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/ServiceType' } } } } } }
+    post:
+      tags: [tasks]
+      operationId: createServiceType
+      description: Firm-wide catalogue entry (settings:edit). No prices.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ServiceTypeIn' } } } }
+      responses: { '201': { $ref: '#/components/responses/Created' }, '409': { $ref: '#/components/responses/Error' } }
+  /service-types/install-defaults:
+    post:
+      tags: [tasks]
+      operationId: installDefaultServiceTypes
+      description: Idempotent — adds catalogue entries (one per rule-pack serviceTypeKey, plus a few non-statutory ones) the firm doesn't have.
+      responses: { '200': { description: Result, content: { application/json: { schema: { type: object, required: [created, skipped], properties: { created: { type: integer }, skipped: { type: integer } } } } } } }
+  /service-types/{id}:
+    patch:
+      tags: [tasks]
+      operationId: updateServiceType
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ServiceTypeIn' } } } }
+      responses: { '204': { description: Saved } }
+  /clients/{id}/services:
+    get:
+      tags: [tasks]
+      operationId: listClientServices
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses: { '200': { description: Subscriptions, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/ClientService' } } } } }, '404': { $ref: '#/components/responses/Error' } }
+  /clients/{id}/services/{serviceTypeId}:
+    put:
+      tags: [tasks]
+      operationId: subscribeClientService
+      description: Upsert a client's subscription to a service, with optional people overrides (they must be able to see the client).
+      parameters: [{ $ref: '#/components/parameters/Id' }, { name: serviceTypeId, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ClientServiceIn' } } } }
+      responses: { '200': { description: Saved, content: { application/json: { schema: { type: object, required: [id], properties: { id: { type: string } } } } } } }
+  /tasks:
+    get:
+      tags: [tasks]
+      operationId: listTasks
+      description: List / kanban / gantt / sprint views all read this. Visible = clients:view on the client AND tasks:view (task people count as owners).
+      parameters:
+        - { name: status, in: query, description: Comma-separated statuses, schema: { type: string } }
+        - { name: assigneeId, in: query, description: "uuid or 'me'", schema: { type: string } }
+        - { name: clientId, in: query, schema: { type: string } }
+        - { name: serviceTypeId, in: query, schema: { type: string } }
+        - { name: dueFrom, in: query, schema: { type: string, format: date } }
+        - { name: dueTo, in: query, schema: { type: string, format: date } }
+        - { name: dateField, in: query, schema: { type: string, enum: [statutory_due, act_by] } }
+        - { name: overdue, in: query, schema: { type: string, enum: ['true', 'false'] } }
+        - { name: asOf, in: query, schema: { type: string, format: date } }
+        - { name: closed, in: query, schema: { type: string, enum: ['true', 'false'] } }
+        - { name: firm, in: query, description: Firm/internal tasks only, schema: { type: string, enum: ['true', 'false'] } }
+        - { name: q, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer } }
+        - { name: offset, in: query, schema: { type: integer } }
+      responses: { '200': { description: Tasks, content: { application/json: { schema: { type: object, required: [total, items], properties: { total: { type: integer }, items: { type: array, items: { $ref: '#/components/schemas/Task' } } } } } } } }
+    post:
+      tags: [tasks]
+      operationId: createTask
+      description: Manual task (client or firm). Checks default from the service type.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TaskIn' } } } }
+      responses: { '201': { $ref: '#/components/responses/Created' }, '400': { $ref: '#/components/responses/Error' } }
+  /tasks/calendar:
+    get:
+      tags: [tasks]
+      operationId: taskCalendar
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date } }
+        - { name: field, in: query, schema: { type: string, enum: [statutory_due, act_by] } }
+      responses: { '200': { description: Tasks by date, content: { application/json: { schema: { type: object, required: [from, to, field, days], properties: { from: { type: string }, to: { type: string }, field: { type: string }, days: { type: array, items: { type: object, required: [date, count, tasks], properties: { date: { type: string }, count: { type: integer }, tasks: { type: array, items: { $ref: '#/components/schemas/Task' } } } } } } } } } } }
+  /tasks/bulk:
+    post:
+      tags: [tasks]
+      operationId: bulkUpdateTasks
+      description: Same rules as single edits; failing rows are reported, the rest applied. Returns an undo token valid 10 minutes.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [ids, patch], properties: { ids: { type: array, items: { type: string, format: uuid } }, patch: { $ref: '#/components/schemas/TaskBulkPatch' } } } } } }
+      responses: { '200': { description: Result, content: { application/json: { schema: { type: object, required: [undoToken, applied, failed, expiresInSeconds], properties: { undoToken: { type: [string, 'null'] }, applied: { type: integer }, expiresInSeconds: { type: integer }, failed: { type: array, items: { type: object, properties: { id: { type: string }, reason: { type: string } } } } } } } } } }
+  /tasks/bulk/undo:
+    post:
+      tags: [tasks]
+      operationId: undoBulkUpdate
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [undoToken], properties: { undoToken: { type: string, format: uuid } } } } } }
+      responses: { '200': { description: Restored, content: { application/json: { schema: { type: object, required: [restored, skipped], properties: { restored: { type: integer }, skipped: { type: array, items: { type: string } } } } } } }, '410': { $ref: '#/components/responses/Error' } }
+  /tasks/auto/preview:
+    post:
+      tags: [tasks]
+      operationId: previewAutoTasks
+      description: Due items whose period ends in `month`, for subscribed clients the caller may create tasks for. Nothing written.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AutoTasksIn' } } } }
+      responses: { '200': { description: Plan, content: { application/json: { schema: { type: object, required: [month, toCreate, skipped, items], properties: { month: { type: string }, toCreate: { type: integer }, skipped: { type: integer }, items: { type: array, items: { $ref: '#/components/schemas/PlannedTask' } } } } } } } }
+  /tasks/auto/commit:
+    post:
+      tags: [tasks]
+      operationId: commitAutoTasks
+      description: Creates the previewed tasks idempotently (one per client × service × period; deleted tasks are not recreated).
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AutoTasksIn' } } } }
+      responses: { '200': { description: Result, content: { application/json: { schema: { type: object, required: [month, created, skipped, ids], properties: { month: { type: string }, created: { type: integer }, skipped: { type: integer }, ids: { type: array, items: { type: string } } } } } } } }
+  /tasks/{id}:
+    get:
+      tags: [tasks]
+      operationId: getTask
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses: { '200': { description: Task, content: { application/json: { schema: { $ref: '#/components/schemas/Task' } } } }, '404': { $ref: '#/components/responses/Error' } }
+    patch:
+      tags: [tasks]
+      operationId: updateTask
+      description: "Rule codes (400 `code`): required_checks_pending, reviewer_required, pending_issue_required, act_by_after_due, task_closed, person_cannot_see_task:*."
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TaskIn' } } } }
+      responses: { '204': { description: Saved }, '400': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } }
+  /tasks/{id}/checks:
+    post:
+      tags: [tasks]
+      operationId: setTaskCheck
+      description: Tick/untick one check; the server stamps who and when.
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [key, done], properties: { key: { type: string }, done: { type: boolean } } } } } }
+      responses: { '204': { description: Saved } }
+  /tasks/{id}/close:
+    post:
+      tags: [tasks]
+      operationId: closeTask
+      description: Every task ends billed, free (both need status done) or deleted (soft delete, tasks:delete).
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [outcome], properties: { outcome: { type: string, enum: [billed, free, deleted] }, note: { type: [string, 'null'] } } } } } }
+      responses: { '204': { description: Closed }, '400': { $ref: '#/components/responses/Error' } }
+  /todos:
+    get:
+      tags: [tasks]
+      operationId: listTodos
+      description: The caller's own to-dos.
+      parameters: [{ name: done, in: query, schema: { type: string, enum: ['true', 'false'] } }, { name: taskId, in: query, schema: { type: string } }]
+      responses: { '200': { description: To-dos, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Todo' } } } } } }
+    post:
+      tags: [tasks]
+      operationId: createTodo
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TodoIn' } } } }
+      responses: { '201': { $ref: '#/components/responses/Created' } }
+  /todos/{id}:
+    patch:
+      tags: [tasks]
+      operationId: updateTodo
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TodoIn' } } } }
+      responses: { '204': { description: Saved }, '404': { $ref: '#/components/responses/Error' } }
+    delete: { tags: [tasks], operationId: deleteTodo, parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '204': { description: Deleted } } }
+  /todo-templates:
+    get:
+      tags: [tasks]
+      operationId: listTodoTemplates
+      responses: { '200': { description: Templates, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/TodoTemplate' } } } } } }
+    post:
+      tags: [tasks]
+      operationId: createTodoTemplate
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [name, items], properties: { name: { type: string }, items: { type: array, items: { $ref: '#/components/schemas/TodoTemplateItem' } } } } } } }
+      responses: { '201': { $ref: '#/components/responses/Created' } }
+  /todo-templates/{id}/apply:
+    post:
+      tags: [tasks]
+      operationId: applyTodoTemplate
+      description: Creates the template's to-dos for the caller, due offsetDays after baseDate.
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { baseDate: { type: string, format: date }, taskId: { type: [string, 'null'] } } } } } }
+      responses: { '201': { description: Created, content: { application/json: { schema: { type: object, required: [ids], properties: { ids: { type: array, items: { type: string } } } } } } } }
+  /compliance/packs:
+    get:
+      tags: [compliance]
+      operationId: listRulePacks
+      responses: { '200': { description: Pack versions (the shipped pack is installed as approved on first use), content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/RulePackVersion' } } } } } }
+    post:
+      tags: [compliance]
+      operationId: uploadRulePack
+      description: Validated with the rule-pack schema; stored as a draft.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [pack], properties: { pack: { type: object } } } } } }
+      responses: { '201': { $ref: '#/components/responses/Created' }, '400': { $ref: '#/components/responses/Error' }, '409': { $ref: '#/components/responses/Error' } }
+  /compliance/packs/{id}/diff:
+    get:
+      tags: [compliance]
+      operationId: diffRulePack
+      parameters: [{ $ref: '#/components/parameters/Id' }, { name: fy, in: query, schema: { type: integer } }]
+      responses: { '200': { description: Rule diff vs active pack + schedule impact, content: { application/json: { schema: { $ref: '#/components/schemas/RulePackDiff' } } } } }
+  /compliance/packs/{id}/approve:
+    post:
+      tags: [compliance]
+      operationId: approveRulePack
+      description: Needs firm-wide compliance:approve. Supersedes the active pack.
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses: { '204': { description: Approved }, '403': { $ref: '#/components/responses/Error' } }
+  /compliance/extensions:
+    get:
+      tags: [compliance]
+      operationId: listExtensions
+      responses: { '200': { description: Extensions, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/RuleExtension' } } } } } }
+    post:
+      tags: [compliance]
+      operationId: createExtension
+      description: Draft due-date extension for one rule × period (optionally scoped by a client-facts predicate).
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RuleExtensionIn' } } } }
+      responses: { '201': { $ref: '#/components/responses/Created' }, '400': { $ref: '#/components/responses/Error' } }
+  /compliance/extensions/{id}/impact:
+    get:
+      tags: [compliance]
+      operationId: extensionImpactPreview
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses: { '200': { description: '"N due dates / M clients" and the open tasks that would move', content: { application/json: { schema: { $ref: '#/components/schemas/ExtensionImpact' } } } } }
+  /compliance/extensions/{id}/approve:
+    post:
+      tags: [compliance]
+      operationId: approveExtension
+      description: Needs firm-wide compliance:approve. Moves statutory due (and act-by by the same delta) on affected open tasks only.
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses: { '200': { description: Approved, content: { application/json: { schema: { type: object, required: [tasksMoved], properties: { tasksMoved: { type: integer } } } } } }, '403': { $ref: '#/components/responses/Error' } }
+  /compliance/matrix:
+    get:
+      tags: [compliance]
+      operationId: complianceMatrix
+      description: Visible clients × rules → due items with task state (not_created, open, done, overdue).
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date } }
+        - { name: asOf, in: query, schema: { type: string, format: date } }
+        - { name: ruleIds, in: query, schema: { type: string } }
+      responses: { '200': { description: Matrix, content: { application/json: { schema: { $ref: '#/components/schemas/ComplianceMatrix' } } } } }
+  /compliance/late-fee:
+    post:
+      tags: [compliance]
+      operationId: lateFeeCalculator
+      description: INDICATIVE late fee + interest from unverified rate tables (data). Money in paise.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [ruleId, dueDate, filedOn], properties: { ruleId: { type: string }, dueDate: { type: string, format: date }, filedOn: { type: string, format: date }, taxAmountPaise: { type: integer }, nilReturn: { type: boolean } } } } } }
+      responses: { '200': { description: Indicative amounts, content: { application/json: { schema: { $ref: '#/components/schemas/LateFee' } } } } }
 components:
   securitySchemes:
     bearer: { type: http, scheme: bearer, bearerFormat: JWT }
@@ -795,3 +1030,178 @@ components:
         extensions:
           type: array
           items: { type: object, required: [id, ruleId, periodKey, newDueDate], properties: { id: { type: string }, ruleId: { type: string }, periodKey: { type: string }, newDueDate: { type: string, format: date } } }
+    Check:
+      type: object
+      required: [key, label, required, done]
+      properties: { key: { type: string }, label: { type: string }, required: { type: boolean }, done: { type: boolean }, doneBy: { type: [string, 'null'] }, doneAt: { type: [string, 'null'] } }
+    ServiceType:
+      type: object
+      required: [id, key, name, category, frequency, billable, active]
+      properties:
+        id: { type: string }
+        key: { type: string }
+        name: { type: string }
+        category: { type: string }
+        description: { type: [string, 'null'] }
+        frequency: { type: string, enum: [monthly, quarterly, annual, one_time, event] }
+        ruleId: { type: [string, 'null'] }
+        slaDays: { type: [integer, 'null'] }
+        defaultChecks: { type: array, items: { type: object, properties: { key: { type: string }, label: { type: string }, required: { type: boolean } } } }
+        leaderId: { type: [string, 'null'] }
+        managerId: { type: [string, 'null'] }
+        reviewerId: { type: [string, 'null'] }
+        assigneeId: { type: [string, 'null'] }
+        billable: { type: boolean }
+        active: { type: boolean }
+        version: { type: integer }
+    ServiceTypeIn:
+      type: object
+      properties:
+        key: { type: string, pattern: '^[A-Z0-9_]{2,40}$' }
+        name: { type: string }
+        category: { type: string }
+        description: { type: [string, 'null'] }
+        frequency: { type: string, enum: [monthly, quarterly, annual, one_time, event] }
+        ruleId: { type: [string, 'null'] }
+        slaDays: { type: [integer, 'null'] }
+        defaultChecks: { type: array, items: { type: object, required: [key, label], properties: { key: { type: string }, label: { type: string }, required: { type: boolean } } } }
+        leaderId: { type: [string, 'null'] }
+        managerId: { type: [string, 'null'] }
+        reviewerId: { type: [string, 'null'] }
+        assigneeId: { type: [string, 'null'] }
+        billable: { type: boolean }
+        active: { type: boolean }
+    ClientService:
+      type: object
+      required: [id, clientId, serviceTypeId, active]
+      properties: { id: { type: string }, clientId: { type: string }, serviceTypeId: { type: string }, serviceKey: { type: string }, serviceName: { type: string }, startPeriod: { type: [string, 'null'] }, endPeriod: { type: [string, 'null'] }, leaderId: { type: [string, 'null'] }, managerId: { type: [string, 'null'] }, reviewerId: { type: [string, 'null'] }, assigneeId: { type: [string, 'null'] }, active: { type: boolean }, notes: { type: [string, 'null'] }, version: { type: integer } }
+    ClientServiceIn:
+      type: object
+      properties: { active: { type: boolean }, startPeriod: { type: [string, 'null'], description: YYYY-MM }, endPeriod: { type: [string, 'null'] }, leaderId: { type: [string, 'null'] }, managerId: { type: [string, 'null'] }, reviewerId: { type: [string, 'null'] }, assigneeId: { type: [string, 'null'] }, notes: { type: [string, 'null'] } }
+    Task:
+      type: object
+      required: [id, title, status, priority, checks, source, version]
+      properties:
+        id: { type: string }
+        clientId: { type: [string, 'null'] }
+        clientName: { type: [string, 'null'] }
+        serviceTypeId: { type: [string, 'null'] }
+        serviceName: { type: [string, 'null'] }
+        periodKey: { type: [string, 'null'] }
+        periodLabel: { type: [string, 'null'] }
+        title: { type: string }
+        description: { type: [string, 'null'] }
+        status: { type: string, enum: [open, in_progress, pending_client, review, done, cancelled] }
+        priority: { type: string, enum: [low, normal, high, urgent] }
+        statutoryDue: { type: [string, 'null'], format: date }
+        actBy: { type: [string, 'null'], format: date }
+        leaderId: { type: [string, 'null'] }
+        managerId: { type: [string, 'null'] }
+        assigneeId: { type: [string, 'null'] }
+        reviewerId: { type: [string, 'null'] }
+        checks: { type: array, items: { $ref: '#/components/schemas/Check' } }
+        pendingIssue: { type: [string, 'null'] }
+        outcome: { type: [string, 'null'], enum: [billed, free, deleted, null] }
+        outcomeNote: { type: [string, 'null'] }
+        closedAt: { type: [string, 'null'] }
+        completedAt: { type: [string, 'null'] }
+        source: { type: string, enum: [auto, manual] }
+        ruleId: { type: [string, 'null'] }
+        extensionId: { type: [string, 'null'] }
+        version: { type: integer }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+    TaskIn:
+      type: object
+      description: snake_case like device sync; client_id/service_type_id/period_key only on create.
+      properties:
+        client_id: { type: [string, 'null'] }
+        service_type_id: { type: [string, 'null'] }
+        period_key: { type: [string, 'null'] }
+        title: { type: string }
+        description: { type: [string, 'null'] }
+        status: { type: string, enum: [open, in_progress, pending_client, review, done, cancelled] }
+        priority: { type: string, enum: [low, normal, high, urgent] }
+        statutory_due: { type: [string, 'null'], format: date }
+        act_by: { type: [string, 'null'], format: date }
+        leader_id: { type: [string, 'null'] }
+        manager_id: { type: [string, 'null'] }
+        assignee_id: { type: [string, 'null'] }
+        reviewer_id: { type: [string, 'null'] }
+        checks: { type: array, items: { $ref: '#/components/schemas/Check' } }
+        pending_issue: { type: [string, 'null'] }
+    TaskBulkPatch:
+      type: object
+      properties: { status: { type: string, enum: [open, in_progress, pending_client, review, done, cancelled] }, assignee_id: { type: [string, 'null'] }, reviewer_id: { type: [string, 'null'] }, act_by: { type: [string, 'null'], format: date }, priority: { type: string, enum: [low, normal, high, urgent] } }
+    AutoTasksIn:
+      type: object
+      required: [month]
+      properties: { month: { type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$', description: Periods ending in this month } }
+    PlannedTask:
+      type: object
+      required: [clientId, clientName, serviceTypeId, serviceKey, ruleId, form, periodKey, periodLabel, statutoryDue, actBy]
+      properties: { clientId: { type: string }, clientName: { type: string }, serviceTypeId: { type: string }, serviceKey: { type: string }, ruleId: { type: string }, form: { type: string }, periodKey: { type: string }, periodLabel: { type: string }, statutoryDue: { type: string }, actBy: { type: string }, extensionId: { type: [string, 'null'] }, leaderId: { type: [string, 'null'] }, managerId: { type: [string, 'null'] }, assigneeId: { type: [string, 'null'] }, reviewerId: { type: [string, 'null'] } }
+    Todo:
+      type: object
+      required: [id, title, done]
+      properties: { id: { type: string }, title: { type: string }, notes: { type: [string, 'null'] }, dueAt: { type: [string, 'null'] }, done: { type: boolean }, doneAt: { type: [string, 'null'] }, taskId: { type: [string, 'null'] }, sort: { type: integer }, version: { type: integer }, createdAt: { type: string } }
+    TodoIn:
+      type: object
+      properties: { title: { type: string }, notes: { type: [string, 'null'] }, due_at: { type: [string, 'null'], format: date-time }, done: { type: boolean }, done_at: { type: [string, 'null'] }, task_id: { type: [string, 'null'] }, sort: { type: integer } }
+    TodoTemplateItem:
+      type: object
+      required: [title]
+      properties: { title: { type: string }, offsetDays: { type: integer } }
+    TodoTemplate:
+      type: object
+      required: [id, name, items]
+      properties: { id: { type: string }, name: { type: string }, items: { type: array, items: { $ref: '#/components/schemas/TodoTemplateItem' } }, version: { type: integer } }
+    RulePackVersion:
+      type: object
+      required: [id, packId, version, status]
+      properties: { id: { type: string }, packId: { type: string }, version: { type: string }, status: { type: string, enum: [draft, approved, superseded, rejected] }, notes: { type: [string, 'null'] }, ruleCount: { type: integer }, uploadedBy: { type: [string, 'null'] }, approvedBy: { type: [string, 'null'] }, approvedAt: { type: [string, 'null'] }, createdAt: { type: string } }
+    DueChange:
+      type: object
+      properties: { clientId: { type: string }, ruleId: { type: string }, periodKey: { type: string }, from: { type: [string, 'null'] }, to: { type: [string, 'null'] } }
+    RulePackDiff:
+      type: object
+      required: [from, to, added, removed, changed, impact]
+      properties:
+        from: { type: object, properties: { id: { type: string }, version: { type: string } } }
+        to: { type: object, properties: { id: { type: string }, version: { type: string }, status: { type: string } } }
+        added: { type: array, items: { type: string } }
+        removed: { type: array, items: { type: string } }
+        changed: { type: array, items: { type: object, properties: { rule: { type: string }, fields: { type: array, items: { type: string } } } } }
+        impact: { type: object, properties: { fy: { type: integer }, dueDatesChanged: { type: integer }, clientsAffected: { type: integer }, changes: { type: array, items: { $ref: '#/components/schemas/DueChange' } } } }
+    RuleExtensionIn:
+      type: object
+      required: [ruleId, periodKey, newDueDate]
+      properties: { ruleId: { type: string }, periodKey: { type: string }, newDueDate: { type: string, format: date }, scope: { type: object, description: 'Predicate over client facts {all?, any?}' }, notification: { type: [string, 'null'] } }
+    RuleExtension:
+      type: object
+      required: [id, ruleId, periodKey, newDueDate, status]
+      properties: { id: { type: string }, ruleId: { type: string }, periodKey: { type: string }, newDueDate: { type: string }, scope: { type: object }, notification: { type: [string, 'null'] }, status: { type: string, enum: [draft, approved, rejected] }, createdBy: { type: [string, 'null'] }, createdAt: { type: string }, approvedBy: { type: [string, 'null'] }, approvedAt: { type: [string, 'null'] }, tasksMoved: { type: [integer, 'null'] } }
+    ExtensionImpact:
+      type: object
+      required: [extension, dueDatesChanged, clientsAffected, changes, tasksToMove, tasks]
+      properties:
+        extension: { type: object, properties: { id: { type: string }, ruleId: { type: string }, periodKey: { type: string }, newDueDate: { type: string } } }
+        dueDatesChanged: { type: integer }
+        clientsAffected: { type: integer }
+        changes: { type: array, items: { $ref: '#/components/schemas/DueChange' } }
+        tasksToMove: { type: integer }
+        tasks: { type: array, items: { type: object, properties: { id: { type: string }, clientId: { type: string }, clientName: { type: string }, title: { type: string }, status: { type: string }, from: { type: [string, 'null'] }, to: { type: string } } } }
+    ComplianceMatrix:
+      type: object
+      required: [from, to, asOf, rules, clients, cells]
+      properties:
+        from: { type: string }
+        to: { type: string }
+        asOf: { type: string }
+        rules: { type: array, items: { type: object, properties: { id: { type: string }, form: { type: string }, title: { type: string }, regime: { type: string }, verified: { type: boolean } } } }
+        clients: { type: array, items: { type: object, properties: { id: { type: string }, name: { type: string }, fileNo: { type: [string, 'null'] } } } }
+        cells: { type: array, items: { type: object, required: [clientId, ruleId, periodKey, statutoryDue, state], properties: { clientId: { type: string }, ruleId: { type: string }, periodKey: { type: string }, periodLabel: { type: string }, statutoryDue: { type: string }, actBy: { type: string }, extensionId: { type: [string, 'null'] }, taskId: { type: [string, 'null'] }, taskStatus: { type: [string, 'null'] }, state: { type: string, enum: [not_created, open, done, overdue] } } } }
+    LateFee:
+      type: object
+      required: [ruleId, daysLate, feePaise, interestPaise, totalPaise, lines, verified, indicative, supported, disclaimer]
+      properties: { ruleId: { type: string }, form: { type: [string, 'null'] }, penaltyHint: { type: [string, 'null'] }, daysLate: { type: integer }, monthsLate: { type: integer }, feePaise: { type: integer }, interestPaise: { type: integer }, totalPaise: { type: integer }, lines: { type: array, items: { type: object, properties: { label: { type: string }, amountPaise: { type: integer } } } }, verified: { type: boolean }, indicative: { type: boolean }, supported: { type: boolean }, table: { type: object }, disclaimer: { type: string } }

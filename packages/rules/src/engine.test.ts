@@ -102,3 +102,21 @@ describe('extensions and diff', () => {
     expect(() => loadPack({ ...pack, rules: [pack.rules[0], pack.rules[0]] })).toThrow(/Duplicate/);
   });
 });
+
+describe('late fees (indicative)', async () => {
+  const { computeLateFee, lateFeeTableSchema } = await import('./latefees.js');
+  const { readFileSync } = await import('node:fs');
+  const table = lateFeeTableSchema.parse(JSON.parse(readFileSync(new URL('../packs/in-latefees-seed.json', import.meta.url), 'utf8')));
+  it('per-day fee with cap, nil-return rate, interest per day', () => {
+    const r = computeLateFee(table, { ruleId: 'gst.gstr3b.monthly', dueDate: '2026-10-20', filedOn: '2026-10-30', taxAmountPaise: 10_000_000 });
+    expect(r).toMatchObject({ daysLate: 10, feePaise: 50_000, verified: false, indicative: true, supported: true });
+    expect(r.interestPaise).toBe(Math.round(10_000_000 * 18 * 10 / 36_500));
+    expect(computeLateFee(table, { ruleId: 'gst.gstr3b.monthly', dueDate: '2026-01-20', filedOn: '2026-12-31', nilReturn: true }).feePaise).toBe(50_000);
+    expect(computeLateFee(table, { ruleId: 'gst.gstr3b.monthly', dueDate: '2026-10-20', filedOn: '2026-10-19' }).totalPaise).toBe(0);
+  });
+  it('month-or-part interest, cap at tax, unknown rule', () => {
+    expect(computeLateFee(table, { ruleId: 'tds.deposit', dueDate: '2026-10-07', filedOn: '2026-11-08', taxAmountPaise: 100_000 })).toMatchObject({ monthsLate: 2, interestPaise: 3000 });
+    expect(computeLateFee(table, { ruleId: 'tds.quarterly_return', dueDate: '2026-07-31', filedOn: '2026-12-31', taxAmountPaise: 500_000 }).feePaise).toBe(500_000);
+    expect(computeLateFee(table, { ruleId: 'nope', dueDate: '2026-07-31', filedOn: '2026-12-31' }).supported).toBe(false);
+  });
+});

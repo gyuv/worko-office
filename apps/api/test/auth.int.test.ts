@@ -169,8 +169,8 @@ describe('rules endpoints', () => {
 describe('demo seed', () => {
   it('creates the demo firm once and every demo user can log in', async () => {
     const { seedDemo, DEMO } = await import('../src/db/seed-demo.js');
-    expect((await seedDemo(db.url)).created).toBe(true);
-    expect((await seedDemo(db.url)).created).toBe(false);
+    expect((await seedDemo(db.url, { today: '2026-10-15' })).created).toBe(true);
+    expect((await seedDemo(db.url, { today: '2026-10-15' })).created).toBe(false);
     const tok: Record<string, string> = {};
     for (const u of DEMO.users) {
       const r = await http().post('/v1/auth/login').send({ firm: 'demo', email: u.email, password: DEMO.password, device: web }).expect(200);
@@ -185,6 +185,22 @@ describe('demo seed', () => {
     const [doc] = (await http().get('/v1/documents?category=ITR').set(bearer(tok.partner!))).body.items;
     const { body: { url } } = await http().post(`/v1/documents/${doc.id}/download-url`).set(bearer(tok.partner!)).send({}).expect(200);
     await http().get(url).expect(200);
+    // Phase 4: catalogue, auto-created tasks for Aug + Sep 2026, statuses, to-dos, a draft extension.
+    const all = (await http().get('/v1/tasks?limit=1000').set(bearer(tok.partner!)).expect(200)).body;
+    const g3b = all.items.filter((x: { ruleId: string }) => x.ruleId === 'gst.gstr3b.monthly');
+    expect(new Set(g3b.map((x: { periodKey: string }) => x.periodKey))).toEqual(new Set(['2026-08', '2026-09']));
+    const statuses = new Set(all.items.map((x: { status: string }) => x.status));
+    for (const s of ['open', 'in_progress', 'review', 'pending_client', 'done']) expect(statuses).toContain(s);
+    expect(all.items.some((x: { outcome: string }) => x.outcome === 'billed')).toBe(true);
+    expect((await http().get('/v1/tasks?overdue=true&asOf=2026-10-15').set(bearer(tok.partner!))).body.total).toBeGreaterThan(0);
+    const art = (await http().get('/v1/tasks?limit=1000').set(bearer(tok.article!))).body;
+    expect(art.total).toBeGreaterThan(0);
+    expect(art.total).toBeLessThan(all.total);
+    expect((await http().get('/v1/todos').set(bearer(tok.article!))).body).toHaveLength(2);
+    const [ext] = (await http().get('/v1/compliance/extensions').set(bearer(tok.partner!))).body;
+    expect(ext).toMatchObject({ status: 'draft', ruleId: 'gst.gstr3b.monthly', periodKey: '2026-09', newDueDate: '2026-10-25' });
+    expect((await http().get(`/v1/compliance/extensions/${ext.id}/impact`).set(bearer(tok.partner!))).body.tasksToMove).toBeGreaterThan(0);
+    expect((await http().post('/v1/tasks/auto/commit').set(bearer(tok.partner!)).send({ month: '2026-09' }).expect(200)).body.created).toBe(0);
   });
 });
 

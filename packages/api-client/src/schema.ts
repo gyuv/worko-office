@@ -1197,6 +1197,441 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/service-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listServiceTypes"];
+        put?: never;
+        /** @description Firm-wide catalogue entry (settings:edit). No prices. */
+        post: operations["createServiceType"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/service-types/install-defaults": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Idempotent — adds catalogue entries (one per rule-pack serviceTypeKey, plus a few non-statutory ones) the firm doesn't have. */
+        post: operations["installDefaultServiceTypes"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/service-types/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["updateServiceType"];
+        trace?: never;
+    };
+    "/clients/{id}/services": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listClientServices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/{id}/services/{serviceTypeId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Upsert a client's subscription to a service, with optional people overrides (they must be able to see the client). */
+        put: operations["subscribeClientService"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description List / kanban / gantt / sprint views all read this. Visible = clients:view on the client AND tasks:view (task people count as owners). */
+        get: operations["listTasks"];
+        put?: never;
+        /** @description Manual task (client or firm). Checks default from the service type. */
+        post: operations["createTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/calendar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["taskCalendar"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/bulk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Same rules as single edits; failing rows are reported, the rest applied. Returns an undo token valid 10 minutes. */
+        post: operations["bulkUpdateTasks"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/bulk/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["undoBulkUpdate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/auto/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Due items whose period ends in `month`, for subscribed clients the caller may create tasks for. Nothing written. */
+        post: operations["previewAutoTasks"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/auto/commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Creates the previewed tasks idempotently (one per client × service × period; deleted tasks are not recreated). */
+        post: operations["commitAutoTasks"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getTask"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description Rule codes (400 `code`): required_checks_pending, reviewer_required, pending_issue_required, act_by_after_due, task_closed, person_cannot_see_task:*. */
+        patch: operations["updateTask"];
+        trace?: never;
+    };
+    "/tasks/{id}/checks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Tick/untick one check; the server stamps who and when. */
+        post: operations["setTaskCheck"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Every task ends billed, free (both need status done) or deleted (soft delete, tasks:delete). */
+        post: operations["closeTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/todos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The caller's own to-dos. */
+        get: operations["listTodos"];
+        put?: never;
+        post: operations["createTodo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/todos/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteTodo"];
+        options?: never;
+        head?: never;
+        patch: operations["updateTodo"];
+        trace?: never;
+    };
+    "/todo-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listTodoTemplates"];
+        put?: never;
+        post: operations["createTodoTemplate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/todo-templates/{id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Creates the template's to-dos for the caller, due offsetDays after baseDate. */
+        post: operations["applyTodoTemplate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/compliance/packs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listRulePacks"];
+        put?: never;
+        /** @description Validated with the rule-pack schema; stored as a draft. */
+        post: operations["uploadRulePack"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/compliance/packs/{id}/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["diffRulePack"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/compliance/packs/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Needs firm-wide compliance:approve. Supersedes the active pack. */
+        post: operations["approveRulePack"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/compliance/extensions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listExtensions"];
+        put?: never;
+        /** @description Draft due-date extension for one rule × period (optionally scoped by a client-facts predicate). */
+        post: operations["createExtension"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/compliance/extensions/{id}/impact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["extensionImpactPreview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/compliance/extensions/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Needs firm-wide compliance:approve. Moves statutory due (and act-by by the same delta) on affected open tasks only. */
+        post: operations["approveExtension"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/compliance/matrix": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Visible clients × rules → due items with task state (not_created, open, done, overdue). */
+        get: operations["complianceMatrix"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/compliance/late-fee": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description INDICATIVE late fee + interest from unverified rate tables (data). Money in paise. */
+        post: operations["lateFeeCalculator"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1705,6 +2140,344 @@ export interface components {
                 /** Format: date */
                 newDueDate: string;
             }[];
+        };
+        Check: {
+            key: string;
+            label: string;
+            required: boolean;
+            done: boolean;
+            doneBy?: string | null;
+            doneAt?: string | null;
+        };
+        ServiceType: {
+            id: string;
+            key: string;
+            name: string;
+            category: string;
+            description?: string | null;
+            /** @enum {string} */
+            frequency: "monthly" | "quarterly" | "annual" | "one_time" | "event";
+            ruleId?: string | null;
+            slaDays?: number | null;
+            defaultChecks?: {
+                key?: string;
+                label?: string;
+                required?: boolean;
+            }[];
+            leaderId?: string | null;
+            managerId?: string | null;
+            reviewerId?: string | null;
+            assigneeId?: string | null;
+            billable: boolean;
+            active: boolean;
+            version?: number;
+        };
+        ServiceTypeIn: {
+            key?: string;
+            name?: string;
+            category?: string;
+            description?: string | null;
+            /** @enum {string} */
+            frequency?: "monthly" | "quarterly" | "annual" | "one_time" | "event";
+            ruleId?: string | null;
+            slaDays?: number | null;
+            defaultChecks?: {
+                key: string;
+                label: string;
+                required?: boolean;
+            }[];
+            leaderId?: string | null;
+            managerId?: string | null;
+            reviewerId?: string | null;
+            assigneeId?: string | null;
+            billable?: boolean;
+            active?: boolean;
+        };
+        ClientService: {
+            id: string;
+            clientId: string;
+            serviceTypeId: string;
+            serviceKey?: string;
+            serviceName?: string;
+            startPeriod?: string | null;
+            endPeriod?: string | null;
+            leaderId?: string | null;
+            managerId?: string | null;
+            reviewerId?: string | null;
+            assigneeId?: string | null;
+            active: boolean;
+            notes?: string | null;
+            version?: number;
+        };
+        ClientServiceIn: {
+            active?: boolean;
+            /** @description YYYY-MM */
+            startPeriod?: string | null;
+            endPeriod?: string | null;
+            leaderId?: string | null;
+            managerId?: string | null;
+            reviewerId?: string | null;
+            assigneeId?: string | null;
+            notes?: string | null;
+        };
+        Task: {
+            id: string;
+            clientId?: string | null;
+            clientName?: string | null;
+            serviceTypeId?: string | null;
+            serviceName?: string | null;
+            periodKey?: string | null;
+            periodLabel?: string | null;
+            title: string;
+            description?: string | null;
+            /** @enum {string} */
+            status: "open" | "in_progress" | "pending_client" | "review" | "done" | "cancelled";
+            /** @enum {string} */
+            priority: "low" | "normal" | "high" | "urgent";
+            /** Format: date */
+            statutoryDue?: string | null;
+            /** Format: date */
+            actBy?: string | null;
+            leaderId?: string | null;
+            managerId?: string | null;
+            assigneeId?: string | null;
+            reviewerId?: string | null;
+            checks: components["schemas"]["Check"][];
+            pendingIssue?: string | null;
+            /** @enum {string|null} */
+            outcome?: "billed" | "free" | "deleted" | null;
+            outcomeNote?: string | null;
+            closedAt?: string | null;
+            completedAt?: string | null;
+            /** @enum {string} */
+            source: "auto" | "manual";
+            ruleId?: string | null;
+            extensionId?: string | null;
+            version: number;
+            createdAt?: string;
+            updatedAt?: string;
+        };
+        /** @description snake_case like device sync; client_id/service_type_id/period_key only on create. */
+        TaskIn: {
+            client_id?: string | null;
+            service_type_id?: string | null;
+            period_key?: string | null;
+            title?: string;
+            description?: string | null;
+            /** @enum {string} */
+            status?: "open" | "in_progress" | "pending_client" | "review" | "done" | "cancelled";
+            /** @enum {string} */
+            priority?: "low" | "normal" | "high" | "urgent";
+            /** Format: date */
+            statutory_due?: string | null;
+            /** Format: date */
+            act_by?: string | null;
+            leader_id?: string | null;
+            manager_id?: string | null;
+            assignee_id?: string | null;
+            reviewer_id?: string | null;
+            checks?: components["schemas"]["Check"][];
+            pending_issue?: string | null;
+        };
+        TaskBulkPatch: {
+            /** @enum {string} */
+            status?: "open" | "in_progress" | "pending_client" | "review" | "done" | "cancelled";
+            assignee_id?: string | null;
+            reviewer_id?: string | null;
+            /** Format: date */
+            act_by?: string | null;
+            /** @enum {string} */
+            priority?: "low" | "normal" | "high" | "urgent";
+        };
+        AutoTasksIn: {
+            /** @description Periods ending in this month */
+            month: string;
+        };
+        PlannedTask: {
+            clientId: string;
+            clientName: string;
+            serviceTypeId: string;
+            serviceKey: string;
+            ruleId: string;
+            form: string;
+            periodKey: string;
+            periodLabel: string;
+            statutoryDue: string;
+            actBy: string;
+            extensionId?: string | null;
+            leaderId?: string | null;
+            managerId?: string | null;
+            assigneeId?: string | null;
+            reviewerId?: string | null;
+        };
+        Todo: {
+            id: string;
+            title: string;
+            notes?: string | null;
+            dueAt?: string | null;
+            done: boolean;
+            doneAt?: string | null;
+            taskId?: string | null;
+            sort?: number;
+            version?: number;
+            createdAt?: string;
+        };
+        TodoIn: {
+            title?: string;
+            notes?: string | null;
+            /** Format: date-time */
+            due_at?: string | null;
+            done?: boolean;
+            done_at?: string | null;
+            task_id?: string | null;
+            sort?: number;
+        };
+        TodoTemplateItem: {
+            title: string;
+            offsetDays?: number;
+        };
+        TodoTemplate: {
+            id: string;
+            name: string;
+            items: components["schemas"]["TodoTemplateItem"][];
+            version?: number;
+        };
+        RulePackVersion: {
+            id: string;
+            packId: string;
+            version: string;
+            /** @enum {string} */
+            status: "draft" | "approved" | "superseded" | "rejected";
+            notes?: string | null;
+            ruleCount?: number;
+            uploadedBy?: string | null;
+            approvedBy?: string | null;
+            approvedAt?: string | null;
+            createdAt?: string;
+        };
+        DueChange: {
+            clientId?: string;
+            ruleId?: string;
+            periodKey?: string;
+            from?: string | null;
+            to?: string | null;
+        };
+        RulePackDiff: {
+            from: {
+                id?: string;
+                version?: string;
+            };
+            to: {
+                id?: string;
+                version?: string;
+                status?: string;
+            };
+            added: string[];
+            removed: string[];
+            changed: {
+                rule?: string;
+                fields?: string[];
+            }[];
+            impact: {
+                fy?: number;
+                dueDatesChanged?: number;
+                clientsAffected?: number;
+                changes?: components["schemas"]["DueChange"][];
+            };
+        };
+        RuleExtensionIn: {
+            ruleId: string;
+            periodKey: string;
+            /** Format: date */
+            newDueDate: string;
+            /** @description Predicate over client facts {all?, any?} */
+            scope?: Record<string, never>;
+            notification?: string | null;
+        };
+        RuleExtension: {
+            id: string;
+            ruleId: string;
+            periodKey: string;
+            newDueDate: string;
+            scope?: Record<string, never>;
+            notification?: string | null;
+            /** @enum {string} */
+            status: "draft" | "approved" | "rejected";
+            createdBy?: string | null;
+            createdAt?: string;
+            approvedBy?: string | null;
+            approvedAt?: string | null;
+            tasksMoved?: number | null;
+        };
+        ExtensionImpact: {
+            extension: {
+                id?: string;
+                ruleId?: string;
+                periodKey?: string;
+                newDueDate?: string;
+            };
+            dueDatesChanged: number;
+            clientsAffected: number;
+            changes: components["schemas"]["DueChange"][];
+            tasksToMove: number;
+            tasks: {
+                id?: string;
+                clientId?: string;
+                clientName?: string;
+                title?: string;
+                status?: string;
+                from?: string | null;
+                to?: string;
+            }[];
+        };
+        ComplianceMatrix: {
+            from: string;
+            to: string;
+            asOf: string;
+            rules: {
+                id?: string;
+                form?: string;
+                title?: string;
+                regime?: string;
+                verified?: boolean;
+            }[];
+            clients: {
+                id?: string;
+                name?: string;
+                fileNo?: string | null;
+            }[];
+            cells: {
+                clientId: string;
+                ruleId: string;
+                periodKey: string;
+                periodLabel?: string;
+                statutoryDue: string;
+                actBy?: string;
+                extensionId?: string | null;
+                taskId?: string | null;
+                taskStatus?: string | null;
+                /** @enum {string} */
+                state: "not_created" | "open" | "done" | "overdue";
+            }[];
+        };
+        LateFee: {
+            ruleId: string;
+            form?: string | null;
+            penaltyHint?: string | null;
+            daysLate: number;
+            monthsLate?: number;
+            feePaise: number;
+            interestPaise: number;
+            totalPaise: number;
+            lines: {
+                label?: string;
+                amountPaise?: number;
+            }[];
+            verified: boolean;
+            indicative: boolean;
+            supported: boolean;
+            table?: Record<string, never>;
+            disclaimer: string;
         };
     };
     responses: {
@@ -3926,6 +4699,845 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    listServiceTypes: {
+        parameters: {
+            query?: {
+                all?: "true" | "false";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Catalogue */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceType"][];
+                };
+            };
+        };
+    };
+    createServiceType: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ServiceTypeIn"];
+            };
+        };
+        responses: {
+            201: components["responses"]["Created"];
+            409: components["responses"]["Error"];
+        };
+    };
+    installDefaultServiceTypes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        created: number;
+                        skipped: number;
+                    };
+                };
+            };
+        };
+    };
+    updateServiceType: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ServiceTypeIn"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listClientServices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Subscriptions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientService"][];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    subscribeClientService: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+                serviceTypeId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClientServiceIn"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                    };
+                };
+            };
+        };
+    };
+    listTasks: {
+        parameters: {
+            query?: {
+                /** @description Comma-separated statuses */
+                status?: string;
+                /** @description uuid or 'me' */
+                assigneeId?: string;
+                clientId?: string;
+                serviceTypeId?: string;
+                dueFrom?: string;
+                dueTo?: string;
+                dateField?: "statutory_due" | "act_by";
+                overdue?: "true" | "false";
+                asOf?: string;
+                closed?: "true" | "false";
+                /** @description Firm/internal tasks only */
+                firm?: "true" | "false";
+                q?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tasks */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        total: number;
+                        items: components["schemas"]["Task"][];
+                    };
+                };
+            };
+        };
+    };
+    createTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskIn"];
+            };
+        };
+        responses: {
+            201: components["responses"]["Created"];
+            400: components["responses"]["Error"];
+        };
+    };
+    taskCalendar: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+                field?: "statutory_due" | "act_by";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tasks by date */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        from: string;
+                        to: string;
+                        field: string;
+                        days: {
+                            date: string;
+                            count: number;
+                            tasks: components["schemas"]["Task"][];
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+    bulkUpdateTasks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    ids: string[];
+                    patch: components["schemas"]["TaskBulkPatch"];
+                };
+            };
+        };
+        responses: {
+            /** @description Result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        undoToken: string | null;
+                        applied: number;
+                        expiresInSeconds: number;
+                        failed: {
+                            id?: string;
+                            reason?: string;
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+    undoBulkUpdate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    undoToken: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Restored */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        restored: number;
+                        skipped: string[];
+                    };
+                };
+            };
+            410: components["responses"]["Error"];
+        };
+    };
+    previewAutoTasks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AutoTasksIn"];
+            };
+        };
+        responses: {
+            /** @description Plan */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        month: string;
+                        toCreate: number;
+                        skipped: number;
+                        items: components["schemas"]["PlannedTask"][];
+                    };
+                };
+            };
+        };
+    };
+    commitAutoTasks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AutoTasksIn"];
+            };
+        };
+        responses: {
+            /** @description Result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        month: string;
+                        created: number;
+                        skipped: number;
+                        ids: string[];
+                    };
+                };
+            };
+        };
+    };
+    getTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Task */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Task"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    updateTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskIn"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    setTaskCheck: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    key: string;
+                    done: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Saved */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    closeTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    outcome: "billed" | "free" | "deleted";
+                    note?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Closed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+        };
+    };
+    listTodos: {
+        parameters: {
+            query?: {
+                done?: "true" | "false";
+                taskId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description To-dos */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Todo"][];
+                };
+            };
+        };
+    };
+    createTodo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TodoIn"];
+            };
+        };
+        responses: {
+            201: components["responses"]["Created"];
+        };
+    };
+    deleteTodo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateTodo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TodoIn"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    listTodoTemplates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Templates */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodoTemplate"][];
+                };
+            };
+        };
+    };
+    createTodoTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    items: components["schemas"]["TodoTemplateItem"][];
+                };
+            };
+        };
+        responses: {
+            201: components["responses"]["Created"];
+        };
+    };
+    applyTodoTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: date */
+                    baseDate?: string;
+                    taskId?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ids: string[];
+                    };
+                };
+            };
+        };
+    };
+    listRulePacks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Pack versions (the shipped pack is installed as approved on first use) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RulePackVersion"][];
+                };
+            };
+        };
+    };
+    uploadRulePack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    pack: Record<string, never>;
+                };
+            };
+        };
+        responses: {
+            201: components["responses"]["Created"];
+            400: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    diffRulePack: {
+        parameters: {
+            query?: {
+                fy?: number;
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rule diff vs active pack + schedule impact */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RulePackDiff"];
+                };
+            };
+        };
+    };
+    approveRulePack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Approved */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+        };
+    };
+    listExtensions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Extensions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuleExtension"][];
+                };
+            };
+        };
+    };
+    createExtension: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuleExtensionIn"];
+            };
+        };
+        responses: {
+            201: components["responses"]["Created"];
+            400: components["responses"]["Error"];
+        };
+    };
+    extensionImpactPreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description "N due dates / M clients" and the open tasks that would move */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtensionImpact"];
+                };
+            };
+        };
+    };
+    approveExtension: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Approved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        tasksMoved: number;
+                    };
+                };
+            };
+            403: components["responses"]["Error"];
+        };
+    };
+    complianceMatrix: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+                asOf?: string;
+                ruleIds?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matrix */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComplianceMatrix"];
+                };
+            };
+        };
+    };
+    lateFeeCalculator: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    ruleId: string;
+                    /** Format: date */
+                    dueDate: string;
+                    /** Format: date */
+                    filedOn: string;
+                    taxAmountPaise?: number;
+                    nilReturn?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Indicative amounts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LateFee"];
+                };
             };
         };
     };

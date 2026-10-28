@@ -41,17 +41,26 @@ import { RegistersService } from './registers/registers.service.js';
 import { MockVirusScanner, STORAGE, storageFactory, VIRUS_SCANNER } from './storage/storage.js';
 import { VaultController } from './vault/vault.controller.js';
 import { VaultService } from './vault/vault.service.js';
+import { ComplianceController } from './compliance/compliance.controller.js';
+import { ComplianceService } from './compliance/compliance.service.js';
+import { RulePackService } from './compliance/rule-pack.service.js';
+import { AutoTaskService } from './tasks/auto.service.js';
+import { CatalogueService } from './tasks/catalogue.service.js';
+import { TasksController } from './tasks/tasks.controller.js';
+import { TasksService } from './tasks/tasks.service.js';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ limit: Number(process.env.RATE_LIMIT ?? 300), ttl: 60_000 }])],
   controllers: [HealthController, RulesController, AuthController, UsersController, AuditController, TenancyController,
     SyncController, NotificationsController, TeamsController,
-    ImportController, ClientsController, VaultController, DocumentsController, RegistersController],
+    ImportController, ClientsController, VaultController, DocumentsController, RegistersController,
+    TasksController, ComplianceController],
   providers: [
     DbService, AuditService, TokenService, AuthService, TenancyService, UsersService, RulesService,
     RealtimeService, RealtimeGateway, JobQueueService, SyncService, NotificationsService,
     { provide: SYNC_TABLES_TOKEN, useValue: SYNC_TABLES },
     ClientsService, VisibilityService, ImportService, VaultService, DocumentsService, RegistersService, KeyService,
+    RulePackService, CatalogueService, TasksService, AutoTaskService, ComplianceService,
     { provide: KMS_PROVIDER, useFactory: () => new LocalKms() },
     { provide: STORAGE, useFactory: storageFactory },
     { provide: VIRUS_SCANNER, useClass: MockVirusScanner },

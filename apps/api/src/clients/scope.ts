@@ -1,4 +1,4 @@
-import { effectiveScope, type Action, type Actor, type Module } from '@worko/domain';
+import { effectiveScope, type Action, type Actor, type ClientVisibility, type Module } from '@worko/domain';
 
 /** Collects positional parameters while building SQL. */
 export class Params {
@@ -28,3 +28,10 @@ export function clientScopeSql(a: Actor & { superAdmin?: boolean }, module: Modu
   }
   return `(${rule} AND ${sensitive})`;
 }
+
+/** Visibility fields of a `client` row (snake_case DB shape). */
+export const visibilityOf = (r: Record<string, unknown>): ClientVisibility => ({
+  branchId: (r.branch_id as string) ?? null, partnerId: (r.partner_id as string) ?? null, managerId: (r.manager_id as string) ?? null,
+  teamId: (r.team_id as string) ?? null, staffIds: (r.staff_ids as string[]) ?? [], groupIds: (r.group_ids as string[]) ?? [],
+  sensitive: !!r.sensitive, allowedUserIds: (r.allowed_user_ids as string[]) ?? [],
+});
