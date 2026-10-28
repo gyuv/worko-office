@@ -1,5 +1,5 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { can, clientCtx, type Actor } from '@worko/domain';
+import { ForbiddenException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { can, clientCtx, effectiveScope, type Actor } from '@worko/domain';
 import { dates, schedule } from '@worko/rules';
 import { AuditService } from '../audit/audit.service.js';
 import type { RequestActor } from '../auth/context.js';
@@ -54,13 +54,15 @@ export class AutoTaskService implements OnModuleInit {
   async scheduleMonthly(at = new Date()) {
     return (await this.db.systemTx((tx) => tx.query(
       `INSERT INTO job_queue (tenant_id, kind, ref_id, run_at)
-       SELECT t.id, $1, t.id, $2 FROM tenant t WHERE NOT EXISTS (SELECT 1 FROM job_queue j WHERE j.tenant_id = t.id AND j.kind = $1 AND j.dead_at IS NULL)`, [AUTO_JOB, at]))).rowCount ?? 0;
+       SELECT t.id, $1, t.id, $2 FROM tenant t WHERE NOT EXISTS (SELECT 1 FROM job_queue j WHERE j.tenant_id = t.id AND j.kind = $1 AND j.dead_at IS NULL)
+       ON CONFLICT (tenant_id, kind) WHERE kind = 'tasks.auto_month' AND dead_at IS NULL DO NOTHING`, [AUTO_JOB, at]))).rowCount ?? 0;
   }
 
-  async plan(tx: Tx, a: RequestActor, month: string): Promise<{ items: PlannedTask[]; skipped: number }> {
+  async plan(tx: Tx, a: RequestActor, month: string, forCommit = false): Promise<{ items: PlannedTask[]; skipped: number }> {
     const { pack } = await this.packs.active(tx, a.tenantId);
     const p = new Params();
-    const where = a.superAdmin ? 'TRUE' : `${clientScopeSql(a, 'clients', 'view', p)} AND ${clientScopeSql(a, 'tasks', 'create', p)}`;
+    // Commit also assigns people, so it needs tasks:assign on each client (D64); preview needs create only.
+    const where = a.superAdmin ? 'TRUE' : `${clientScopeSql(a, 'clients', 'view', p)} AND ${clientScopeSql(a, 'tasks', 'create', p)}${forCommit ? ` AND ${clientScopeSql(a, 'tasks', 'assign', p)}` : ''}`;
     const clients = await loadClientsWithFacts(tx, where, p.values);
     if (!clients.length) return { items: [], skipped: 0 };
     const byId = new Map(clients.map((c) => [c.row.id as string, c.row]));
@@ -121,7 +123,8 @@ export class AutoTaskService implements OnModuleInit {
   }
 
   async commitTx(tx: Tx, a: RequestActor, month: string) {
-    const plan = await this.plan(tx, a, month);
+    if (!a.superAdmin && (effectiveScope(a, 'tasks', 'assign')?.scope ?? 'none') === 'none') throw new ForbiddenException('Missing permission tasks:assign');
+    const plan = await this.plan(tx, a, month, true);
     const ids: string[] = []; let cursor = 0; let skipped = plan.skipped;
     for (const x of plan.items) {
       const checks = x.checks.map((c) => ({ ...c, done: false, doneBy: null, doneAt: null }));

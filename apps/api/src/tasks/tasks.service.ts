@@ -8,7 +8,7 @@ import { DbService, type Tx } from '../db/db.service.js';
 import { uuidv7 } from '../db/ids.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { SyncService } from '../sync/sync.service.js';
-import { canTaskRow, checkPeopleAndRevoke, PEOPLE_COLS, stateOf, taskScopeSql, ymd } from './scope.js';
+import { actorChangeError, canTaskRow, checkPeopleAndRevoke, stateOf, taskScopeSql, ymd } from './scope.js';
 
 export type TaskListQ = {
   status?: string[]; assigneeId?: string; clientId?: string; serviceTypeId?: string; dueFrom?: string; dueTo?: string; overdue?: boolean;
@@ -58,13 +58,13 @@ export class TasksService {
 
   /** Calendar: tasks grouped by due (or act-by) date. */
   async calendar(a: RequestActor, from: string, to: string, field: 'statutory_due' | 'act_by') {
-    const { items } = await this.list(a, { dueFrom: from, dueTo: to, dateField: field, limit: 2000, offset: 0 });
+    const { items, total } = await this.list(a, { dueFrom: from, dueTo: to, dateField: field, limit: 2000, offset: 0 });
     const days = new Map<string, typeof items>();
     for (const t of items) {
       const d = (field === 'act_by' ? t.actBy : t.statutoryDue) as string | null;
       if (d) days.set(d, [...(days.get(d) ?? []), t]);
     }
-    return { from, to, field, days: [...days.entries()].map(([date, tasks]) => ({ date, count: tasks.length, tasks })) };
+    return { from, to, field, truncated: total > items.length, days: [...days.entries()].map(([date, tasks]) => ({ date, count: tasks.length, tasks })) };
   }
 
   /** Loads a task the actor may see, or 404. */
@@ -130,7 +130,7 @@ export class TasksService {
   /** Applies one patch to many tasks; returns an undo token valid for 10 minutes. Rows that fail rules are reported, not applied. */
   async bulk(a: RequestActor, ids: string[], patch: BulkPatch) {
     const r = await this.db.tenantTx(a.tenantId, async (tx) => {
-      const snapshot: Array<{ id: string; prev: Record<string, unknown> }> = [];
+      const snapshot: Array<{ id: string; prev: Record<string, unknown>; next: Record<string, unknown> }> = [];
       const failed: Array<{ id: string; reason: string }> = [];
       let cursor = 0;
       for (const id of [...new Set(ids)]) {
@@ -138,7 +138,7 @@ export class TasksService {
         if (!cur || !(await canTaskRow(a, 'view', cur, tx))) { failed.push({ id, reason: 'not_found' }); continue; }
         const why = await this.checkChange(tx, a, cur, patch);
         if (why) { failed.push({ id, reason: why }); continue; }
-        snapshot.push({ id, prev: Object.fromEntries(Object.keys(patch).map((k) => [k, k === 'act_by' ? ymd(cur[k]) : cur[k] ?? null])) });
+        snapshot.push({ id, prev: pick(cur, Object.keys(patch)), next: pick({ ...cur, ...patch }, Object.keys(patch)) });
         cursor = Math.max(cursor, (await this.sync.serverPatch(tx, a, 'task', id, withDerived(cur, patch)))!.cursor);
       }
       const token = uuidv7();
@@ -158,13 +158,23 @@ export class TasksService {
       const u = (await tx.query('SELECT * FROM task_bulk_undo WHERE id = $1 AND user_id = $2 FOR UPDATE', [token, a.userId])).rows[0];
       if (!u) throw new NotFoundException('Undo token not found');
       if (u.used_at || (await tx.query('SELECT $1::timestamptz < now() AS expired', [u.expires_at])).rows[0].expired) throw new GoneException('Undo window has passed');
-      let cursor = 0; let restored = 0; const skipped: string[] = [];
-      for (const s of u.snapshot as Array<{ id: string; prev: Record<string, unknown> }>) {
+      let cursor = 0; let restored = 0; const skipped: Array<{ id: string; reason: 'stale' | 'forbidden' | 'invalid' }> = [];
+      for (const s of u.snapshot as Array<{ id: string; prev: Record<string, unknown>; next: Record<string, unknown> }>) {
         const cur = (await tx.query('SELECT * FROM task WHERE id = $1 AND deleted_at IS NULL FOR UPDATE', [s.id])).rows[0];
-        // Closed since? Leave it (closing is final). People rule still applies to the restored values.
-        if (!cur || cur.outcome || (await checkPeopleAndRevoke(tx, a.tenantId, cur, { ...cur, ...s.prev }))) { skipped.push(s.id); continue; }
-        cursor = Math.max(cursor, (await this.sync.serverPatch(tx, a, 'task', s.id, withDerived(cur, s.prev)))!.cursor);
-        restored++;
+        // Gone, closed, or changed since the bulk edit → leave it alone (never overwrite newer work).
+        if (!cur || cur.outcome || JSON.stringify(pick(cur, Object.keys(s.next))) !== JSON.stringify(s.next)) { skipped.push({ id: s.id, reason: 'stale' }); continue; }
+        const why = await this.checkChange(tx, a, cur, s.prev);
+        if (why) { skipped.push({ id: s.id, reason: why === 'forbidden' || why === 'reviewer_must_approve' ? 'forbidden' : 'invalid' }); continue; }
+        await tx.query('SAVEPOINT undo_row');
+        try {
+          cursor = Math.max(cursor, (await this.sync.serverPatch(tx, a, 'task', s.id, withDerived(cur, s.prev)))!.cursor);
+          await tx.query('RELEASE SAVEPOINT undo_row');
+          restored++;
+        } catch (e) {
+          if (!['23514', '23503', '23502'].includes((e as { code?: string }).code ?? '')) throw e;
+          await tx.query('ROLLBACK TO SAVEPOINT undo_row');
+          skipped.push({ id: s.id, reason: 'invalid' });
+        }
       }
       await tx.query('UPDATE task_bulk_undo SET used_at = now() WHERE id = $1', [token]);
       await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'task.bulk_undone', entity: 'task', entityId: null, diff: { undoToken: token, restored, skipped } });
@@ -178,7 +188,8 @@ export class TasksService {
   private async checkChange(tx: Tx, a: RequestActor, cur: Record<string, unknown>, patch: Record<string, unknown>): Promise<string | null> {
     if (!(await canTaskRow(a, 'edit', cur, tx))) return 'forbidden';
     const next = { ...cur, ...patch };
-    if (PEOPLE_COLS.some((f) => f in patch && (cur[f] ?? null) !== (patch[f] ?? null)) && !(await canTaskRow(a, 'assign', cur, tx))) return 'forbidden';
+    const who = await actorChangeError(a, cur, next, tx);
+    if (who) return who;
     return taskChangeError(stateOf(cur), stateOf(next)) ?? (await checkPeopleAndRevoke(tx, a.tenantId, cur, next));
   }
 
@@ -244,6 +255,11 @@ export class TasksService {
     this.publish(a, r.cursor);
     return { ids: r.ids };
   }
+}
+
+/** Comparable snapshot of task columns (dates as YYYY-MM-DD). */
+function pick(r: Record<string, unknown>, keys: string[]): Record<string, unknown> {
+  return Object.fromEntries(keys.map((k) => [k, k === 'act_by' || k === 'statutory_due' ? ymd(r[k]) : r[k] ?? null]));
 }
 
 /** Server-derived columns for a change (completion time; check stamps are untouched by bulk). */

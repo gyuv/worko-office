@@ -584,7 +584,7 @@ paths:
         - { name: from, in: query, required: true, schema: { type: string, format: date } }
         - { name: to, in: query, required: true, schema: { type: string, format: date } }
         - { name: field, in: query, schema: { type: string, enum: [statutory_due, act_by] } }
-      responses: { '200': { description: Tasks by date, content: { application/json: { schema: { type: object, required: [from, to, field, days], properties: { from: { type: string }, to: { type: string }, field: { type: string }, days: { type: array, items: { type: object, required: [date, count, tasks], properties: { date: { type: string }, count: { type: integer }, tasks: { type: array, items: { $ref: '#/components/schemas/Task' } } } } } } } } } } }
+      responses: { '200': { description: Tasks by date, content: { application/json: { schema: { type: object, required: [from, to, field, truncated, days], properties: { from: { type: string }, to: { type: string }, field: { type: string }, truncated: { type: boolean, description: 'True when more than 2000 tasks matched (narrow the range)' }, days: { type: array, items: { type: object, required: [date, count, tasks], properties: { date: { type: string }, count: { type: integer }, tasks: { type: array, items: { $ref: '#/components/schemas/Task' } } } } } } } } } } }
   /tasks/bulk:
     post:
       tags: [tasks]
@@ -596,8 +596,9 @@ paths:
     post:
       tags: [tasks]
       operationId: undoBulkUpdate
+      description: Restores rows still holding the bulk values; rows changed since (stale), no longer permitted (forbidden) or failing rules (invalid) are skipped.
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [undoToken], properties: { undoToken: { type: string, format: uuid } } } } } }
-      responses: { '200': { description: Restored, content: { application/json: { schema: { type: object, required: [restored, skipped], properties: { restored: { type: integer }, skipped: { type: array, items: { type: string } } } } } } }, '410': { $ref: '#/components/responses/Error' } }
+      responses: { '200': { description: Restored, content: { application/json: { schema: { type: object, required: [restored, skipped], properties: { restored: { type: integer }, skipped: { type: array, items: { type: object, required: [id, reason], properties: { id: { type: string }, reason: { type: string, enum: [stale, forbidden, invalid] } } } } } } } } }, '410': { $ref: '#/components/responses/Error' } }
   /tasks/auto/preview:
     post:
       tags: [tasks]
@@ -609,7 +610,7 @@ paths:
     post:
       tags: [tasks]
       operationId: commitAutoTasks
-      description: Creates the previewed tasks idempotently (one per client × service × period; deleted tasks are not recreated).
+      description: Needs tasks:assign too (it assigns people). Creates the previewed tasks idempotently (one per client × service × period; deleted tasks are not recreated).
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AutoTasksIn' } } } }
       responses: { '200': { description: Result, content: { application/json: { schema: { type: object, required: [month, created, skipped, ids], properties: { month: { type: string }, created: { type: integer }, skipped: { type: integer }, ids: { type: array, items: { type: string } } } } } } } }
   /tasks/{id}:

@@ -1340,6 +1340,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** @description Restores rows still holding the bulk values; rows changed since (stale), no longer permitted (forbidden) or failing rules (invalid) are skipped. */
         post: operations["undoBulkUpdate"];
         delete?: never;
         options?: never;
@@ -1373,7 +1374,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Creates the previewed tasks idempotently (one per client × service × period; deleted tasks are not recreated). */
+        /** @description Needs tasks:assign too (it assigns people). Creates the previewed tasks idempotently (one per client × service × period; deleted tasks are not recreated). */
         post: operations["commitAutoTasks"];
         delete?: never;
         options?: never;
@@ -4921,6 +4922,8 @@ export interface operations {
                         from: string;
                         to: string;
                         field: string;
+                        /** @description True when more than 2000 tasks matched (narrow the range) */
+                        truncated: boolean;
                         days: {
                             date: string;
                             count: number;
@@ -4990,7 +4993,11 @@ export interface operations {
                 content: {
                     "application/json": {
                         restored: number;
-                        skipped: string[];
+                        skipped: {
+                            id: string;
+                            /** @enum {string} */
+                            reason: "stale" | "forbidden" | "invalid";
+                        }[];
                     };
                 };
             };

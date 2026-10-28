@@ -320,3 +320,65 @@ describe('compliance', () => {
     await t.http().post('/v1/compliance/late-fee').set(H(p)).send({ ruleId: 'x', dueDate: '2026-13-01', filedOn: '2026-11-30' }).expect(400);
   });
 });
+
+describe('Phase 4 review regressions', () => {
+  it('bulk undo skips rows changed since (stale) or now failing rules (invalid)', async () => {
+    const f = await firm('tr1');
+    await t.http().post('/v1/tasks/auto/commit').set(H(f.p)).send({ month: '2026-09' }).expect(200);
+    const [a, b, c] = (await tasks(f.p)).items.map((x: { id: string }) => x.id);
+    await t.http().patch(`/v1/tasks/${a}`).set(H(f.p)).send({ status: 'pending_client', pending_issue: 'Data awaited' }).expect(204);
+    const r = (await t.http().post('/v1/tasks/bulk').set(H(f.p)).send({ ids: [a, b, c], patch: { status: 'in_progress' } }).expect(200)).body;
+    await t.http().patch(`/v1/tasks/${a}`).set(H(f.p)).send({ pending_issue: null }).expect(204); // undo to pending_client would now be invalid
+    await t.http().patch(`/v1/tasks/${b}`).set(H(f.p)).send({ status: 'open' }).expect(204); // changed since the bulk
+    const u = (await t.http().post('/v1/tasks/bulk/undo').set(H(f.p)).send({ undoToken: r.undoToken }).expect(200)).body;
+    expect(u.restored).toBe(1);
+    expect(u.skipped).toEqual(expect.arrayContaining([{ id: a, reason: 'invalid' }, { id: b, reason: 'stale' }]));
+    expect((await t.http().get(`/v1/tasks/${c}`).set(H(f.p))).body.status).toBe('open');
+  });
+
+  it('edit-only users may tick checks but not change the set; review → done needs the reviewer or approve', async () => {
+    const f = await firm('tr2');
+    await t.http().post('/v1/tasks/auto/commit').set(H(f.p)).send({ month: '2026-09' }).expect(200);
+    const mine = (await tasks(f.art)).items[0];
+    const relabel = mine.checks.map((c: { label: string }, i: number) => (i === 0 ? { ...c, label: 'Renamed' } : c));
+    await t.http().patch(`/v1/tasks/${mine.id}`).set(H(f.art)).send({ checks: relabel }).expect(403);
+    await t.http().patch(`/v1/tasks/${mine.id}`).set(H(f.art)).send({ checks: mine.checks.slice(1) }).expect(403);
+    const [res] = await push(f.art, [{ key: randomUUID(), table: 'task', id: mine.id, baseVersion: mine.version, patch: { checks: relabel } }]);
+    expect(res).toMatchObject({ status: 'rejected', reason: 'forbidden' });
+    await t.http().patch(`/v1/tasks/${mine.id}`).set(H(f.art)).send({ checks: mine.checks.map((c: object) => ({ ...c, done: true })) }).expect(204);
+    await t.http().patch(`/v1/tasks/${mine.id}`).set(H(f.p)).send({ checks: relabel.map((c: object) => ({ ...c, done: true })) }).expect(204); // assign may
+    await t.http().patch(`/v1/tasks/${mine.id}`).set(H(f.p)).send({ status: 'review', reviewer_id: f.p.userId }).expect(204);
+    expect((await t.http().patch(`/v1/tasks/${mine.id}`).set(H(f.art)).send({ status: 'done' }).expect(400)).body.code).toBe('reviewer_must_approve');
+    await t.http().patch(`/v1/tasks/${mine.id}`).set(H(f.p)).send({ status: 'done' }).expect(204);
+  });
+
+  it('deleting a client closes its tasks as deleted and devices get tombstones; to-dos linked to them stay editable', async () => {
+    const f = await firm('tr3');
+    await t.http().post('/v1/tasks/auto/commit').set(H(f.p)).send({ month: '2026-09' }).expect(200);
+    const mine = (await tasks(f.art)).items[0];
+    const todo = (await t.http().post('/v1/todos').set(H(f.art)).send({ title: 'Linked', task_id: mine.id }).expect(201)).body.id;
+    const before = await pull(f.art);
+    const since = Math.max(...(await t.http().get('/v1/sync/pull?since=0&limit=1000').set(H(f.art))).body.changes.map((c: { cursor: number }) => c.cursor));
+    expect(before.some((c) => c.table === 'client_service')).toBe(true);
+    await t.http().delete(`/v1/clients/${f.clients.a}`).set(H(f.p)).expect(204);
+    const after = (await t.http().get(`/v1/sync/pull?since=${since}&limit=1000`).set(H(f.art)).expect(200)).body.changes as Array<{ table: string; id: string; deleted: boolean }>;
+    expect(after.find((c) => c.table === 'task' && c.id === mine.id)?.deleted).toBe(true);
+    expect(after.some((c) => c.table === 'client_service' && c.deleted)).toBe(true);
+    const [row] = await t.sql<{ outcome: string }>('SELECT outcome FROM task WHERE id = $1', [mine.id]);
+    expect(row!.outcome).toBe('deleted');
+    await t.http().patch(`/v1/todos/${todo}`).set(H(f.art)).send({ title: 'Linked (client gone)' }).expect(204);
+  });
+
+  it('auto commit needs tasks:assign; monthly job scheduled once under concurrency; calendar reports truncation', async () => {
+    const f = await firm('tr4');
+    await t.http().post('/v1/tasks/auto/preview').set(H(f.sen)).send({ month: '2026-09' }).expect(200);
+    await t.http().post('/v1/tasks/auto/commit').set(H(f.sen)).send({ month: '2026-09' }).expect(403);
+    const auto = t.app.get(AutoTaskService);
+    await Promise.all([1, 2, 3].map(() => auto.scheduleMonthly(new Date('2026-10-01T03:00:00+05:30'))));
+    const [n] = await t.sql<{ n: number }>(`SELECT count(*)::int AS n FROM job_queue WHERE kind = 'tasks.auto_month' AND tenant_id = $1 AND dead_at IS NULL`, [f.p.tenantId]);
+    expect(n!.n).toBe(1);
+    await t.http().post('/v1/tasks/auto/commit').set(H(f.p)).send({ month: '2026-09' }).expect(200);
+    const cal = (await t.http().get('/v1/tasks/calendar?from=2026-10-01&to=2026-10-31').set(H(f.p)).expect(200)).body;
+    expect(cal).toMatchObject({ truncated: false, days: [{ date: '2026-10-20', count: 4 }] });
+  });
+});

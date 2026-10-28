@@ -4,7 +4,7 @@ import { z, type ZodTypeAny } from 'zod';
 import type { RequestActor } from '../auth/context.js';
 import { clientScopeSql, visibilityOf, type Params } from '../clients/scope.js';
 import type { Tx } from '../db/db.service.js';
-import { canTaskRow, checkPeopleAndRevoke, clientOfTask, PEOPLE_COLS, stampChecks, stateOf, taskScopeSql } from '../tasks/scope.js';
+import { actorChangeError, canTaskRow, checkPeopleAndRevoke, clientOfTask, PEOPLE_COLS, stampChecks, stateOf, taskScopeSql } from '../tasks/scope.js';
 
 /**
  * Every table that devices sync. Only listed columns ever leave or enter the server; `writable` columns may be
@@ -269,8 +269,10 @@ export const SYNC_TABLES: Record<string, SyncTableDef> = {
     canDelete: () => false, // tasks end via close (billed/free/deleted), never a bare delete
     validate: async (a, cur, next, tx) => {
       // Changing who works on a task is 'assign' (an assignee may move status/checks, not hand the task on).
-      const peopleChanged = PEOPLE_COLS.some((f) => (cur ? (cur[f] ?? null) !== (next[f] ?? null) : !!next[f] && next[f] !== a.userId));
-      if (peopleChanged && !(await canTaskRow(a, 'assign', cur ?? next, tx))) return 'forbidden';
+      if (cur) {
+        const who = await actorChangeError(a, cur, next, tx);
+        if (who) return who;
+      } else if (PEOPLE_COLS.some((f) => !!next[f] && next[f] !== a.userId) && !(await canTaskRow(a, 'assign', next, tx))) return 'forbidden';
       const why = taskChangeError(cur ? stateOf(cur) : null, stateOf(next));
       if (why) return why;
       if (!next.title && !cur) return 'invalid:title';
@@ -296,9 +298,9 @@ export const SYNC_TABLES: Record<string, SyncTableDef> = {
     beforeInsert: (a) => ({ owner_id: a.userId }),
     canUpdate: (a, row) => row.owner_id === a.userId,
     canDelete: (a, row) => row.owner_id === a.userId,
-    validate: async (a, _cur, next, tx) => {
-      // A to-do may point at a task only if the owner can see that task.
-      if (!next.task_id) return null;
+    validate: async (a, cur, next, tx) => {
+      // A to-do may point at a task only if the owner can see that task (checked when it is set/changed).
+      if (!next.task_id || next.task_id === cur?.task_id) return null;
       const t = (await tx.query('SELECT * FROM task WHERE id = $1 AND deleted_at IS NULL', [next.task_id])).rows[0];
       return t && (await canTaskRow(a, 'view', t, tx)) ? null : 'invalid:task_id';
     },

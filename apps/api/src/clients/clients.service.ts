@@ -252,6 +252,10 @@ export class ClientsService {
       await this.loadFor(tx, a, id, 'delete');
       await tx.query('UPDATE client SET deleted_at = now(), updated_by = $2 WHERE id = $1', [id, a.userId]);
       for (const t of ['contact', 'client_registration', 'vault_secret', 'document', 'inward_entry', 'outward_entry']) await tx.query(`UPDATE ${t} SET deleted_at = now() WHERE client_id = $1 AND deleted_at IS NULL`, [id]);
+      // Tasks end as 'deleted' (every task ends billed/free/deleted); tombstones reach devices via the trigger's new cursor.
+      await tx.query(`UPDATE task SET outcome = coalesce(outcome, 'deleted'), closed_at = coalesce(closed_at, now()), closed_by = coalesce(closed_by, $2), deleted_at = now(), updated_by = $2
+        WHERE client_id = $1 AND deleted_at IS NULL`, [id, a.userId]);
+      await tx.query('UPDATE client_service SET deleted_at = now(), updated_by = $2 WHERE client_id = $1 AND deleted_at IS NULL', [id, a.userId]);
       await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'client.deleted', entity: 'client', entityId: id });
     });
     this.realtime.publish({ type: 'changed', tenantId: a.tenantId, cursor: 0 });

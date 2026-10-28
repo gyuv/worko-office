@@ -81,6 +81,25 @@ export async function checkPeopleAndRevoke(tx: Tx, tenantId: string, before: Rec
   return null;
 }
 
+/** True if the check set changed beyond done/doneBy/doneAt (keys, labels, required, order, count). */
+export function checksStructureChanged(prev: TaskCheck[], next: TaskCheck[]): boolean {
+  const shape = (xs: TaskCheck[]) => JSON.stringify(xs.map((c) => [c.key, c.label, !!c.required]));
+  return shape(prev) !== shape(next);
+}
+
+/**
+ * Who-may-do-what rules on a task change (D63), shared by device push, REST and bulk/undo:
+ * people or check-set changes need tasks:assign; review → done needs the reviewer or tasks:approve.
+ */
+export async function actorChangeError(a: Actor & { superAdmin?: boolean }, cur: Record<string, unknown>, next: Record<string, unknown>, tx: Tx): Promise<string | null> {
+  if (a.superAdmin) return null;
+  const peopleChanged = PEOPLE_COLS.some((f) => (cur[f] ?? null) !== (next[f] ?? null));
+  const checksChanged = checksStructureChanged((cur.checks as TaskCheck[]) ?? [], (next.checks as TaskCheck[]) ?? []);
+  if ((peopleChanged || checksChanged) && !(await canTaskRow(a, 'assign', cur, tx))) return 'forbidden';
+  if (cur.status === 'review' && next.status === 'done' && cur.reviewer_id !== a.userId && !(await canTaskRow(a, 'approve', cur, tx))) return 'reviewer_must_approve';
+  return null;
+}
+
 /** Stamps who/when on checks that became done; clears it on undone ones. */
 export function stampChecks(prev: TaskCheck[], next: TaskCheck[], userId: string | null, now = new Date().toISOString()): TaskCheck[] {
   const old = new Map(prev.map((c) => [c.key, c]));
