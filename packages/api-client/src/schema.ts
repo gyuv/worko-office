@@ -3010,7 +3010,9 @@ export interface components {
                 costPaise?: number | null;
                 marginPaise?: number | null;
                 marginPct?: number | null;
-                wipPaise?: number;
+                /** @description null when valued at cost and cost is hidden */
+                wipPaise?: number | null;
+                wipAtCost?: boolean;
                 minutes?: number;
                 loss?: boolean;
             }[];
@@ -8563,9 +8565,12 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        entryId?: string;
+                        /** @description null when the day already holds 24 h */
+                        entryId?: string | null;
                         minutes?: number;
+                        /** @description Timer cap or day clamp hit */
                         capped?: boolean;
+                        dayFull?: boolean;
                     };
                 };
             };

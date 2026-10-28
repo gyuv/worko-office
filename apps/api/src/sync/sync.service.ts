@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service.js';
 import type { RequestActor } from '../auth/context.js';
 import { DbService, type Tx } from '../db/db.service.js';
@@ -8,6 +8,8 @@ import { hiddenFieldsOf } from '@worko/domain';
 import { Params } from '../clients/scope.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { SYNC_TABLES_TOKEN, type SyncTableDef } from './registry.js';
+import { RejectError } from './reject.js';
+import { Clock } from '../common/clock.js';
 
 export type Mutation = { key: string; table: string; id: string; baseVersion: number; patch: Record<string, unknown>; delete?: boolean };
 export type MutationResult = { key: string; status: 'applied' | 'duplicate' | 'rejected_stale' | 'rejected'; version?: number; reason?: string };
@@ -32,7 +34,14 @@ export class SyncService {
   constructor(
     private db: DbService, private audit: AuditService, private realtime: RealtimeService,
     @Inject(SYNC_TABLES_TOKEN) private tables: Record<string, SyncTableDef>,
+    @Optional() private clock: Clock = new Clock(),
   ) {}
+
+  /** Audit diff without the table's redacted columns (e.g. attendance coordinates, D88). */
+  private auditDiff(def: SyncTableDef, row: Record<string, unknown>) {
+    const omit = new Set(def.auditOmit ?? []);
+    return Object.fromEntries(Object.entries(row).map(([k, v]) => [k, omit.has(k) ? '[omitted]' : v]));
+  }
 
   async push(a: RequestActor, mutations: Mutation[]): Promise<MutationResult[]> {
     const results: MutationResult[] = [];
@@ -94,10 +103,11 @@ export class SyncService {
     const cur = (await tx.query(`SELECT * FROM ${t} WHERE id = $1 FOR UPDATE`, [m.id])).rows[0];
     if (!cur) {
       if (m.delete || !def.canInsert || !(await def.canInsert(a, patch, tx))) return reject('not_found');
-      const base = { ...patch, ...(await def.beforeInsert?.(a, patch, tx)) };
-      const why = await def.validate?.(a, null, { id: m.id, ...base }, tx);
+      const ctx = { now: this.clock.now(), tx };
+      const base = { ...patch, ...(await def.beforeInsert?.(a, patch, tx, ctx)) };
+      const why = await def.validate?.(a, null, { id: m.id, ...base }, tx, ctx);
       if (why) return reject(why);
-      const row = { ...base, ...def.derive?.(a, null, base) };
+      const row = { ...base, ...(await def.derive?.(a, null, base, ctx)) };
       const cols = Object.keys(row);
       const fv = Object.fromEntries(cols.map((c) => [c, 1]));
       let r;
@@ -111,7 +121,7 @@ export class SyncService {
         if (code === '23505' || code === '23503' || code === '23514' || code === '23502') throw new RejectError(`constraint:${code}`);
         throw e;
       }
-      if (def.audit) await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: `${def.table}.created`, entity: def.table, entityId: m.id, diff: row });
+      if (def.audit) await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: `${def.table}.created`, entity: def.table, entityId: m.id, diff: this.auditDiff(def, row) });
       return { result: { key: m.key, status: 'applied', version: r.rows[0].version }, cursor: Number(r.rows[0].sync_cursor) };
     }
 
@@ -120,13 +130,14 @@ export class SyncService {
     if (def.strict && m.baseVersion !== cur.version) {
       return { result: { key: m.key, status: 'rejected_stale', version: cur.version }, cursor: 0 };
     }
+    const uctx = { now: this.clock.now(), tx };
     if (!m.delete && def.validate) {
-      const why = await def.validate(a, cur, { ...cur, ...patch }, tx);
+      const why = await def.validate(a, cur, { ...cur, ...patch }, tx, uctx);
       if (why) return reject(why);
     }
-    if (!m.delete && def.derive) Object.assign(patch, def.derive(a, cur, patch));
+    if (!m.delete && def.derive) Object.assign(patch, await def.derive(a, cur, patch, uctx));
     const next = await this.writePatch(tx, a, def, cur, patch, m.baseVersion, m.key, m.delete ?? false);
-    if (def.audit) await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: m.delete ? `${def.table}.deleted` : `${def.table}.updated`, entity: def.table, entityId: m.id, diff: patch });
+    if (def.audit) await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: m.delete ? `${def.table}.deleted` : `${def.table}.updated`, entity: def.table, entityId: m.id, diff: this.auditDiff(def, patch) });
     return { result: { key: m.key, status: 'applied', version: next.version }, cursor: next.cursor };
   }
 
@@ -229,8 +240,7 @@ export class SyncService {
   }
 }
 
-/** Thrown for a mutation the database refused (unique/foreign key/check): rejected, never retried. */
-export class RejectError extends Error {}
+export { RejectError };
 
 function toDb(def: SyncTableDef, col: string, v: unknown): unknown {
   return (def.json ?? []).includes(col) && v !== null && v !== undefined ? JSON.stringify(v) : v;

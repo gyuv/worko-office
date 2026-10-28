@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  accrualFor, addDaysIso, allocateByWeight, attendanceDecision, availableBalance, canApprovePerson, canPerson, canSeeCost, carryForwardLapse, compOffDays,
-  costPaise, defaultHrSettings, haversineMeters, ipAllowed, ipInCidr, isValidCidr, leaveDays, mondayOf, nearestFence, pnlOf, roundCoord, SYSTEM_ROLES,
+  accrualFor, addDaysIso, consumeCredits, allocateByWeight, attendanceDecision, availableBalance, canApprovePerson, canPerson, canSeeCost, carryForwardLapse, compOffDays,
+  costPaise, defaultHrSettings, hrSettingsSchema, haversineMeters, ipAllowed, ipInCidr, isValidCidr, leaveDays, mondayOf, nearestFence, pnlOf, roundCoord, SYSTEM_ROLES,
   timerMinutes, utilisationPct, weekCapacity, type Actor,
 } from './index.js';
 
@@ -66,6 +66,10 @@ describe('leave days', () => {
     expect(availableBalance(e, '2026-10-05')).toBe(1.5);
     expect(availableBalance(e, '2026-10-20')).toBe(1); // first credit lapsed after half of it was used
     expect(availableBalance([{ delta: 5, on: '2026-04-01' }, { delta: -2, on: '2026-05-01' }], '2030-01-01')).toBe(3);
+    // Debits record the credits they consume (so a cancel restores their expiry).
+    expect(consumeCredits(e, 1, '2026-10-05')).toEqual([{ days: 0.5, expiresOn: '2026-10-10' }, { days: 0.5, expiresOn: '2026-12-31' }]);
+    expect(consumeCredits(e, 1, '2026-10-20')).toEqual([{ days: 1, expiresOn: '2026-12-31' }]);
+    expect(consumeCredits([{ delta: 1, on: '2026-01-01' }], 2, '2026-02-01')).toEqual([{ days: 1, expiresOn: null }, { days: 1, expiresOn: null }]);
   });
 });
 
@@ -75,6 +79,7 @@ describe('time, cost and P&L maths', () => {
     expect(timerMinutes(s, new Date('2026-10-05T10:30:29Z'), 720)).toEqual({ minutes: 90, capped: false });
     expect(timerMinutes(s, new Date('2026-10-05T09:00:10Z'), 720)).toEqual({ minutes: 1, capped: false });
     expect(timerMinutes(s, new Date('2026-10-06T09:00:00Z'), 720)).toEqual({ minutes: 720, capped: true });
+    expect(() => hrSettingsSchema.parse({ timer: { capMinutes: 2000 } })).toThrow(); // cap ≤ 24 h
   });
   it('cost per entry and exact allocation', () => {
     expect(costPaise(90, 100_000)).toBe(150_000);

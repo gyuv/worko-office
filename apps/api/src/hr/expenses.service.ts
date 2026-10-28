@@ -28,7 +28,7 @@ const presentAdvance = (r: Record<string, unknown>) => ({
   balancePaise: n(r.balance_paise), decidedBy: r.decided_by ?? null, paidAt: r.paid_at ?? null, payoutRef: r.payout_ref ?? null,
 });
 /** A billable line already sits on a live (non-cancelled, non-deleted) invoice. */
-const LINKED = `EXISTS (SELECT 1 FROM invoice_line il JOIN invoice iv ON iv.id = il.invoice_id WHERE il.id = l.invoice_line_id AND iv.deleted_at IS NULL AND iv.status <> 'cancelled')`;
+const LINKED = `EXISTS (SELECT 1 FROM invoice_line il JOIN invoice iv ON iv.id = il.invoice_id WHERE il.id = l.invoice_line_id AND iv.kind = 'invoice' AND iv.deleted_at IS NULL AND iv.status <> 'cancelled')`;
 
 /** Expense claims with per-line partial approval, advances with a balance ledger, payouts, and client re-billing (M14 + M9). */
 @Injectable()
@@ -272,9 +272,9 @@ export class ExpensesService {
       if (!l || !client || !canClient(a, 'billing', 'edit', client)) throw new NotFoundException();
       if (!l.billable || !(n(l.approved_paise) > 0) || !['approved', 'partially_approved', 'paid'].includes(l.claim_status)) throw new ConflictException({ message: 'Expense is not an approved billable line', code: 'not_reimbursable' });
       if (l.linked) throw new ConflictException({ message: 'Expense already billed', code: 'already_billed' });
-      const il = (await tx.query(`SELECT il.*, iv.client_id, iv.status, iv.deleted_at FROM invoice_line il JOIN invoice iv ON iv.id = il.invoice_id WHERE il.id = $1`, [invoiceLineId])).rows[0];
+      const il = (await tx.query(`SELECT il.*, iv.client_id, iv.status, iv.deleted_at, iv.kind FROM invoice_line il JOIN invoice iv ON iv.id = il.invoice_id WHERE il.id = $1`, [invoiceLineId])).rows[0];
       if (!il || il.deleted_at || il.client_id !== l.client_id) throw new BadRequestException({ message: 'Invoice line not found for this client', code: 'invalid_invoice_line' });
-      if (il.status === 'cancelled' || !il.reimbursement) throw new BadRequestException({ message: 'Use a reimbursement line of a live invoice', code: 'invalid_invoice_line' });
+      if (il.kind !== 'invoice' || il.status === 'cancelled' || !il.reimbursement) throw new BadRequestException({ message: 'Use a reimbursement line of a live invoice', code: 'invalid_invoice_line' });
       if (n(il.total_paise) !== n(l.approved_paise)) throw new ConflictException({ message: 'Invoice line amount differs from the approved expense', code: 'amount_mismatch' });
       try {
         await tx.query('SAVEPOINT k');

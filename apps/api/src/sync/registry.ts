@@ -1,17 +1,21 @@
-import { can, canOwn, clientCtx, effectiveScope, ENTITY_TYPES, hiddenFieldsOf, isValidPan, isValidTan, TASK_PRIORITIES, TASK_STATUSES, taskChangeError, type TaskCheck } from '@worko/domain';
+import { can, canOwn, clientCtx, istDate, roundCoord, effectiveScope, ENTITY_TYPES, hiddenFieldsOf, isValidPan, isValidTan, TASK_PRIORITIES, TASK_STATUSES, taskChangeError, type TaskCheck } from '@worko/domain';
 import { prefsSchema } from '@worko/notify';
 import { z, type ZodTypeAny } from 'zod';
 import type { RequestActor } from '../auth/context.js';
 import { clientScopeSql, visibilityOf, type Params } from '../clients/scope.js';
 import type { Tx } from '../db/db.service.js';
-import { evaluateCheckIn } from '../hr/common.js';
+import { checkOutError, checkOutFields, evaluateCheckIn } from '../hr/common.js';
+import { RejectError } from './reject.js';
 import { taskForEntry, timeEntryError } from '../time/rules.js';
-import { actorChangeError, canTaskRow, checkPeopleAndRevoke, clientOfTask, PEOPLE_COLS, stampChecks, stateOf, taskScopeSql } from '../tasks/scope.js';
+import { actorChangeError, canTaskRow, checkPeopleAndRevoke, clientOfTask, PEOPLE_COLS, stampChecks, stateOf, taskScopeSql, ymd } from '../tasks/scope.js';
 
 /**
  * Every table that devices sync. Only listed columns ever leave or enter the server; `writable` columns may be
  * patched by clients (zod-validated). Adding a module = adding an entry here + tests.
  */
+/** Server context for hooks: the injectable clock's "now" (never the wall clock directly) and the transaction. */
+export type HookCtx = { now: Date; tx: Tx };
+
 export type SyncTableDef = {
   /** SQL table name (identifier is trusted: comes from this file, never from input). */
   table: string;
@@ -32,14 +36,16 @@ export type SyncTableDef = {
   /** Columns never shipped to this actor (field-level hiding, e.g. fees). */
   hide?: (a: RequestActor) => string[];
   canInsert?: (a: RequestActor, row: Record<string, unknown>, tx: Tx) => boolean | Promise<boolean>;
+  /** Columns replaced by '[omitted]' in audit diffs (personal data such as coordinates). */
+  auditOmit?: string[];
   /** Server-assigned columns on insert (owner, numbering…). Overrides anything the client sent. */
-  beforeInsert?: (a: RequestActor, row: Record<string, unknown>, tx: Tx) => Promise<Record<string, unknown>> | Record<string, unknown>;
+  beforeInsert?: (a: RequestActor, row: Record<string, unknown>, tx: Tx, ctx: HookCtx) => Promise<Record<string, unknown>> | Record<string, unknown>;
   canUpdate: (a: RequestActor, row: Record<string, unknown>, tx: Tx) => boolean | Promise<boolean>;
   canDelete?: (a: RequestActor, row: Record<string, unknown>, tx: Tx) => boolean | Promise<boolean>;
   /** Business rules over the row as it would be after the change (cur = null on insert); returns a reject reason. */
-  validate?: (a: RequestActor, cur: Record<string, unknown> | null, next: Record<string, unknown>, tx: Tx) => Promise<string | null> | string | null;
+  validate?: (a: RequestActor, cur: Record<string, unknown> | null, next: Record<string, unknown>, tx: Tx, ctx: HookCtx) => Promise<string | null> | string | null;
   /** Server-derived columns written alongside a valid change (timestamps, stamps); bypass `writable`. */
-  derive?: (a: RequestActor, cur: Record<string, unknown> | null, patch: Record<string, unknown>) => Record<string, unknown>;
+  derive?: (a: RequestActor, cur: Record<string, unknown> | null, patch: Record<string, unknown>, ctx: HookCtx) => Record<string, unknown> | Promise<Record<string, unknown>>;
   /** Whether client mutations are audit-logged (read-receipts are not: they'd drown the log). */
   audit: boolean;
 };
@@ -209,8 +215,8 @@ export const SYNC_TABLES: Record<string, SyncTableDef> = {
       returnable: z.boolean(), due_back: date, returned_on: date },
     immutable: ['client_id', 'received_on'], // number + FY derive from the date (D51)
     ...childOf('registers'),
-    beforeInsert: async (a, row, tx) => {
-      const fy = fyOf(String(row.received_on ?? new Date().toISOString().slice(0, 10)));
+    beforeInsert: async (a, row, tx, ctx) => {
+      const fy = fyOf(String(row.received_on ?? istDate(ctx.now)));
       return { fy, number: await nextNumber(tx, a.tenantId, 'IN', fy), received_by: a.userId };
     },
     audit: true,
@@ -224,8 +230,8 @@ export const SYNC_TABLES: Record<string, SyncTableDef> = {
       description: z.string().trim().min(1).max(1000), items, original: z.boolean(), to_be_received_back: z.boolean(), received_back_on: date },
     immutable: ['client_id', 'sent_on'], // number + FY derive from the date (D51)
     ...childOf('registers'),
-    beforeInsert: async (a, row, tx) => {
-      const fy = fyOf(String(row.sent_on ?? new Date().toISOString().slice(0, 10)));
+    beforeInsert: async (a, row, tx, ctx) => {
+      const fy = fyOf(String(row.sent_on ?? istDate(ctx.now)));
       return { fy, number: await nextNumber(tx, a.tenantId, 'OUT', fy), sent_by: a.userId };
     },
     audit: true,
@@ -281,10 +287,10 @@ export const SYNC_TABLES: Record<string, SyncTableDef> = {
       if (!next.title && !cur) return 'invalid:title';
       return checkPeopleAndRevoke(tx, a.tenantId, cur, next);
     },
-    derive: (a, cur, patch) => {
+    derive: (a, cur, patch, ctx) => {
       const out: Record<string, unknown> = {};
-      if ('checks' in patch) out.checks = stampChecks((cur?.checks as TaskCheck[]) ?? [], patch.checks as TaskCheck[], a.userId);
-      if ('status' in patch && patch.status !== cur?.status) out.completed_at = patch.status === 'done' ? new Date().toISOString() : null;
+      if ('checks' in patch) out.checks = stampChecks((cur?.checks as TaskCheck[]) ?? [], patch.checks as TaskCheck[], a.userId, ctx.now.toISOString());
+      if ('status' in patch && patch.status !== cur?.status) out.completed_at = patch.status === 'done' ? ctx.now.toISOString() : null;
       return out;
     },
     audit: true,
@@ -355,8 +361,9 @@ export const SYNC_TABLES: Record<string, SyncTableDef> = {
     },
     canUpdate: (a, row) => row.user_id === a.userId && row.status !== 'approved',
     canDelete: (a, row) => row.user_id === a.userId && ['draft', 'rejected'].includes(String(row.status)),
-    validate: (a, cur, next, tx) => timeEntryError(a, cur, next, tx),
-    derive: (_a, cur, patch) => ('status' in patch && patch.status !== cur?.status ? { submitted_at: patch.status === 'submitted' ? new Date().toISOString() : null } : {}),
+    // Same rules as REST, including "no future dates" against the injectable clock (IST).
+    validate: (a, cur, next, tx, ctx) => (next.work_date && (ymd(next.work_date) ?? '') > istDate(ctx.now) && (!cur || ymd(next.work_date) !== ymd(cur.work_date)) ? 'future_date' : timeEntryError(a, cur, next, tx)),
+    derive: (_a, cur, patch, ctx) => ('status' in patch && patch.status !== cur?.status ? { submitted_at: patch.status === 'submitted' ? ctx.now.toISOString() : null } : {}),
     audit: true,
   },
   // Read-only on devices: timers start/stop through REST so the server clock is authoritative.
@@ -372,27 +379,35 @@ export const SYNC_TABLES: Record<string, SyncTableDef> = {
   // Devices may check in (insert) and check out (update) offline; the server stamps its own times, fence, IP and skew.
   attendance: {
     table: 'attendance',
-    columns: ['user_id', 'work_date', 'check_in_at', 'check_out_at', 'device_check_in_at', 'device_check_out_at', 'in_lat', 'in_lng', 'out_lat', 'out_lng',
+    columns: ['user_id', 'work_date', 'check_in_at', 'check_out_at', 'device_check_in_at', 'device_check_out_at', 'received_at', 'in_lat', 'in_lng', 'out_lat', 'out_lng',
       'location_id', 'distance_m', 'in_fence', 'ip_ok', 'method', 'flags', 'status', 'minutes', 'notes'],
     writable: { device_check_in_at: iso, in_lat: z.number().min(-90).max(90).nullable(), in_lng: z.number().min(-180).max(180).nullable(),
       device_check_out_at: iso, out_lat: z.number().min(-90).max(90).nullable(), out_lng: z.number().min(-180).max(180).nullable(), notes: z.string().max(500).nullable() },
     immutable: ['device_check_in_at', 'in_lat', 'in_lng'],
+    // Coordinates never reach the audit log (D88/D95).
+    auditOmit: ['in_lat', 'in_lng', 'out_lat', 'out_lng'],
     scope: (a, p) => `x.user_id = ${p.add(a.userId)}::uuid`,
     visible: (a) => canOwn(a, 'hr'),
     canInsert: (a) => canOwn(a, 'hr'),
-    beforeInsert: async (a, row, tx) => {
+    // Offline check-in: the device time decides the day/time, bounded (not future, ≤ offlineMaxDays old); receipt time kept (D95).
+    beforeInsert: async (a, row, tx, ctx) => {
       const ev = await evaluateCheckIn(tx, { lat: row.in_lat as number | null, lng: row.in_lng as number | null, deviceAt: row.device_check_in_at ? new Date(String(row.device_check_in_at)) : null,
-        ip: null, serverAt: new Date(), branchId: a.branchId, method: 'offline' });
+        ip: null, serverAt: ctx.now, branchId: a.branchId, method: 'offline' });
+      if ('reject' in ev) throw new RejectError(ev.reject);
       return { ...ev, user_id: a.userId, device_check_out_at: null, out_lat: null, out_lng: null };
     },
     canUpdate: (a, row) => row.user_id === a.userId && !row.check_out_at,
-    validate: (_a, cur, next) => (cur && next.device_check_out_at == null && (next.out_lat != null || next.out_lng != null) ? 'invalid:device_check_out_at' : null),
-    derive: (_a, cur, patch) => {
+    validate: async (_a, cur, next, tx, ctx) => {
+      if (!cur) return null;
+      if (next.device_check_out_at == null) return next.out_lat != null || next.out_lng != null ? 'invalid:device_check_out_at' : null;
+      return checkOutError(tx, cur, new Date(String(next.device_check_out_at)), ctx.now);
+    },
+    derive: async (_a, cur, patch, ctx) => {
       if (!cur || !('device_check_out_at' in patch) || !patch.device_check_out_at) return {};
-      const out = new Date();
-      const lat = typeof patch.out_lat === 'number' ? Math.round(patch.out_lat * 1e4) / 1e4 : null;
-      const lng = typeof patch.out_lng === 'number' ? Math.round(patch.out_lng * 1e4) / 1e4 : null;
-      return { check_out_at: out.toISOString(), out_lat: lat, out_lng: lng, minutes: Math.max(0, Math.round((out.getTime() - new Date(cur.check_in_at as string).getTime()) / 60_000)) };
+      const out = await checkOutFields(ctx.tx, cur, new Date(String(patch.device_check_out_at)), ctx.now);
+      const lat = typeof patch.out_lat === 'number' ? roundCoord(patch.out_lat) : null;
+      const lng = typeof patch.out_lng === 'number' ? roundCoord(patch.out_lng) : null;
+      return { ...out, out_lat: lat, out_lng: lng };
     },
     audit: true,
   },

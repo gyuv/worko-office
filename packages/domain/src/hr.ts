@@ -25,6 +25,10 @@ export const hrSettingsSchema = z.object({
     ipAllowList: z.array(z.string().max(64)).max(100).default([]),
     /** Device-claimed vs server time difference that is flagged as clock skew. */
     skewFlagMinutes: z.number().int().min(1).max(1440).default(10),
+    /** Offline check-ins older than this many days (device time) are refused. */
+    offlineMaxDays: z.number().int().min(0).max(31).default(3),
+    /** Longest attendance day; longer days are capped and flagged `minutes_capped`. */
+    maxMinutes: z.number().int().min(60).max(1440).default(960),
   }).default({}),
   workWeek: z.object({
     weekendDays: z.array(z.number().int().min(0).max(6)).max(6).default([0]),
@@ -37,6 +41,8 @@ export const hrSettingsSchema = z.object({
     enabled: z.boolean().default(true), typeKey: z.string().max(40).default('comp_off'),
     halfDayMinutes: z.number().int().min(30).max(1_440).default(240), fullDayMinutes: z.number().int().min(60).max(1_440).default(420),
     expiryDays: z.number().int().min(1).max(730).default(90),
+    /** The daily job re-evaluates this many past days, so late approvals/rejections/reversals are reflected. */
+    lookbackDays: z.number().int().min(0).max(60).default(7),
   }).default({}),
 });
 export type HrSettings = z.infer<typeof hrSettingsSchema>;
@@ -233,6 +239,28 @@ export function availableBalance(entries: LedgerEntry[], asOf: string): number {
   for (const c of credits) { const take = Math.min(c.left, debt); c.left -= take; debt -= take; }
   const live = credits.filter((c) => !c.expiresOn || c.expiresOn >= asOf).reduce((s, c) => s + c.left, 0);
   return Math.round((live - debt) * 2) / 2;
+}
+
+/**
+ * Which credits a debit of `days` consumes (same FIFO as `availableBalance`: earliest expiry first, after existing debits;
+ * credits expired on `asOf` are skipped). Returned parts keep the credit's expiry so a cancellation can restore it; any part
+ * not covered by a credit is returned with `expiresOn: null`.
+ */
+export function consumeCredits(entries: LedgerEntry[], days: number, asOf: string): Array<{ days: number; expiresOn: string | null }> {
+  const credits = entries.filter((e) => e.delta > 0).map((e) => ({ ...e, left: e.delta }))
+    .sort((a, b) => (a.expiresOn ?? '9999').localeCompare(b.expiresOn ?? '9999') || a.on.localeCompare(b.on));
+  let debt = -entries.filter((e) => e.delta < 0).reduce((s, e) => s + e.delta, 0);
+  for (const c of credits) { const take = Math.min(c.left, debt); c.left -= take; debt -= take; }
+  const out: Array<{ days: number; expiresOn: string | null }> = [];
+  let need = days;
+  for (const c of credits) {
+    if (need <= 0) break;
+    if (c.left <= 0 || (c.expiresOn && c.expiresOn < asOf)) continue;
+    const take = Math.min(c.left, need);
+    out.push({ days: take, expiresOn: c.expiresOn ?? null }); need -= take;
+  }
+  if (need > 0) out.push({ days: need, expiresOn: null });
+  return out;
 }
 
 // ---------- Person-scoped permissions (time, hr) ----------

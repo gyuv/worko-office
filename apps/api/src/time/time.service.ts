@@ -246,15 +246,23 @@ export class TimeService {
       const s = await loadHrSettings(tx);
       const now = this.clock.now();
       const m = timerMinutes(new Date(t.started_at), now, s.timer.capMinutes);
-      const entryId = uuidv7();
-      const ended = m.capped ? new Date(new Date(t.started_at).getTime() + m.minutes * 60_000) : now;
-      const r = await tx.query(`INSERT INTO time_entry (id, tenant_id, user_id, task_id, client_id, work_date, minutes, billable, notes, source, status, started_at, ended_at, capped, updated_by, device_id)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'timer','draft',$10,$11,$12,$3,$13) RETURNING sync_cursor`,
-        [entryId, a.tenantId, a.userId, t.task_id, t.client_id, istDate(new Date(t.started_at)), m.minutes, t.billable, i.notes ?? t.notes, t.started_at, ended.toISOString(), m.capped, a.deviceId]);
-      cur.bump(r.rows[0].sync_cursor);
+      // Never more than 24 h in a day: clamp to what's left (flagged `capped`); a full day stops the timer without an entry.
+      const day = istDate(new Date(t.started_at));
+      const used = Number((await tx.query(`SELECT COALESCE(sum(minutes),0) AS m FROM time_entry WHERE user_id = $1 AND work_date = $2::date AND deleted_at IS NULL AND minutes > 0`, [a.userId, day])).rows[0].m);
+      const minutes = Math.min(m.minutes, 1440 - used);
+      const capped = m.capped || minutes < m.minutes;
+      let entryId: string | null = null;
+      if (minutes >= 1) {
+        entryId = uuidv7();
+        const ended = new Date(new Date(t.started_at).getTime() + minutes * 60_000);
+        const r = await tx.query(`INSERT INTO time_entry (id, tenant_id, user_id, task_id, client_id, work_date, minutes, billable, notes, source, status, started_at, ended_at, capped, updated_by, device_id)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'timer','draft',$10,$11,$12,$3,$13) RETURNING sync_cursor`,
+          [entryId, a.tenantId, a.userId, t.task_id, t.client_id, day, minutes, t.billable, i.notes ?? t.notes, t.started_at, (ended < now ? ended : now).toISOString(), capped, a.deviceId]);
+        cur.bump(r.rows[0].sync_cursor);
+      }
       cur.bump(Number((await tx.query('UPDATE time_timer SET stopped_at = $2, entry_id = $3, deleted_at = $2, updated_by = $4 WHERE id = $1 RETURNING sync_cursor', [t.id, now.toISOString(), entryId, a.userId])).rows[0].sync_cursor));
-      await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'timer.stopped', entity: 'time_timer', entityId: t.id, diff: { entryId, minutes: m.minutes, capped: m.capped } });
-      return { entryId, minutes: m.minutes, capped: m.capped };
+      await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'timer.stopped', entity: 'time_timer', entityId: t.id, diff: { entryId, minutes: Math.max(0, minutes), capped } });
+      return { entryId, minutes: Math.max(0, minutes), capped, dayFull: !entryId };
     });
     this.publish(a.tenantId, cur);
     return out;

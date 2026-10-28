@@ -8,7 +8,7 @@ import { DbService, type Tx } from '../db/db.service.js';
 import { calendarFor, loadHrSettings, personScopeSql } from '../hr/common.js';
 
 type Group = { key: string; label: string; clientId: string | null; clientName: string | null; taskId: string | null; serviceTypeId: string | null;
-  revenuePaise: number; costPaise: number; wipPaise: number; minutes: number; billableMinutes: number };
+  revenuePaise: number; costPaise: number; wipPaise: number; wipAtCost: boolean; minutes: number; billableMinutes: number };
 
 /** Effective hourly cost of a user on a date (latest effective_from ≤ date, not ended). */
 export async function costRates(tx: Tx): Promise<(userId: string, on: string) => number> {
@@ -54,7 +54,7 @@ export class TimeReportsService {
         const k = keyOf(t, clientId);
         let x = groups.get(k.key);
         if (!x) {
-          x = { ...k, clientId: q.groupBy === 'service' ? null : clientId, clientName: q.groupBy === 'service' ? null : clientId ? vis.get(clientId)?.name ?? null : null, revenuePaise: 0, costPaise: 0, wipPaise: 0, minutes: 0, billableMinutes: 0 };
+          x = { ...k, clientId: q.groupBy === 'service' ? null : clientId, clientName: q.groupBy === 'service' ? null : clientId ? vis.get(clientId)?.name ?? null : null, revenuePaise: 0, costPaise: 0, wipPaise: 0, wipAtCost: false, minutes: 0, billableMinutes: 0 };
           groups.set(k.key, x);
         }
         return x;
@@ -99,15 +99,19 @@ export class TimeReportsService {
         const t = tasks.get(tid)!;
         const client = t.client_id ? vis.get(t.client_id as string) : undefined;
         const fee = t.service_type_id && client ? await rateFor(tx, t.service_type_id as string, client, q.to) : null;
-        g(t, (t.client_id as string) ?? null).wipPaise += fee ?? Math.max(0, c);
+        const x = g(t, (t.client_id as string) ?? null);
+        x.wipPaise += fee ?? Math.max(0, c);
+        if (fee === null) x.wipAtCost = true;
       }
 
       const items = [...groups.values()].map((x) => {
         const r = pnlOf({ revenuePaise: x.revenuePaise, costPaise: showCost ? x.costPaise : null, wipPaise: x.wipPaise, minutes: x.minutes });
-        return { ...x, ...r, costPaise: showCost ? x.costPaise : null };
+        // WIP valued at cost would reveal cost: null for viewers without cost visibility (D87).
+        const { wipAtCost, ...rest } = x;
+        return { ...rest, ...r, costPaise: showCost ? x.costPaise : null, wipPaise: wipAtCost && !showCost ? null : x.wipPaise, wipAtCost };
       }).sort((x, y) => (x.marginPaise ?? 0) - (y.marginPaise ?? 0) || x.label.localeCompare(y.label));
       const sum = (f: (x: Group) => number) => [...groups.values()].reduce((s, x) => s + f(x), 0);
-      const totals = pnlOf({ revenuePaise: sum((x) => x.revenuePaise), costPaise: showCost ? sum((x) => x.costPaise) : null, wipPaise: sum((x) => x.wipPaise), minutes: sum((x) => x.minutes) });
+      const totals = pnlOf({ revenuePaise: sum((x) => x.revenuePaise), costPaise: showCost ? sum((x) => x.costPaise) : null, wipPaise: sum((x) => (x.wipAtCost && !showCost ? 0 : x.wipPaise)), minutes: sum((x) => x.minutes) });
       return { from: q.from, to: q.to, groupBy: q.groupBy, costVisible: showCost, creditNotesPaise: creditPaise, totals, items, lossMaking: items.filter((x) => x.loss).length };
     });
   }

@@ -73,11 +73,42 @@ describe('attendance', () => {
     const u = rep.users.find((x: { userId: string }) => x.userId === f.ar.userId);
     // Oct 2026: 31 days − 4 Sundays − 1 holiday = 26 working days.
     expect(u).toMatchObject({ workingDays: 26, presentDays: 1, absentDays: 25, minutes: 510 });
-    const res = (await t.http().post('/v1/sync/push').set(H(f.sr)).send({ mutations: [{ key: 'hr2-offline-1', table: 'attendance', id: '01900000-0000-7000-8000-00000000b001', baseVersion: 0,
-      patch: { device_check_in_at: '2020-01-01T03:30:00Z', in_lat: 18.5205, in_lng: 73.8566 } }] }).expect(200)).body.results;
-    expect(res[0].status).toBe('applied');
-    const [row] = await t.sql<{ flags: string[]; status: string; in_fence: boolean; user_id: string; method: string }>('SELECT flags, status, in_fence, user_id, method FROM attendance WHERE id = $1', ['01900000-0000-7000-8000-00000000b001']);
-    expect(row).toMatchObject({ flags: ['clock_skew'], status: 'flagged', in_fence: true, user_id: f.sr.userId, method: 'offline' });
+    // Review fixes: offline check-ins take day/time from the device (bounded), keep the receipt time, never audit coordinates.
+    const push = (key: string, id: string, patch: Record<string, unknown>) => t.http().post('/v1/sync/push').set(H(f.sr)).send({ mutations: [{ key, table: 'attendance', id, baseVersion: 0, patch }] })
+      .expect(200).then((r) => r.body.results[0]);
+    expect(await push('hr2-offline-old', '01900000-0000-7000-8000-00000000b002', { device_check_in_at: '2026-10-01T03:30:00Z', in_lat: 18.5205, in_lng: 73.8566 })).toMatchObject({ status: 'rejected', reason: 'too_old' });
+    expect(await push('hr2-offline-fut', '01900000-0000-7000-8000-00000000b003', { device_check_in_at: '2026-10-15T03:30:00Z', in_lat: 18.5205, in_lng: 73.8566 })).toMatchObject({ status: 'rejected', reason: 'future_time' });
+    const oid = '01900000-0000-7000-8000-00000000b001';
+    expect((await push('hr2-offline-1', oid, { device_check_in_at: '2026-10-13T03:30:00Z', in_lat: 18.52051, in_lng: 73.85663 })).status).toBe('applied');
+    const [row] = await t.sql<{ flags: string[]; status: string; in_fence: boolean; user_id: string; method: string; work_date: Date; check_in_at: Date; received_at: Date }>(
+      'SELECT flags, status, in_fence, user_id, method, to_char(work_date, \'YYYY-MM-DD\') AS work_date, check_in_at, received_at FROM attendance WHERE id = $1', [oid]);
+    expect(row).toMatchObject({ flags: ['clock_skew'], status: 'ok', in_fence: true, user_id: f.sr.userId, method: 'offline', work_date: '2026-10-13' });
+    expect(new Date(row!.check_in_at).toISOString()).toBe('2026-10-13T03:30:00.000Z');
+    expect(new Date(row!.received_at).toISOString()).toBe('2026-10-14T04:00:00.000Z');
+    // Offline check-out: device time, not in the future.
+    const out = (patch: Record<string, unknown>, key: string) => t.http().post('/v1/sync/push').set(H(f.sr)).send({ mutations: [{ key, table: 'attendance', id: oid, baseVersion: 1, patch }] }).expect(200).then((r) => r.body.results[0]);
+    expect(await out({ device_check_out_at: '2026-10-15T12:00:00Z' }, 'hr2-out-future')).toMatchObject({ status: 'rejected', reason: 'future_time' });
+    expect((await out({ device_check_out_at: '2026-10-13T12:30:00Z', out_lat: 18.5206, out_lng: 73.8567 }, 'hr2-out-1')).status).toBe('applied');
+    expect((await t.sql<{ minutes: number }>('SELECT minutes FROM attendance WHERE id = $1', [oid]))[0]!.minutes).toBe(540);
+    const logged = JSON.stringify(await t.sql(`SELECT diff FROM audit_log WHERE tenant_id = $1 AND entity = 'attendance'`, [f.p.tenantId]));
+    expect(logged).not.toMatch(/18\.52|73\.85/);
+    expect(logged).toContain('[omitted]');
+    // Regularising a day that was already decided is refused, not silently overwritten.
+    await t.sql(`UPDATE attendance SET status = 'approved', decided_by = $2 WHERE id = $1`, [oid, f.p.userId]);
+    const rg = (await t.http().post('/v1/hr/attendance/regularisations').set(H(f.sr)).send({ date: '2026-10-13', checkIn: '08:00', checkOut: '20:00', reason: 'Was earlier' }).expect(201)).body.id;
+    await t.http().post(`/v1/hr/attendance/regularisations/${rg}/decide`).set(H(f.p)).send({ approve: true }).expect(409);
+    // Check-out caps the day (firm setting) and flags it; only today's / recent open rows close.
+    await t.http().put('/v1/hr/settings').set(H(f.p)).send({ attendance: { maxMinutes: 60 } }).expect(200);
+    clock.set(new Date('2026-10-14T09:30:00+05:30'));
+    await t.http().post('/v1/hr/attendance/check-in').set(H(f.ar)).send({ ...OFFICE }).expect(201);
+    clock.set(new Date('2026-10-14T18:00:00+05:30'));
+    const co = (await t.http().post('/v1/hr/attendance/check-out').set(H(f.ar)).send({}).expect(200)).body;
+    expect(co.minutes).toBe(60);
+    expect((await t.sql<{ flags: string[] }>('SELECT flags FROM attendance WHERE id = $1', [co.id]))[0]!.flags).toContain('minutes_capped');
+    await t.http().post('/v1/hr/attendance/check-in').set(H(f.m)).send({ ...OFFICE }).expect(201);
+    clock.set(new Date('2026-10-16T10:00:00+05:30'));
+    await t.http().post('/v1/hr/attendance/check-out').set(H(f.m)).send({}).expect(404); // forgotten check-out from two days ago
+    clock.set(new Date('2026-10-14T09:30:00+05:30'));
   });
 });
 
@@ -150,9 +181,32 @@ describe('leave', () => {
     const b = (await t.http().get('/v1/hr/leave/balances').set(H(f.ar)).expect(200)).body.balances.find((x: { leaveType: { id: string } }) => x.leaveType.id === co);
     expect(b).toMatchObject({ balance: 1.5 });
     expect(b.expiring.map((e: { expiresOn: string }) => e.expiresOn).sort()).toEqual(['2026-12-31', '2027-01-09']);
+    // Review fix: a cancelled leave restores the consumed credit with its original expiry.
+    const lv = (await t.http().post('/v1/hr/leave/requests').set(H(f.ar)).send({ leaveTypeId: co, from: '2026-10-16', to: '2026-10-16', startHalf: true }).expect(201)).body;
+    await t.http().post(`/v1/hr/leave/requests/${lv.id}/decide`).set(H(f.m)).send({ approve: true }).expect(200);
+    await t.http().post(`/v1/hr/leave/requests/${lv.id}/cancel`).set(H(f.ar)).expect(204);
+    const back = (await t.http().get(`/v1/hr/leave/ledger?userId=${f.ar.userId}`).set(H(f.m)).expect(200)).body.filter((l: { reason: string }) => l.reason === 'cancel');
+    expect(back.map((l: { delta: number; expiresOn: string }) => [l.delta, l.expiresOn])).toEqual([[0.5, '2026-12-31']]);
     clock.set(new Date('2027-01-05T09:30:00+05:30'));
     expect((await t.http().get('/v1/hr/leave/balances').set(H(f.ar)).expect(200)).body.balances.find((x: { leaveType: { id: string } }) => x.leaveType.id === co).balance).toBe(0.5);
     clock.set(new Date('2026-10-14T09:30:00+05:30'));
+    // Review fix: reversing the Sunday time posts a negative adjustment (once); only ok/approved attendance counts.
+    await t.http().post(`/v1/time/entries/${ids[0]}/reverse`).set(H(f.m)).send({ note: 'billed to wrong day' }).expect(201);
+    const run = () => t.http().post('/v1/hr/leave/comp-off/run').set(H(f.p)).send({ from: '2026-10-01', to: '2026-10-13' }).expect(200).then((r) => r.body);
+    expect(await run()).toEqual({ granted: 1, days: -0.5 });
+    expect(await run()).toEqual({ granted: 0, days: 0 });
+    const att = '01900000-0000-7000-8000-00000000c001';
+    await t.sql(`INSERT INTO attendance (id, tenant_id, user_id, work_date, check_in_at, minutes, status, flags) VALUES ($1,$2,$3,'2026-10-04','2026-10-04T04:00:00Z',480,'flagged','{out_of_fence}')`, [att, f.p.tenantId, f.ar.userId]);
+    expect(await run()).toEqual({ granted: 0, days: 0 }); // flagged attendance doesn't earn
+    await t.http().post(`/v1/hr/attendance/${att}/decide`).set(H(f.m)).send({ approve: true }).expect(204);
+    expect(await run()).toEqual({ granted: 1, days: 1 });
+    // The daily job looks back (default 7 days), so a late approval is picked up there too.
+    await t.sql(`INSERT INTO attendance (id, tenant_id, user_id, work_date, check_in_at, minutes, status) VALUES ($1,$2,$3,'2026-10-11','2026-10-11T04:00:00Z',480,'ok')`,
+      ['01900000-0000-7000-8000-00000000c002', f.p.tenantId, f.ar.userId]);
+    await t.sql(`UPDATE job_queue SET run_at = '2026-10-13T00:00:00Z' WHERE tenant_id = $1 AND kind = 'hr.compoff'`, [f.p.tenantId]);
+    await t.app.get(JobQueueService).runOnce(50, new Date('2026-10-14T02:00:00+05:30')); // yesterday = 13 Oct; looks back to 6 Oct
+    const sun = await t.sql<{ s: string }>(`SELECT sum(delta) AS s FROM leave_ledger WHERE user_id = $1 AND (ref_key = 'compoff:2026-10-11' OR ref_key LIKE 'compoff:2026-10-11:%')`, [f.ar.userId]);
+    expect(Number(sun[0]!.s)).toBe(1);
   });
 });
 
@@ -194,6 +248,12 @@ describe('expenses', () => {
     const inv = (await t.http().post('/v1/billing/invoices').set(H(f.p)).send({ clientId: f.cA, lines: [{ description: 'Fees', ratePaise: 100_000 }, el.suggestedLine] }).expect(201)).body.id;
     const lines = (await t.http().get(`/v1/billing/invoices/${inv}`).set(H(f.p)).expect(200)).body.lines;
     await t.http().post(`/v1/hr/expenses/lines/${el.id}/link`).set(H(f.p)).send({ invoiceLineId: lines[0].id }).expect(400); // not a reimbursement line
+    // Review fix: a credit note's reimbursement line is not a billing target.
+    const inv2 = (await t.http().post('/v1/billing/invoices').set(H(f.p)).send({ clientId: f.cA, lines: [el.suggestedLine] }).expect(201)).body.id;
+    await t.http().post(`/v1/billing/invoices/${inv2}/issue`).set(H(f.p)).send({ issueDate: '2026-10-13' }).expect(200);
+    const cn = (await t.http().post(`/v1/billing/invoices/${inv2}/notes`).set(H(f.p)).send({ kind: 'credit_note', date: '2026-10-14', reason: 'Wrong client', lines: [{ description: 'ROC fee', taxablePaise: 20_000, reimbursement: true }] }).expect(201)).body.id;
+    const cnLine = (await t.http().get(`/v1/billing/invoices/${cn}`).set(H(f.p)).expect(200)).body.lines[0];
+    await t.http().post(`/v1/hr/expenses/lines/${el.id}/link`).set(H(f.p)).send({ invoiceLineId: cnLine.id }).expect(400);
     await t.http().post(`/v1/hr/expenses/lines/${el.id}/link`).set(H(f.p)).send({ invoiceLineId: lines[1].id }).expect(204);
     await t.http().post(`/v1/hr/expenses/lines/${el.id}/link`).set(H(f.p)).send({ invoiceLineId: lines[1].id }).expect(409);
     expect((await t.http().get('/v1/hr/expenses/reimbursable').set(H(f.p)).expect(200)).body.items).toHaveLength(0);

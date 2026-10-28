@@ -60,8 +60,18 @@ describe('timer', () => {
     at('2026-10-15T06:00:00+05:30');
     expect((await t.http().post('/v1/time/timer/stop').set(H(f.ar)).send({}).expect(200)).body).toMatchObject({ minutes: 720, capped: true });
     await t.http().post('/v1/time/timer/start').set(H(f.ar)).send({ clientId: f.cB }).expect(400); // invisible client
+    // Review fix: a stop never pushes the day over 24 h — clamped and flagged; a full day stops without an entry (no 500).
+    at('2026-10-14T20:00:00+05:30');
+    await entry(f.ar, { clientId: f.cA, workDate: '2026-10-14', minutes: 600 }); // 90 + 720 + 600 = 1410
+    await t.http().post('/v1/time/timer/start').set(H(f.ar)).send({ clientId: f.cA }).expect(201);
+    at('2026-10-14T21:00:00+05:30');
+    expect((await t.http().post('/v1/time/timer/stop').set(H(f.ar)).send({}).expect(200)).body).toMatchObject({ minutes: 30, capped: true, dayFull: false });
+    await t.http().post('/v1/time/timer/start').set(H(f.ar)).send({ clientId: f.cA }).expect(201);
+    at('2026-10-14T21:30:00+05:30');
+    expect((await t.http().post('/v1/time/timer/stop').set(H(f.ar)).send({}).expect(200)).body).toMatchObject({ entryId: null, dayFull: true });
+    expect((await t.http().get('/v1/time/timer').set(H(f.ar)).expect(200)).body?.id).toBeUndefined();
     const audit = await t.sql<{ action: string }>(`SELECT action FROM audit_log WHERE tenant_id = $1 AND action LIKE 'timer.%'`, [f.p.tenantId]);
-    expect(audit.length).toBe(5);
+    expect(audit.length).toBe(9);
     at('2026-10-14T10:00:00+05:30');
   });
 });
@@ -156,6 +166,15 @@ describe('job P&L and capacity', () => {
     expect(rm.items.map((x: { taskId: string }) => x.taskId)).toEqual([f.tA]);
     expect(rm.items[0]).toMatchObject({ revenuePaise: 270_000, costPaise: null, marginPaise: null });
     await t.http().get(q).set(H(f.ar)).expect(403); // no reports grant
+    // Review fix: WIP valued at cost (no rate-table fee) is hidden with the cost, and left out of the totals.
+    const tC = (await t.http().post('/v1/tasks').set(H(f.p)).send({ client_id: f.cA, title: 'Ad-hoc advice', assignee_id: f.ar.userId, checks: [] }).expect(201)).body.id;
+    await approve(f.m, [await entry(f.ar, { taskId: tC, workDate: '2026-10-13', minutes: 60, submit: true })]);
+    const rp2 = (await t.http().get(q).set(H(f.p)).expect(200)).body;
+    expect(rp2.items.find((x: { taskId: string }) => x.taskId === tC)).toMatchObject({ wipPaise: 90_000, wipAtCost: true });
+    const rm2 = (await t.http().get(q).set(H(f.m)).expect(200)).body;
+    expect(rm2.items.find((x: { taskId: string }) => x.taskId === tC)).toMatchObject({ wipPaise: null, costPaise: null });
+    expect(rm2.totals.wipPaise).toBe(0);
+    expect(JSON.stringify(rm2)).not.toContain('90000');
 
     // Capacity: holiday on Thu 15 Oct; planned = task A estimate (act-by 16 Oct, but done → excluded); actual = approved time.
     await t.http().post('/v1/hr/holidays').set(H(f.p)).send({ date: '2026-10-15', name: 'Dussehra (demo)' }).expect(201);
@@ -165,7 +184,7 @@ describe('job P&L and capacity', () => {
     expect(cap.weeks).toEqual(['2026-10-12', '2026-10-19']);
     expect(cap.users.map((u: { userId: string }) => u.userId).sort()).toEqual([f.m.userId, f.ar.userId].sort()); // self + report
     const w = cap.users.find((u: { userId: string }) => u.userId === f.ar.userId).weeks[0];
-    expect(w).toMatchObject({ capacityMinutes: 2000, holidays: 1, plannedMinutes: 500, actualMinutes: 180, plannedPct: 25, actualPct: 9 });
+    expect(w).toMatchObject({ capacityMinutes: 2000, holidays: 1, plannedMinutes: 500, actualMinutes: 240, plannedPct: 25, actualPct: 12 });
     expect((await t.http().get('/v1/reports/capacity?weeks=1').set(H(f.ar)).expect(200)).body.users).toHaveLength(1);
   });
 });
@@ -188,6 +207,9 @@ describe('sync', () => {
     expect(st).toMatchObject({ status: 'rejected', reason: 'invalid:status' });
     const [inv] = await push([{ key: 'tm4-key-4', table: 'time_entry', id: '01900000-0000-7000-8000-00000000a002', baseVersion: 0, patch: { client_id: f.cB, work_date: '2026-10-14', minutes: 30 } }]);
     expect(inv).toMatchObject({ status: 'rejected', reason: 'invalid:client_id' });
+    // Review fix: "no future dates" also applies to device pushes (injectable clock, IST).
+    const [fut] = await push([{ key: 'tm4-key-5', table: 'time_entry', id: '01900000-0000-7000-8000-00000000a003', baseVersion: 0, patch: { client_id: f.cA, work_date: '2026-10-15', minutes: 30 } }]);
+    expect(fut).toMatchObject({ status: 'rejected', reason: 'future_date' });
     const pulled = (await t.http().get('/v1/sync/pull?since=0&limit=1000').set(H(f.ar)).expect(200)).body.changes as Array<{ table: string; fields: Record<string, unknown> }>;
     const te = pulled.filter((c) => c.table === 'time_entry');
     expect(te.length).toBe(2);

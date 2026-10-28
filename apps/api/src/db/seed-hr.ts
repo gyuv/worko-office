@@ -25,8 +25,8 @@ const COST: Record<string, number> = { partner: 300_000, manager: 150_000, senio
  */
 export async function seedHr(db: DbService, tenantId: string, today: string) {
   const audit = new AuditService(); const realtime = new RealtimeService();
-  const sync = new SyncService(db, audit, realtime, SYNC_TABLES);
   const clock = new Clock(new Date(`${today}T18:00:00+05:30`));
+  const sync = new SyncService(db, audit, realtime, SYNC_TABLES, clock);
   const leave = new LeaveService(db, sync, audit, realtime, new JobQueueService(db), clock);
   const expenses = new ExpensesService(db, audit, clock);
   const invoices = new InvoicesService(db, audit, sync, realtime, clock);

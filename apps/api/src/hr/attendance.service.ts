@@ -8,7 +8,7 @@ import { DbService, type Tx } from '../db/db.service.js';
 import { uuidv7 } from '../db/ids.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { SyncService } from '../sync/sync.service.js';
-import { calendarFor, evaluateCheckIn, isoDay, loadHrSettings, personScopeSql, requireApprover, requireOwn } from './common.js';
+import { calendarFor, checkOutFields, evaluateCheckIn, isoDay, loadHrSettings, personScopeSql, requireApprover, requireOwn } from './common.js';
 
 export const presentAttendance = (r: Record<string, unknown>) => ({
   id: r.id, userId: r.user_id, userName: r.user_name ?? null, date: isoDay(r.work_date), checkInAt: r.check_in_at, checkOutAt: r.check_out_at ?? null,
@@ -36,12 +36,13 @@ export class AttendanceService {
     const id = uuidv7();
     const { c, ev } = await this.db.tenantTx(a.tenantId, async (tx) => {
       const ev = await evaluateCheckIn(tx, { lat: i.lat, lng: i.lng, deviceAt: i.deviceAt ? new Date(i.deviceAt) : null, ip, serverAt: this.clock.now(), branchId: a.branchId, method: 'online' });
+      if ('reject' in ev) throw new BadRequestException({ message: 'Check-in time rejected', code: ev.reject });
       let r;
       try {
         await tx.query('SAVEPOINT a');
-        r = await tx.query(`INSERT INTO attendance (id, tenant_id, user_id, work_date, check_in_at, device_check_in_at, in_lat, in_lng, location_id, distance_m, in_fence, ip_ok, method, flags, status, notes, updated_by, device_id)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$3,$17) RETURNING sync_cursor`,
-          [id, a.tenantId, a.userId, ev.work_date, ev.check_in_at, ev.device_check_in_at, ev.in_lat, ev.in_lng, ev.location_id, ev.distance_m, ev.in_fence, ev.ip_ok, ev.method, ev.flags, ev.status, i.notes ?? null, a.deviceId]);
+        r = await tx.query(`INSERT INTO attendance (id, tenant_id, user_id, work_date, check_in_at, received_at, device_check_in_at, in_lat, in_lng, location_id, distance_m, in_fence, ip_ok, method, flags, status, notes, updated_by, device_id)
+          VALUES ($1,$2,$3,$4,$5,$18,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$3,$17) RETURNING sync_cursor`,
+          [id, a.tenantId, a.userId, ev.work_date, ev.check_in_at, ev.device_check_in_at, ev.in_lat, ev.in_lng, ev.location_id, ev.distance_m, ev.in_fence, ev.ip_ok, ev.method, ev.flags, ev.status, i.notes ?? null, a.deviceId, ev.received_at]);
       } catch (e) {
         await tx.query('ROLLBACK TO SAVEPOINT a');
         if ((e as { code?: string }).code === '23505') throw new ConflictException({ message: 'Already checked in today', code: 'already_checked_in' });
@@ -58,11 +59,16 @@ export class AttendanceService {
   async checkOut(a: RequestActor, i: { lat?: number | null; lng?: number | null; deviceAt?: string | null }) {
     requireOwn(a, 'hr');
     const out = await this.db.tenantTx(a.tenantId, async (tx) => {
-      const r = (await tx.query(`SELECT * FROM attendance WHERE user_id = $1 AND deleted_at IS NULL AND check_out_at IS NULL ORDER BY work_date DESC LIMIT 1 FOR UPDATE`, [a.userId])).rows[0];
-      if (!r) throw new NotFoundException({ message: 'Not checked in', code: 'not_checked_in' });
+      // Only today's open row, or one checked in within the attendance cap — a forgotten check-out never closes days later (D96).
       const now = this.clock.now();
-      const minutes = Math.max(0, Math.round((now.getTime() - new Date(r.check_in_at).getTime()) / 60_000));
-      const res = await this.sync.serverPatch(tx, a, 'attendance', r.id, { check_out_at: now.toISOString(), device_check_out_at: i.deviceAt ?? null, minutes,
+      const st = await loadHrSettings(tx);
+      const r = (await tx.query(`SELECT * FROM attendance WHERE user_id = $1 AND deleted_at IS NULL AND check_out_at IS NULL
+        AND (work_date = $2::date OR check_in_at >= $3::timestamptz) ORDER BY work_date DESC LIMIT 1 FOR UPDATE`,
+        [a.userId, this.clock.todayIst(), new Date(now.getTime() - st.attendance.maxMinutes * 60_000).toISOString()])).rows[0];
+      if (!r) throw new NotFoundException({ message: 'Not checked in', code: 'not_checked_in' });
+      const f = await checkOutFields(tx, r, now, now);
+      const minutes = f.minutes;
+      const res = await this.sync.serverPatch(tx, a, 'attendance', r.id, { ...f, device_check_out_at: i.deviceAt ?? null,
         out_lat: i.lat == null ? null : roundCoord(i.lat), out_lng: i.lng == null ? null : roundCoord(i.lng) });
       await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'attendance.check_out', entity: 'attendance', entityId: r.id, diff: { minutes } });
       return { id: r.id as string, minutes, c: res?.cursor };
@@ -142,10 +148,16 @@ export class AttendanceService {
       if (i.approve) {
         const day = isoDay(r.work_date)!;
         const minutes = r.check_out_at ? Math.round((new Date(r.check_out_at).getTime() - new Date(r.check_in_at).getTime()) / 60_000) : null;
-        const ex = (await tx.query('SELECT id FROM attendance WHERE user_id = $1 AND work_date = $2::date AND deleted_at IS NULL FOR UPDATE', [r.user_id, day])).rows[0];
+        const ex = (await tx.query('SELECT id, status, decided_by, check_in_at, check_out_at FROM attendance WHERE user_id = $1 AND work_date = $2::date AND deleted_at IS NULL FOR UPDATE', [r.user_id, day])).rows[0];
         const now = this.clock.now().toISOString();
+        if (ex && (ex.decided_by || ['approved', 'rejected'].includes(ex.status))) {
+          throw new ConflictException({ message: 'That day was already decided; reject this request or revise the day explicitly', code: 'day_decided' });
+        }
         if (ex) {
           attId = ex.id;
+          // Explicitly recorded: the times this approval replaces.
+          await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'attendance.regularised', entity: 'attendance', entityId: ex.id,
+            diff: { replacedCheckInAt: ex.check_in_at, replacedCheckOutAt: ex.check_out_at, regularisationId: id } });
           cursor = (await this.sync.serverPatch(tx, a, 'attendance', ex.id, { check_in_at: r.check_in_at, check_out_at: r.check_out_at, minutes, method: 'regularised', status: 'approved', decided_by: a.userId, decided_at: now }))?.cursor;
         } else {
           attId = uuidv7();
@@ -195,6 +207,6 @@ export class AttendanceService {
 
   /** Used by leave/comp-off: attendance minutes of a user on a day. */
   static async minutesOn(tx: Tx, userId: string, day: string) {
-    return Number((await tx.query(`SELECT COALESCE(sum(minutes),0) AS m FROM attendance WHERE user_id = $1 AND work_date = $2::date AND deleted_at IS NULL AND status <> 'rejected'`, [userId, day])).rows[0].m);
+    return Number((await tx.query(`SELECT COALESCE(sum(minutes),0) AS m FROM attendance WHERE user_id = $1 AND work_date = $2::date AND deleted_at IS NULL AND status IN ('ok','approved')`, [userId, day])).rows[0].m);
   }
 }

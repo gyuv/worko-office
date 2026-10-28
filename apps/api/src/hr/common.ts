@@ -97,17 +97,43 @@ export async function evaluateCheckIn(tx: Tx, i: CheckInInput) {
   const flags = [...d.flags];
   let status: string = d.status;
   const skew = skewMinutes(i.deviceAt, i.serverAt);
-  if (skew > s.attendance.skewFlagMinutes) {
-    flags.push('clock_skew');
-    if (status === 'ok') status = s.attendance.outside === 'approval' ? 'needs_approval' : 'flagged';
+  const tol = s.attendance.skewFlagMinutes;
+  // Offline (sync) check-ins happen before the push: the device time decides day and time, within bounds (D95).
+  const offline = i.method === 'offline' && !!i.deviceAt;
+  if (offline) {
+    if (i.deviceAt!.getTime() > i.serverAt.getTime() + tol * 60_000) return { reject: 'future_time' as const };
+    if (istDate(i.deviceAt!) < istDate(new Date(i.serverAt.getTime() - s.attendance.offlineMaxDays * 86_400_000))) return { reject: 'too_old' as const };
   }
-  // The attendance day is the device-claimed IST date when the clocks agree, else the server's.
-  const day = istDate(skew > s.attendance.skewFlagMinutes || !i.deviceAt ? i.serverAt : i.deviceAt);
+  if (skew > tol) {
+    flags.push('clock_skew');
+    // Online, a wrong device clock is suspicious; offline, a late push is expected (flag only).
+    if (!offline && status === 'ok') status = s.attendance.outside === 'approval' ? 'needs_approval' : 'flagged';
+  }
+  const at = offline ? i.deviceAt! : i.serverAt;
   return {
-    work_date: day, check_in_at: i.serverAt.toISOString(), device_check_in_at: i.deviceAt ? i.deviceAt.toISOString() : null,
+    work_date: istDate(at), check_in_at: at.toISOString(), received_at: i.serverAt.toISOString(), device_check_in_at: i.deviceAt ? i.deviceAt.toISOString() : null,
     in_lat: hasPoint ? roundCoord(i.lat!) : null, in_lng: hasPoint ? roundCoord(i.lng!) : null,
     location_id: near?.id ?? null, distance_m: near?.distanceM ?? null, in_fence: inFence, ip_ok: ipOk, method: i.method, flags, status,
   };
+}
+
+/** Sync check-out rule: the device time may not be in the future (beyond the skew tolerance) nor before check-in. */
+export async function checkOutError(tx: Tx, cur: Record<string, unknown>, deviceOut: Date, now: Date): Promise<string | null> {
+  const s = await loadHrSettings(tx);
+  if (Number.isNaN(deviceOut.getTime())) return 'invalid:device_check_out_at';
+  if (deviceOut.getTime() > now.getTime() + s.attendance.skewFlagMinutes * 60_000) return 'future_time';
+  if (deviceOut.getTime() < new Date(cur.check_in_at as string).getTime()) return 'invalid:device_check_out_at';
+  return null;
+}
+/** Check-out columns: time (≤ now), minutes capped at `attendance.maxMinutes` with a `minutes_capped` flag (D96). */
+export async function checkOutFields(tx: Tx, cur: Record<string, unknown>, outAt: Date, now: Date) {
+  const s = await loadHrSettings(tx);
+  const out = outAt.getTime() > now.getTime() ? now : outAt;
+  const raw = Math.max(0, Math.round((out.getTime() - new Date(cur.check_in_at as string).getTime()) / 60_000));
+  const capped = raw > s.attendance.maxMinutes;
+  const flags = [...((cur.flags as string[]) ?? [])];
+  if (capped && !flags.includes('minutes_capped')) flags.push('minutes_capped');
+  return { check_out_at: out.toISOString(), minutes: capped ? s.attendance.maxMinutes : raw, flags };
 }
 
 export const isoDay = (v: unknown): string | null => (v instanceof Date

@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
-import { accrualFor, addDaysIso, availableBalance, carryForwardLapse, compOffDays, eachDay, fyStartYear, isWorkingDay, istDate, leaveDays, type Accrual } from '@worko/domain';
+import { accrualFor, addDaysIso, availableBalance, consumeCredits, carryForwardLapse, compOffDays, eachDay, fyStartYear, isWorkingDay, istDate, leaveDays, type Accrual } from '@worko/domain';
 import { AuditService } from '../audit/audit.service.js';
 import type { RequestActor } from '../auth/context.js';
 import { Params } from '../clients/scope.js';
@@ -34,7 +34,8 @@ export class LeaveService implements OnModuleInit {
   onModuleInit() {
     this.jobs.register(COMPOFF_JOB, async (job, at) => {
       const day = addDaysIso(istDate(at), -1);
-      const r = await this.runCompOff(systemActor(job.tenant_id), day, day);
+      const back = await this.db.tenantTx(job.tenant_id, async (tx) => (await loadHrSettings(tx)).compOff.lookbackDays);
+      const r = await this.runCompOff(systemActor(job.tenant_id), addDaysIso(day, -back), day);
       if (r.granted) this.log.log(`Tenant ${job.tenant_id}: ${r.granted} comp-off credits for ${day}`);
       throw new Reschedule(new Date(`${addDaysIso(istDate(at), 1)}T01:00:00+05:30`));
     });
@@ -46,10 +47,10 @@ export class LeaveService implements OnModuleInit {
 
   private pub(tenantId: string, c: number | undefined) { if (c) this.realtime.publish({ type: 'changed', tenantId, cursor: c }); }
 
-  private async credit(tx: Tx, a: RequestActor, row: { userId: string; typeId: string; delta: number; reason: string; refKey?: string | null; requestId?: string | null; on: string; expiresOn?: string | null; note?: string | null }) {
-    const r = await tx.query(`INSERT INTO leave_ledger (id, tenant_id, user_id, leave_type_id, delta, reason, ref_key, request_id, on_date, expires_on, note, created_by, updated_by)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12) ON CONFLICT (tenant_id, user_id, leave_type_id, ref_key) WHERE ref_key IS NOT NULL DO NOTHING RETURNING sync_cursor`,
-      [uuidv7(), a.tenantId, row.userId, row.typeId, row.delta, row.reason, row.refKey ?? null, row.requestId ?? null, row.on, row.expiresOn ?? null, row.note ?? null, a.userId]);
+  private async credit(tx: Tx, a: RequestActor, row: { userId: string; typeId: string; delta: number; reason: string; refKey?: string | null; requestId?: string | null; on: string; expiresOn?: string | null; note?: string | null; consumed?: unknown }) {
+    const r = await tx.query(`INSERT INTO leave_ledger (id, tenant_id, user_id, leave_type_id, delta, reason, ref_key, request_id, on_date, expires_on, note, created_by, updated_by, consumed)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12,$13) ON CONFLICT (tenant_id, user_id, leave_type_id, ref_key) WHERE ref_key IS NOT NULL DO NOTHING RETURNING sync_cursor`,
+      [uuidv7(), a.tenantId, row.userId, row.typeId, row.delta, row.reason, row.refKey ?? null, row.requestId ?? null, row.on, row.expiresOn ?? null, row.note ?? null, a.userId, row.consumed ? JSON.stringify(row.consumed) : null]);
     return r.rowCount ? Number(r.rows[0].sync_cursor) : 0;
   }
   private async entries(tx: Tx, userId: string, typeId: string): Promise<Ledger[]> {
@@ -216,7 +217,9 @@ export class LeaveService implements OnModuleInit {
       if (t.tracked) {
         const avail = availableBalance(await this.entries(tx, r.user_id, t.id), af) - (await this.pending(tx, r.user_id, t.id, id));
         if (days > avail) throw new ConflictException({ message: `Only ${avail} day(s) available`, code: 'insufficient_balance' });
-        c = Math.max(c, await this.credit(tx, a, { userId: r.user_id, typeId: t.id, delta: -days, reason: 'leave', refKey: `leave:${id}`, requestId: id, on: af }));
+        // Record which credits (and their expiry) this debit consumes, so a cancellation can restore them (D97).
+        const consumed = consumeCredits(await this.entries(tx, r.user_id, t.id), days, af);
+        c = Math.max(c, await this.credit(tx, a, { userId: r.user_id, typeId: t.id, delta: -days, reason: 'leave', refKey: `leave:${id}`, requestId: id, on: af, consumed }));
       }
       const status = days < Number(r.days) ? 'partially_approved' : 'approved';
       c = Math.max(c, (await this.sync.serverPatch(tx, a, 'leave_request', id, { status, approved_from: af, approved_to: at, approved_start_half: sh, approved_end_half: eh, approved_days: days,
@@ -238,7 +241,14 @@ export class LeaveService implements OnModuleInit {
       if (r.status === 'pending' || (['approved', 'partially_approved'].includes(r.status) && !started)) {
         if (r.status !== 'pending') {
           const t = (await tx.query('SELECT tracked FROM leave_type WHERE id = $1', [r.leave_type_id])).rows[0];
-          if (t.tracked) c = await this.credit(tx, a, { userId: a.userId, typeId: r.leave_type_id, delta: Number(r.approved_days), reason: 'cancel', refKey: `cancel:${id}`, requestId: id, on: this.clock.todayIst() });
+          if (t.tracked) {
+            const deb = (await tx.query(`SELECT consumed FROM leave_ledger WHERE user_id = $1 AND leave_type_id = $2 AND ref_key = $3`, [a.userId, r.leave_type_id, `leave:${id}`])).rows[0];
+            const parts = (deb?.consumed as Array<{ days: number; expiresOn: string | null }> | null) ?? [{ days: Number(r.approved_days), expiresOn: null }];
+            for (const [k, part] of parts.entries()) {
+              c = Math.max(c, await this.credit(tx, a, { userId: a.userId, typeId: r.leave_type_id, delta: part.days, reason: 'cancel', refKey: `cancel:${id}:${k}`, requestId: id,
+                on: this.clock.todayIst(), expiresOn: part.expiresOn }));
+            }
+          }
         }
         c = Math.max(c, (await this.sync.serverPatch(tx, a, 'leave_request', id, { status: 'cancelled', cancelled_at: this.clock.now().toISOString() }))?.cursor ?? 0);
         await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'leave_request.cancelled', entity: 'leave_request', entityId: id, diff: { from: r.status } });
@@ -271,10 +281,16 @@ export class LeaveService implements OnModuleInit {
           const tm = Number(time.find((x) => x.user_id === u.id && x.d === d)?.m ?? 0);
           const am = await AttendanceService.minutesOn(tx, u.id, d);
           const earn = compOffDays(Math.max(tm, am), s.compOff);
-          if (!earn) continue;
-          const k = await this.credit(tx, a, { userId: u.id, typeId: type.id, delta: earn, reason: 'comp_off', refKey: `compoff:${d}`, on: d, expiresOn: addDaysIso(d, s.compOff.expiryDays),
-            note: `Worked ${Math.max(tm, am)} min on a non-working day` });
-          if (k) { granted += 1; days += earn; c = Math.max(c, k); }
+          // Reconcile to what the day earns now: credit on first earning, then ± adjustments when time is reversed, the
+          // attendance rejected or more work approved. Each adjustment has its own ref_key (day + sequence) → idempotent.
+          const prev = (await tx.query(`SELECT COALESCE(sum(delta),0) AS s, count(*) AS n FROM leave_ledger WHERE user_id = $1 AND leave_type_id = $2 AND (ref_key = $3 OR ref_key LIKE $3 || ':%')`,
+            [u.id, type.id, `compoff:${d}`])).rows[0];
+          const delta = Math.round((earn - Number(prev.s)) * 2) / 2;
+          if (!delta) continue;
+          const first = Number(prev.n) === 0;
+          const k = await this.credit(tx, a, { userId: u.id, typeId: type.id, delta, reason: first ? 'comp_off' : 'adjustment', refKey: first ? `compoff:${d}` : `compoff:${d}:${Number(prev.n)}`, on: d,
+            expiresOn: delta > 0 ? addDaysIso(d, s.compOff.expiryDays) : null, note: `Worked ${Math.max(tm, am)} min on a non-working day` });
+          if (k) { granted += 1; days += delta; c = Math.max(c, k); }
         }
       }
       if (granted) await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'leave.comp_off_granted', entity: 'leave_type', entityId: type.id, diff: { from, to, granted, days } });
