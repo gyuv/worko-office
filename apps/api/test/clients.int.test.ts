@@ -216,7 +216,9 @@ describe('documents', () => {
     expect(Buffer.compare(dl.body, pdf)).toBe(0);
     expect(dl.headers['content-disposition']).toMatch(/^attachment/);
     expect(dl.headers['content-security-policy']).toContain('sandbox');
-    await t.http().get(url.replace(/.$/, (ch: string) => (ch === 'A' ? 'B' : 'A'))).expect(404); // tampered signature
+    // Tamper inside the signature: the last base64url char carries padding bits, so flipping it may decode identically.
+    const at = url.lastIndexOf('.') + 5;
+    await t.http().get(url.slice(0, at) + (url[at] === 'A' ? 'B' : 'A') + url.slice(at + 1)).expect(404); // tampered signature
     const tree = (await t.http().get(`/v1/clients/${c.id}/document-tree`).set(H(p))).body;
     expect(tree).toEqual([{ fy: '2025-26', category: 'ITR', count: 1 }]);
     expect((await t.http().get('/v1/documents?q=itr').set(H(p))).body.total).toBe(1);
