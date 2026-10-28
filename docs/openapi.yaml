@@ -1019,6 +1019,8 @@ paths:
   /calendar/events/{id}:
     patch: { tags: [calendar], operationId: updateCalendarEvent, parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object } } } }, responses: { '204': { description: Saved } } }
     delete: { tags: [calendar], operationId: deleteCalendarEvent, parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '204': { description: Deleted } } }
+  /calendar/events/{id}/respond:
+    post: { tags: [calendar], operationId: respondCalendarInvite, description: Attendee accepts (busy + in ICS) or declines (removed)., parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [accept], properties: { accept: { type: boolean } } } } } }, responses: { '204': { description: Recorded }, '404': { $ref: '#/components/responses/Error' } } }
   /calendar/feeds:
     get: { tags: [calendar], operationId: listIcsFeeds, responses: { '200': { description: Feeds (no tokens), content: { application/json: { schema: { type: array, items: { type: object } } } } } } }
     post: { tags: [calendar], operationId: createIcsFeed, description: The feed URL (with its token) is returned once; only a hash is stored., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { maskClients: { type: boolean }, label: { type: [string, 'null'] } } } } } }, responses: { '201': { description: Feed, content: { application/json: { schema: { type: object, properties: { id: { type: string }, url: { type: string }, maskClients: { type: boolean } } } } } } } }
@@ -1031,6 +1033,8 @@ paths:
     post: { tags: [calendar], operationId: createBookingPage, description: Hosts other than yourself need firm-wide communication:edit., requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/BookingPageIn' } } } }, responses: { '201': { description: Page, content: { application/json: { schema: { type: object } } } } } }
   /booking/pages/{id}:
     patch: { tags: [calendar], operationId: updateBookingPage, parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object } } } }, responses: { '200': { description: Page, content: { application/json: { schema: { type: object } } } } } }
+  /booking/appointments/{id}/link-client:
+    post: { tags: [calendar], operationId: linkAppointmentClient, description: 'Staff confirm the booking''s client (suggested or chosen); the client must be visible for communication:edit.', parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [clientId], properties: { clientId: { type: string } } } } } }, responses: { '204': { description: Linked }, '404': { $ref: '#/components/responses/Error' } } }
   /booking/appointments:
     get: { tags: [calendar], operationId: listAppointments, parameters: [{ name: from, in: query, schema: { type: string, format: date } }, { name: to, in: query, schema: { type: string, format: date } }], responses: { '200': { description: Appointments, content: { application/json: { schema: { type: array, items: { type: object } } } } } } }
   /book/manage/{token}:
@@ -1076,7 +1080,7 @@ components:
       properties: { id: { type: string }, channelId: { type: string }, authorId: { type: string }, body: { type: string }, mentions: { type: array, items: { type: string } }, attachmentDocIds: { type: array, items: { type: string } }, editedAt: { type: [string, 'null'] }, createdAt: { type: string }, deleted: { type: boolean }, version: { type: integer } }
     CalendarItem:
       type: object
-      properties: { source: { type: string, enum: [event, task, leave, holiday] }, id: { type: string }, kind: { type: string }, title: { type: string }, startsAt: { type: string }, endsAt: { type: string }, allDay: { type: boolean }, clientId: { type: [string, 'null'] }, clientName: { type: [string, 'null'] }, editable: { type: boolean } }
+      properties: { invited: { type: boolean }, source: { type: string, enum: [event, task, leave, holiday] }, id: { type: string }, kind: { type: string }, title: { type: string }, startsAt: { type: string }, endsAt: { type: string }, allDay: { type: boolean }, clientId: { type: [string, 'null'] }, clientName: { type: [string, 'null'] }, editable: { type: boolean } }
     CalendarEventIn:
       type: object
       required: [title, startsAt, endsAt]

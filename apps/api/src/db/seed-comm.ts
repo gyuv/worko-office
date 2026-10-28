@@ -113,7 +113,7 @@ export async function seedComm(db: DbService, tenantId: string, today: string) {
       [users.manager, `Review: ${c0.name}`, nextWeekday(today, 2), '15:00', '16:00', c0.id, [users.senior]],
       [users.senior, 'ICAI CPE seminar', nextWeekday(today, 3), '14:00', '17:00', null, []],
     ] as Array<[string, string, string, string, string, string | null, string[]]>) {
-      await tx.query(`INSERT INTO calendar_event (id, tenant_id, owner_id, kind, title, starts_at, ends_at, client_id, attendee_ids, created_by, device_id) VALUES ($1,$2,$3,'meeting',$4,$5,$6,$7,$8,$3,'seed')`,
+      await tx.query(`INSERT INTO calendar_event (id, tenant_id, owner_id, kind, title, starts_at, ends_at, client_id, attendee_ids, accepted_ids, created_by, device_id) VALUES ($1,$2,$3,'meeting',$4,$5,$6,$7,$8,$8,$3,'seed')`,
         [uuidv7(), tenantId, owner, title, at(d, s), at(d, e), client, attendees]);
     }
 

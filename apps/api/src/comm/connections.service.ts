@@ -46,14 +46,17 @@ export class ConnectionsService {
     this.staff(a);
     const p = this.provider(b.provider);
     const id = uuidv7(); const state = `${a.tenantId}.${id}.${randomBytes(24).toString('base64url')}`;
+    // Browser binding (D103): an httpOnly cookie set on this response must come back with the callback, so a state
+    // link handed to someone else (login CSRF / account mix-up) cannot complete the flow in another browser.
+    const binding = randomBytes(24).toString('base64url');
     await this.db.tenantTx(a.tenantId, async (tx) => {
-      await tx.query(`INSERT INTO oauth_connection (id, tenant_id, user_id, provider, purpose, state_hash, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [id, a.tenantId, a.userId, b.provider, b.purpose, sha(state), this.clock.now()]);
+      await tx.query(`INSERT INTO oauth_connection (id, tenant_id, user_id, provider, purpose, state_hash, binding_hash, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [id, a.tenantId, a.userId, b.provider, b.purpose, sha(state), sha(binding), this.clock.now()]);
       await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'oauth.started', entity: 'oauth_connection', entityId: id, diff: { provider: b.provider, purpose: b.purpose } });
     });
-    return { id, authUrl: p.authUrl(state, this.redirect(), b.purpose) };
+    return { id, authUrl: p.authUrl(state, this.redirect(), b.purpose), binding };
   }
   /** Public redirect target: verifies the state (hash, age, single use), exchanges the code, stores tokens encrypted. */
-  async callback(q: { state?: string; code?: string; error?: string }) {
+  async callback(q: { state?: string; code?: string; error?: string }, binding: string | null) {
     const [tenantId, id, nonce] = (q.state ?? '').split('.');
     if (!tenantId || !id || !nonce || !isUuid(tenantId) || !isUuid(id)) throw new NotFoundException();
     if (!(await this.db.systemTx((tx) => tx.query('SELECT 1 FROM tenant WHERE id = $1', [tenantId]))).rowCount) throw new NotFoundException();
@@ -62,6 +65,8 @@ export class ConnectionsService {
       const c = (await tx.query(`SELECT * FROM oauth_connection WHERE id = $1 AND status = 'pending' FOR UPDATE`, [id])).rows[0];
       const want = Buffer.from(c?.state_hash ?? ''); const got = Buffer.from(sha(q.state!));
       if (!c || want.length !== got.length || !timingSafeEqual(want, got)) return null;
+      const bw = Buffer.from(c.binding_hash ?? ''); const bg = Buffer.from(binding ? sha(binding) : '');
+      if (!binding || bw.length !== bg.length || !timingSafeEqual(bw, bg)) return null; // other browser: refuse, state stays unused
       // Single use: the state is burnt before the (slow, external) exchange.
       await tx.query(`UPDATE oauth_connection SET state_hash = NULL, updated_at = $2 WHERE id = $1`, [id, now]);
       if (now.getTime() - new Date(c.created_at).getTime() > STATE_TTL_MS || q.error || !q.code) {
@@ -88,6 +93,12 @@ export class ConnectionsService {
   }
   async revoke(a: RequestActor, id: string) {
     await this.db.tenantTx(a.tenantId, async (tx) => {
+      const c = (await tx.query(`SELECT * FROM oauth_connection WHERE id = $1 AND user_id = $2 AND status <> 'revoked' FOR UPDATE`, [id, a.userId])).rows[0];
+      if (!c) throw new NotFoundException();
+      // Revoke at the provider too (best effort: a provider outage must not keep the tokens in our database).
+      if (c.access_token_enc) {
+        try { await this.provider(c.provider).revoke(await this.accessToken(tx, a.tenantId, c)); } catch { /* recorded below */ }
+      }
       const r = await tx.query(`UPDATE oauth_connection SET status = 'revoked', access_token_enc = NULL, refresh_token_enc = NULL, state_hash = NULL, updated_at = $3 WHERE id = $1 AND user_id = $2 AND status <> 'revoked'`, [id, a.userId, this.clock.now()]);
       if (!r.rowCount) throw new NotFoundException();
       await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'oauth.revoked', entity: 'oauth_connection', entityId: id });
@@ -123,7 +134,8 @@ export class ConnectionsService {
         const counterpart = out ? normalizeEmail(m.to.replace(/^.*<([^>]+)>.*$/, '$1')) : from;
         const match = counterpart ? await matchAddress(tx, 'email', counterpart) : { clientId: null, contactId: null, ambiguous: false };
         const r = await tx.query(`INSERT INTO comm_message (id, tenant_id, client_id, contact_id, direction, channel, address, subject, body, status, provider, provider_ref, triage, occurred_at, created_by, device_id)
-          VALUES ($1,$2,$3,$4,$5,'email',$6,$7,$8,$9,$10,$11,$12,$13,$14,'server') ON CONFLICT (tenant_id, provider, provider_ref) WHERE provider_ref IS NOT NULL AND direction = 'in' DO NOTHING RETURNING id`,
+          VALUES ($1,$2,$3,$4,$5,'email',$6,$7,$8,$9,$10,$11,$12,$13,$14,'server')
+          ON CONFLICT (tenant_id, provider, provider_ref) WHERE provider_ref IS NOT NULL AND channel = 'email' AND provider LIKE '%:mail:%' DO NOTHING RETURNING id`,
           [uuidv7(), a.tenantId, match.clientId, match.contactId, out ? 'out' : 'in', counterpart, m.subject.slice(0, 500), m.text.slice(0, 20_000), out ? 'sent' : 'received',
             `${c.provider}:mail:${c.id}`, m.id, match.clientId || out ? null : match.ambiguous ? 'ambiguous' : 'unmatched', m.at, a.userId]);
         if (!r.rowCount) { dup++; continue; }

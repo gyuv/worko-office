@@ -1,13 +1,13 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import {
-  availableSlots, buildIcs, effectiveScope, normalizeEmail, normalizePhone, renderTemplate, type IcsEvent, type Interval, type WorkingHours,
+  availableSlots, buildIcs, can, clientCtx, effectiveScope, normalizeEmail, normalizePhone, renderTemplate, type IcsEvent, type Interval, type WorkingHours,
 } from '@worko/domain';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { AuditService } from '../audit/audit.service.js';
 import type { RequestActor } from '../auth/context.js';
 import { loadTeamIds, loadUserRoles } from '../auth/roles.repo.js';
 import { publicBase } from '../billing/providers.js';
-import { Params } from '../clients/scope.js';
+import { Params, visibilityOf } from '../clients/scope.js';
 import { Clock } from '../common/clock.js';
 import { DbService, type Tx } from '../db/db.service.js';
 import { uuidv7 } from '../db/ids.js';
@@ -18,7 +18,7 @@ import { SyncService } from '../sync/sync.service.js';
 import { systemActor } from '../tasks/system-actor.js';
 import { taskScopeSql } from '../tasks/scope.js';
 import { CommService } from './comm.service.js';
-import { firmName, istDay, loadCommSettings, matchAddress } from './common.js';
+import { firmName, istDay, loadCommSettings, matchAddress, visibleClient } from './common.js';
 import { calendarScopeSql } from './sync-rules.js';
 
 export const REMINDER_JOB = 'comm.appt_reminder';
@@ -49,7 +49,7 @@ const nonceEq = (a: string, b: string) => { const x = Buffer.from(a); const y = 
 type PageIn = { slug: string; title: string; description?: string | null; hostUserIds?: string[]; slotMinutes?: number; bufferMinutes?: number; workingHours: WorkingHours;
   horizonDays?: number; minNoticeMinutes?: number; createTask?: boolean; active?: boolean };
 type BookIn = { startsAt: string; name: string; email?: string | null; phone?: string | null; purpose: string; consent?: boolean };
-type CalItem = { source: 'event' | 'task' | 'leave' | 'holiday'; id: string; kind: string; title: string; startsAt: Date; endsAt: Date; allDay: boolean; clientId: string | null; clientName: string | null; editable: boolean };
+type CalItem = { invited?: boolean; source: 'event' | 'task' | 'leave' | 'holiday'; id: string; kind: string; title: string; startsAt: Date; endsAt: Date; allDay: boolean; clientId: string | null; clientName: string | null; editable: boolean };
 
 @Injectable()
 export class CalendarService implements OnModuleInit {
@@ -67,7 +67,7 @@ export class CalendarService implements OnModuleInit {
     const p = new Params([s, e]);
     const ev = (await tx.query(`SELECT x.*, c.name AS client_name FROM calendar_event x LEFT JOIN client c ON c.id = x.client_id
       WHERE x.deleted_at IS NULL AND x.starts_at < $2 AND x.ends_at >= $1 AND ${calendarScopeSql(a, p)} ORDER BY x.starts_at`, p.values)).rows;
-    const out: CalItem[] = ev.map((r) => ({ source: 'event', id: r.id, kind: r.kind, title: r.title, startsAt: r.starts_at, endsAt: r.ends_at, allDay: r.all_day, clientId: r.client_id,
+    const out: CalItem[] = ev.map((r) => ({ source: 'event', id: r.id, kind: r.kind, invited: r.owner_id !== a.userId && !(r.accepted_ids as string[]).includes(a.userId), title: r.title, startsAt: r.starts_at, endsAt: r.ends_at, allDay: r.all_day, clientId: r.client_id,
       clientName: r.client_name, editable: r.owner_id === a.userId && ['meeting', 'personal'].includes(r.kind) }));
     const tp = new Params([from, to, a.userId]);
     const tasks = (await tx.query(`SELECT t.id, t.title, COALESCE(t.act_by, t.statutory_due) AS d, t.client_id, c.name AS client_name FROM task t LEFT JOIN client c ON c.id = t.client_id
@@ -143,7 +143,7 @@ export class CalendarService implements OnModuleInit {
       await tx.query('UPDATE ics_feed SET last_used_at = $2 WHERE id = $1', [f.id, now]);
       const actor: RequestActor = { userId: f.user_id, tenantId, sessionId: '', deviceId: 'ics', branchId: f.branch_id, teamIds: await loadTeamIds(tx, f.user_id), roles: await loadUserRoles(tx, f.user_id) };
       const today = istDay(now);
-      const items = await this.items(tx, actor, dayAdd(today, -30), dayAdd(today, 180));
+      const items = (await this.items(tx, actor, dayAdd(today, -30), dayAdd(today, 180))).filter((i) => !i.invited); // unaccepted invitations stay out of feeds
       const evs: IcsEvent[] = items.map((i) => {
         let title = i.title;
         if (i.clientName) {
@@ -191,7 +191,7 @@ export class CalendarService implements OnModuleInit {
   appointments(a: RequestActor, q: { from?: string; to?: string }) {
     this.staff(a);
     return this.db.tenantTx(a.tenantId, async (tx) => (await tx.query(`SELECT ap.id, ap.page_id AS "pageId", ap.host_user_id AS "hostUserId", ap.starts_at AS "startsAt", ap.ends_at AS "endsAt", ap.status,
-        ap.client_id AS "clientId", ap.name, ap.email, ap.phone, ap.purpose, ap.task_id AS "taskId", ap.event_id AS "eventId", ap.reschedules
+        ap.client_id AS "clientId", ap.suggested_client_id AS "suggestedClientId", ap.name, ap.email, ap.phone, ap.purpose, ap.task_id AS "taskId", ap.event_id AS "eventId", ap.reschedules
       FROM appointment ap WHERE ($1 OR ap.host_user_id = $2) AND ($3::date IS NULL OR ap.starts_at >= $3::date - interval '5 hours 30 minutes') AND ($4::date IS NULL OR ap.starts_at < $4::date + interval '18 hours 30 minutes')
       ORDER BY ap.starts_at LIMIT 500`, [!!a.superAdmin || effectiveScope(a, 'communication', 'view')?.scope === 'all', a.userId, q.from ?? null, q.to ?? null])).rows);
   }
@@ -200,7 +200,7 @@ export class CalendarService implements OnModuleInit {
   private async hostSlots(tx: Tx, page: Record<string, unknown>, host: string, from: string, to: string, now: Date, excludeAppt?: string): Promise<Date[]> {
     const s = istStart(from); const e = istStart(dayAdd(to, 1));
     const busy: Interval[] = [
-      ...(await tx.query(`SELECT starts_at, ends_at FROM calendar_event WHERE deleted_at IS NULL AND busy AND (owner_id = $1 OR $1 = ANY(attendee_ids)) AND starts_at < $3 AND ends_at > $2
+      ...(await tx.query(`SELECT starts_at, ends_at FROM calendar_event WHERE deleted_at IS NULL AND busy AND (owner_id = $1 OR $1 = ANY(accepted_ids)) AND starts_at < $3 AND ends_at > $2
           AND ($4::uuid IS NULL OR appointment_id IS DISTINCT FROM $4)`, [host, s, e, excludeAppt ?? null])).rows,
       ...(await tx.query(`SELECT starts_at, ends_at FROM appointment WHERE host_user_id = $1 AND status = 'booked' AND starts_at < $3 AND ends_at > $2 AND ($4::uuid IS NULL OR id <> $4)`, [host, s, e, excludeAppt ?? null])).rows,
     ].map((r) => ({ start: r.starts_at, end: r.ends_at }));
@@ -250,21 +250,25 @@ export class CalendarService implements OnModuleInit {
       const day = istDay(start);
       if (day > dayAdd(istDay(now), page.horizon_days)) throw new ConflictException({ message: 'Slot not available', code: 'slot_unavailable' });
       let host: string | null = null;
+      // Lock every host in a fixed (sorted) order first — no lock-order deadlocks between bookings (D108).
+      for (const h of [...(page.host_user_ids as string[])].sort()) await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`appt:${tenantId}:${h}`]);
       for (const h of page.host_user_ids as string[]) {
-        await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`appt:${tenantId}:${h}`]);
         if ((await this.hostSlots(tx, page, h, day, day, now)).some((d) => d.getTime() === start.getTime())) { host = h; break; }
       }
       if (!host) throw new ConflictException({ message: 'Slot not available', code: 'slot_unavailable' });
       const end = new Date(start.getTime() + page.slot_minutes * 60_000);
-      const match = email ? await matchAddress(tx, 'email', email) : { clientId: null, contactId: null };
+      // Unverified contact details never link a client: at most a suggestion staff confirm, and only one the host can see (D108).
+      const match = email ? await matchAddress(tx, 'email', email) : { clientId: null };
       const m2 = !match.clientId && phone ? await matchAddress(tx, 'whatsapp', phone) : match;
-      const clientId = m2.clientId;
+      const suggested = m2.clientId && (await this.hostCanSee(tx, tenantId, host, m2.clientId)) ? m2.clientId : null;
+      const clientId: string | null = null;
       const id = uuidv7(); const eventId = uuidv7(); const nonce = randomBytes(12).toString('base64url');
       await tx.query(`INSERT INTO calendar_event (id, tenant_id, owner_id, kind, title, description, starts_at, ends_at, client_id, appointment_id, created_by, device_id)
         VALUES ($1,$2,$3,'appointment',$4,$5,$6,$7,$8,$9,NULL,'server')`, [eventId, tenantId, host, `Appointment: ${b.name.slice(0, 100)}`, b.purpose.slice(0, 1000), start, end, clientId, id]);
       try {
         await tx.query(`INSERT INTO appointment (id, tenant_id, page_id, host_user_id, starts_at, ends_at, client_id, name, email, phone, purpose, event_id, manage_nonce, device_id)
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'server')`, [id, tenantId, page.id, host, start, end, clientId, b.name, email, phone, b.purpose, eventId, nonce]);
+        if (suggested) await tx.query('UPDATE appointment SET suggested_client_id = $2 WHERE id = $1', [id, suggested]);
       } catch (e) {
         if ((e as { code?: string }).code === '23P01') throw new ConflictException({ message: 'Slot not available', code: 'slot_unavailable' });
         throw e;
@@ -276,13 +280,18 @@ export class CalendarService implements OnModuleInit {
           [taskId, tenantId, clientId, `Appointment: ${b.purpose.slice(0, 200)}`, `Booked via ${page.title}`, day, host]);
         await tx.query('UPDATE appointment SET task_id = $2 WHERE id = $1', [id, taskId]);
       }
+      // A public form proves nothing about who typed the number: consent is recorded as pending verification and never
+      // overrides an existing record (an opt-out stays an opt-out) — D110.
       if (b.consent) {
-        for (const [ch, addr] of [['email', email], ['whatsapp', phone], ['sms', phone]] as const) if (addr) await this.comm.upsertConsent(tx, tenantId, { channel: ch, address: addr, clientId, contactId: null, status: 'opted_in', source: 'booking', by: null, at: now });
+        for (const [ch, addr] of [['email', email], ['whatsapp', phone], ['sms', phone]] as const) {
+          if (addr) await tx.query(`INSERT INTO comm_consent (id, tenant_id, channel, address, status, opted_in_source, note, updated_at) VALUES ($1,$2,$3,$4,'pending_verification','booking:unverified','Ticked on a public booking form',$5)
+            ON CONFLICT (tenant_id, channel, address) DO NOTHING`, [uuidv7(), tenantId, ch, addr, now]);
+        }
       }
       await this.scheduleReminders(tx, tenantId, id, start, now);
       const n = await insertNotifications(tx, tenantId, { userIds: [host], category: 'appointment.booked', title: `New appointment ${fmtIst(start)}`, body: b.purpose.slice(0, 140), entityType: 'appointment', entityId: id, dedupeKey: `appt:${id}:${nonce}` });
       // No names/phones/emails in the audit diff (D108).
-      await this.audit.record(tx, tenantId, { actorId: null, deviceId: 'public', action: 'appointment.booked', entity: 'appointment', entityId: id, diff: { pageId: page.id, host, startsAt: start, clientMatched: !!clientId, taskId, consent: !!b.consent } });
+      await this.audit.record(tx, tenantId, { actorId: null, deviceId: 'public', action: 'appointment.booked', entity: 'appointment', entityId: id, diff: { pageId: page.id, host, startsAt: start, clientSuggested: !!suggested, taskId, consent: !!b.consent } });
       const cursor = Math.max(n.cursor, Number((await tx.query('SELECT sync_cursor FROM calendar_event WHERE id = $1', [eventId])).rows[0].sync_cursor));
       return { id, host, start, end, nonce, cursor };
     });
@@ -290,6 +299,41 @@ export class CalendarService implements OnModuleInit {
     const token = signAppointmentLink(tenantId, r.id, r.nonce);
     await this.notifyBooker(tenantId, r.id, 'confirmation', token);
     return { id: r.id, startsAt: r.start, endsAt: r.end, manageToken: token, manageUrl: `${publicBase()}/book/manage/${token}` };
+  }
+
+  private async hostCanSee(tx: Tx, tenantId: string, host: string, clientId: string) {
+    const c = (await tx.query('SELECT * FROM client WHERE id = $1 AND deleted_at IS NULL', [clientId])).rows[0];
+    const u = (await tx.query('SELECT branch_id FROM app_user WHERE id = $1', [host])).rows[0];
+    if (!c) return false;
+    const actor = { userId: host, tenantId, branchId: u?.branch_id ?? null, teamIds: await loadTeamIds(tx, host), roles: await loadUserRoles(tx, host) };
+    return can(actor, 'clients', 'view', clientCtx(visibilityOf(c)));
+  }
+  /** Staff confirm a booking's client (suggested or chosen); needs the client visible for communication:edit. */
+  async linkClient(a: RequestActor, id: string, clientId: string) {
+    const r = await this.db.tenantTx(a.tenantId, async (tx) => {
+      const ap = (await tx.query('SELECT * FROM appointment WHERE id = $1 FOR UPDATE', [id])).rows[0];
+      if (!ap || (ap.host_user_id !== a.userId && !a.superAdmin && effectiveScope(a, 'communication', 'view')?.scope !== 'all')) throw new NotFoundException();
+      await visibleClient(tx, a, clientId, 'edit');
+      await tx.query('UPDATE appointment SET client_id = $2, suggested_client_id = NULL WHERE id = $1', [id, clientId]);
+      const ev = await this.sync.serverPatch(tx, a, 'calendar_event', ap.event_id, { client_id: clientId });
+      await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'appointment.client_linked', entity: 'appointment', entityId: id, diff: { clientId, wasSuggested: ap.suggested_client_id === clientId } });
+      return ev?.cursor ?? 0;
+    });
+    this.publish(a.tenantId, r);
+  }
+  /** Invited attendee accepts (busy + in ICS) or declines (removed). */
+  async respond(a: RequestActor, id: string, accept: boolean) {
+    this.staff(a);
+    const r = await this.db.tenantTx(a.tenantId, async (tx) => {
+      const ev = (await tx.query('SELECT * FROM calendar_event WHERE id = $1 AND deleted_at IS NULL AND $2::uuid = ANY(attendee_ids) FOR UPDATE', [id, a.userId])).rows[0];
+      if (!ev) throw new NotFoundException();
+      const accepted = (ev.accepted_ids as string[]).filter((u) => u !== a.userId);
+      const patch = accept ? { accepted_ids: [...accepted, a.userId] } : { accepted_ids: accepted, attendee_ids: (ev.attendee_ids as string[]).filter((u) => u !== a.userId) };
+      const res = await this.sync.serverPatch(tx, a, 'calendar_event', id, patch);
+      await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: accept ? 'calendar.invite_accepted' : 'calendar.invite_declined', entity: 'calendar_event', entityId: id });
+      return res?.cursor ?? 0;
+    });
+    this.publish(a.tenantId, r);
   }
 
   private async scheduleReminders(tx: Tx, tenantId: string, id: string, start: Date, now: Date) {
@@ -319,11 +363,12 @@ export class CalendarService implements OnModuleInit {
     const r = await this.db.tenantTx(tenantId, async (tx) => {
       const { ap } = await this.manageable(tx, token);
       if (ap.status !== 'booked' || ap.starts_at <= now) throw new ConflictException({ message: 'Appointment can no longer be changed', code: 'not_changeable' });
-      const page = (await tx.query('SELECT * FROM booking_page WHERE id = $1', [ap.page_id])).rows[0];
+      const page = (await tx.query('SELECT * FROM booking_page WHERE id = $1 AND deleted_at IS NULL AND active', [ap.page_id])).rows[0];
       const day = istDay(start);
+      if (!page || day > dayAdd(istDay(now), page.horizon_days)) throw new ConflictException({ message: 'Slot not available', code: 'slot_unavailable' });
       let host: string | null = null;
+      for (const h of [...new Set([ap.host_user_id, ...(page.host_user_ids as string[])])].sort()) await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`appt:${tenantId}:${h}`]);
       for (const h of [ap.host_user_id, ...(page.host_user_ids as string[]).filter((x) => x !== ap.host_user_id)]) {
-        await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`appt:${tenantId}:${h}`]);
         if ((await this.hostSlots(tx, page, h, day, day, now, ap.id)).some((d) => d.getTime() === start.getTime())) { host = h; break; }
       }
       if (!host) throw new ConflictException({ message: 'Slot not available', code: 'slot_unavailable' });
@@ -334,8 +379,9 @@ export class CalendarService implements OnModuleInit {
       const ev = await this.sync.serverPatch(tx, systemActor(tenantId), 'calendar_event', ap.event_id, { starts_at: start, ends_at: end, owner_id: host });
       if (ap.task_id) await this.sync.serverPatch(tx, systemActor(tenantId), 'task', ap.task_id, { act_by: day, assignee_id: host });
       await this.scheduleReminders(tx, tenantId, ap.id, start, now);
+      const n = await insertNotifications(tx, tenantId, { userIds: [host], category: 'appointment.booked', title: `Appointment moved to ${fmtIst(start)}`, body: ap.purpose.slice(0, 140), entityType: 'appointment', entityId: ap.id, dedupeKey: `appt:${ap.id}:${nonce}` });
       await this.audit.record(tx, tenantId, { actorId: null, deviceId: 'public', action: 'appointment.rescheduled', entity: 'appointment', entityId: ap.id, diff: { from: ap.starts_at, to: start, host } });
-      return { id: ap.id, start, end, nonce, cursor: ev?.cursor ?? 0 };
+      return { id: ap.id, start, end, nonce, cursor: Math.max(ev?.cursor ?? 0, n.cursor) };
     });
     this.publish(tenantId, r.cursor);
     const newToken = signAppointmentLink(tenantId, r.id, r.nonce);
@@ -371,11 +417,12 @@ export class CalendarService implements OnModuleInit {
         if (!address) continue;
         const t = (await tx.query(`SELECT * FROM comm_template WHERE name = $1 AND channel = $2 AND status = 'approved' AND deleted_at IS NULL ORDER BY language LIMIT 1`, [`appointment_${kind}`, channel])).rows[0];
         if (!t && channel !== 'email') continue;
+        // Templates for email are HTML (values escaped by renderTemplate); the fallback is plain text — never HTML (D110).
         const body = t ? renderTemplate(t.body, vars, channel === 'email' ? 'html' : 'text').text
           : `Dear ${ap.name.replace(/[\r\n]/g, ' ')}, your appointment (${page.title}) is ${kind === 'cancelled' ? 'cancelled' : `${kind === 'reminder' ? 'coming up' : 'confirmed'} for ${vars['appointment.time']}`}.${token ? ` Manage: ${vars['appointment.link']}` : ''} — ${vars['firm.name']}`;
         const subject = t?.subject ? renderTemplate(t.subject, vars).text : `Appointment ${kind}: ${page.title}`;
         const res = await this.comm.queueTx(tx, tenantId, { clientId: ap.client_id, contactId: null, channel, address, category: 'transactional', subject: channel === 'email' ? subject : null, text: body,
-          templateId: t?.id ?? null, templateName: t?.name ?? null, language: t?.language ?? null, templateParams: [], createdBy: null, now, meta: { appointmentId: id, kind } });
+          templateId: t?.id ?? null, templateName: t?.name ?? null, language: t?.language ?? null, templateParams: [], createdBy: null, now, meta: { appointmentId: id, kind }, format: t && channel === 'email' ? 'html' : 'text' });
         await this.audit.record(tx, tenantId, { actorId: null, deviceId: 'server', action: 'appointment.notified', entity: 'appointment', entityId: id, diff: { kind, channel, outcome: 'error' in res ? res.error : 'queued' } });
         if (!('error' in res)) return res;
       }

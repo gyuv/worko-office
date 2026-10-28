@@ -53,7 +53,7 @@ import { BillingController } from './billing/billing.controller.js';
 import { CollectionsService } from './billing/collections.service.js';
 import { BillingConfigService } from './billing/config.service.js';
 import { InvoicesService } from './billing/invoices.service.js';
-import { CLIENT_MESSENGER, MockMessenger, PAYMENT_PROVIDERS, paymentProvidersFactory } from './billing/providers.js';
+import { CLIENT_MESSENGER, PAYMENT_PROVIDERS, paymentProvidersFactory } from './billing/providers.js';
 import { ReceiptsService } from './billing/receipts.service.js';
 import { Clock } from './common/clock.js';
 import { BillingReportsService } from './billing/reports.service.js';
@@ -67,7 +67,8 @@ import { LeaveService } from './hr/leave.service.js';
 import { ExpensesService } from './hr/expenses.service.js';
 import { BroadcastService } from './comm/broadcast.service.js';
 import { CalendarService } from './comm/calendar.service.js';
-import { channelAdaptersFactory, ChannelMessenger, COMM_CHANNELS_TOKEN, commAllMock, INBOUND_PROVIDERS, inboundProvidersFactory, MockChannelHub, OAUTH_PROVIDERS, oauthProvidersFactory, type ChannelAdapters } from './comm/channels.js';
+import { channelAdaptersFactory, COMM_CHANNELS_TOKEN, INBOUND_PROVIDERS, inboundProvidersFactory, MockChannelHub, OAUTH_PROVIDERS, oauthProvidersFactory } from './comm/channels.js';
+import { CommMessenger } from './comm/billing-messenger.js';
 import { BookingAdminController, BookingPublicController, CalendarController, ChatController } from './comm/chat.controller.js';
 import { ChatService } from './comm/chat.service.js';
 import { CommController, TimelineController } from './comm/comm.controller.js';
@@ -95,8 +96,8 @@ import { ConnectionsService } from './comm/connections.service.js';
     { provide: COMM_CHANNELS_TOKEN, useFactory: channelAdaptersFactory, inject: [MockChannelHub] },
     { provide: INBOUND_PROVIDERS, useFactory: inboundProvidersFactory },
     { provide: OAUTH_PROVIDERS, useFactory: oauthProvidersFactory },
-    // Billing messages use the shared channel layer once a real channel is configured; all-mock keeps billing's own outbox (D98).
-    { provide: CLIENT_MESSENGER, useFactory: (ch: ChannelAdapters) => (commAllMock() ? new MockMessenger() : new ChannelMessenger(ch)), inject: [COMM_CHANNELS_TOKEN] },
+    // Billing messages go through the communication pipeline (consent, quiet hours, caps, timeline — D98).
+    CommMessenger, { provide: CLIENT_MESSENGER, useExisting: CommMessenger },
     { provide: PAYMENT_PROVIDERS, useFactory: paymentProvidersFactory },
     { provide: KMS_PROVIDER, useFactory: () => new LocalKms() },
     { provide: STORAGE, useFactory: storageFactory },

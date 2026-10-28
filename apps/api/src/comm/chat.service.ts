@@ -120,7 +120,9 @@ export class ChatService {
   async changeMembers(a: RequestActor, id: string, b: { add?: string[]; remove?: string[] }) {
     this.staff(a);
     const r = await this.db.tenantTx(a.tenantId, async (tx) => {
-      const c = await this.channel(tx, a, id);
+      // Firm-wide communication:edit manages any channel (even one they are not in); others must be a member.
+      const c = this.firmWide(a) ? (await tx.query('SELECT * FROM chat_channel WHERE id = $1 AND deleted_at IS NULL', [id])).rows[0] : await this.channel(tx, a, id);
+      if (!c) throw new NotFoundException();
       const me = (await tx.query('SELECT role FROM chat_member WHERE channel_id = $1 AND user_id = $2 AND deleted_at IS NULL', [id, a.userId])).rows[0];
       if (me?.role !== 'owner' && !this.firmWide(a)) throw new ForbiddenException('Only the channel owner changes members');
       if (c.kind === 'direct') throw new ConflictException({ message: 'Direct chats have fixed members', code: 'direct_fixed' });
@@ -132,6 +134,14 @@ export class ChatService {
         const m = await tx.query(`INSERT INTO chat_member (id, tenant_id, channel_id, user_id, joined_at, device_id) VALUES ($1,$2,$3,$4,$5,'server')
           ON CONFLICT (channel_id, user_id) DO UPDATE SET deleted_at = NULL, joined_at = EXCLUDED.joined_at RETURNING sync_cursor`, [uuidv7(), a.tenantId, id, u, this.clock.now()]);
         cursor = Math.max(cursor, Number(m.rows[0].sync_cursor));
+      }
+      if (add.length) {
+        // Re-added members' devices hold tombstones for this channel: re-touch its rows so they sync again.
+        for (const tbl of ['chat_channel', 'chat_member', 'chat_message']) {
+          const col = tbl === 'chat_channel' ? 'id' : 'channel_id';
+          const r = await tx.query(`UPDATE ${tbl} SET version = version WHERE ${col} = $1 AND deleted_at IS NULL RETURNING sync_cursor`, [id]);
+          cursor = Math.max(cursor, ...r.rows.map((x) => Number(x.sync_cursor)));
+        }
       }
       const remove = (b.remove ?? []).filter((u) => u !== a.userId || me?.role !== 'owner');
       const gone = (await tx.query(`UPDATE chat_member SET deleted_at = now() WHERE channel_id = $1 AND user_id = ANY($2) AND deleted_at IS NULL RETURNING user_id, sync_cursor`, [id, remove])).rows;

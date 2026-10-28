@@ -61,6 +61,11 @@ describe('calendar events, projections and ICS', () => {
     expect(ics).not.toContain('Board prep'); // client no longer visible to Sita
     await t.http().put(`/v1/clients/${secret}/access`).set(H(P)).send({ staffIds: [S.userId] }).expect(204);
     ics = (await t.http().get(path(plain.url)).expect(200)).text;
+    expect(ics).not.toContain('Board prep'); // invited, not accepted yet
+    const board = (await t.http().get('/v1/calendar/events?from=2026-10-21&to=2026-10-21').set(H(S))).body.find((i: { title: string }) => i.title === 'Board prep');
+    expect(board.invited).toBe(true);
+    await t.http().post(`/v1/calendar/events/${board.id}/respond`).set(H(S)).send({ accept: true }).expect(204);
+    ics = (await t.http().get(path(plain.url)).expect(200)).text;
     expect(ics).toContain('SUMMARY:Board prep — Secret Pvt Ltd');
     const masked = (await t.http().post('/v1/calendar/feeds').set(H(S)).send({ maskClients: true }).expect(201)).body;
     const m = (await t.http().get(path(masked.url)).expect(200)).text;
@@ -133,9 +138,10 @@ describe('appointments', () => {
 describe('external calendar sync', () => {
   it('mirrors external events read-only and pushes own meetings (client names masked)', async () => {
     const oauth = t.app.get<Record<string, MockOAuthProvider>>(OAUTH_PROVIDERS).mock!;
-    const { id, authUrl } = (await t.http().post('/v1/comm/connections').set(H(S)).send({ provider: 'mock', purpose: 'calendar' }).expect(201)).body;
+    const st = await t.http().post('/v1/comm/connections').set(H(S)).send({ provider: 'mock', purpose: 'calendar' }).expect(201);
+    const { id, authUrl } = st.body;
     const state = new URL(authUrl).searchParams.get('state')!;
-    await t.http().get(`/v1/comm/oauth/callback?state=${encodeURIComponent(state)}&code=mock:sita@gmail.example`).expect(200);
+    await t.http().get(`/v1/comm/oauth/callback?state=${encodeURIComponent(state)}&code=mock:sita@gmail.example`).set('Cookie', String(st.headers['set-cookie']).split(';')[0]!).expect(200);
     oauth.events.set('sita@gmail.example', [{ id: 'g1', etag: 'e1', title: 'Dentist', startsAt: new Date(ist('2026-10-22T17:00:00')), endsAt: new Date(ist('2026-10-22T18:00:00')), allDay: false }]);
     const r = (await t.http().post(`/v1/comm/connections/${id}/sync`).set(H(S)).expect(200)).body;
     expect(r).toMatchObject({ pulled: 1, pushed: 1, conflicts: 0 });
@@ -146,5 +152,33 @@ describe('external calendar sync', () => {
     const res = (await t.http().post('/v1/sync/push').set(H(S)).send({ mutations: [{ key: `k-${randomUUID()}`, table: 'calendar_event', id: ext.id, baseVersion: ext.version, patch: { title: 'x' } }] })).body.results[0];
     expect(res.reason).toBe('forbidden');
     for (const tok of oauth.issued) expect(JSON.stringify(await t.sql('SELECT diff FROM audit_log'))).not.toContain(tok);
+  });
+});
+
+describe('booking review fixes', () => {
+  it('public bookings never upgrade consent or link a client by themselves; staff confirm the suggestion', async () => {
+    const cid = (await t.http().post('/v1/clients').set(H(P)).send({ name: 'Booker Ltd', entityType: 'PRIVATE_COMPANY', email: 'boss@booker.in', phone: '+919877700001', staffIds: [S.userId] }).expect(201)).body.id;
+    await t.http().post('/v1/comm/consents').set(H(P)).send({ clientId: cid, channel: 'whatsapp', status: 'opted_out', source: 'whatsapp' }).expect(201);
+    const b = (await t.http().post('/v1/book/calfirm/meet-sita').send({ startsAt: ist('2026-10-22T10:00:00'), name: '<a href="https://evil.example">Boss</a>', email: 'boss@booker.in', phone: '+919877700001', purpose: 'Audit <script>x</script>', consent: true }).expect(201)).body;
+    const cons = await t.sql<{ channel: string; status: string }>(`SELECT channel, status FROM comm_consent WHERE address IN ('boss@booker.in', '+919877700001') ORDER BY channel`);
+    expect(cons).toEqual([{ channel: 'email', status: 'pending_verification' }, { channel: 'sms', status: 'pending_verification' }, { channel: 'whatsapp', status: 'opted_out' }]);
+    const ap = (await t.sql<{ client_id: string | null; suggested_client_id: string | null }>('SELECT client_id, suggested_client_id FROM appointment WHERE id = $1', [b.id]))[0]!;
+    expect(ap).toEqual({ client_id: null, suggested_client_id: cid });
+    // Fallback confirmation is plain text: the booker's markup is never sent as HTML.
+    const mail = hub.outbox.filter((m) => m.to === 'boss@booker.in').at(-1)!;
+    expect(mail.html).toBeNull();
+    await t.http().post(`/v1/booking/appointments/${b.id}/link-client`).set(H(S)).send({ clientId: cid }).expect(204);
+    expect((await t.sql<{ c: string }>('SELECT e.client_id AS c FROM appointment a JOIN calendar_event e ON e.id = a.event_id WHERE a.id = $1', [b.id]))[0]!.c).toBe(cid);
+  });
+
+  it('reschedule respects the page state and horizon and notifies the host', async () => {
+    const b = (await t.http().post('/v1/book/calfirm/meet-sita').send({ startsAt: ist('2026-10-23T10:00:00'), name: 'Mover', email: 'mover@example.in', purpose: 'Move me' }).expect(201)).body;
+    await t.http().post(`/v1/book/manage/${b.manageToken}/reschedule`).send({ startsAt: ist('2027-03-01T10:00:00') }).expect(409); // beyond horizon
+    const r = (await t.http().post(`/v1/book/manage/${b.manageToken}/reschedule`).send({ startsAt: ist('2026-10-23T11:00:00') }).expect(200)).body;
+    expect((await t.sql(`SELECT 1 FROM notification WHERE user_id = $1 AND entity_id = $2 AND title LIKE 'Appointment moved%'`, [S.userId, b.id])).length).toBe(1);
+    const page = (await t.http().get('/v1/booking/pages').set(H(S))).body.find((p: { slug: string }) => p.slug === 'meet-sita');
+    await t.http().patch(`/v1/booking/pages/${page.id}`).set(H(S)).send({ active: false }).expect(200);
+    await t.http().post(`/v1/book/manage/${r.manageToken}/reschedule`).send({ startsAt: ist('2026-10-23T12:00:00') }).expect(409);
+    await t.http().patch(`/v1/booking/pages/${page.id}`).set(H(S)).send({ active: true }).expect(200);
   });
 });

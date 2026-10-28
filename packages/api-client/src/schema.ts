@@ -3498,6 +3498,23 @@ export interface paths {
         patch: operations["updateCalendarEvent"];
         trace?: never;
     };
+    "/calendar/events/{id}/respond": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Attendee accepts (busy + in ICS) or declines (removed). */
+        post: operations["respondCalendarInvite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/calendar/feeds": {
         parameters: {
             query?: never;
@@ -3579,6 +3596,23 @@ export interface paths {
         options?: never;
         head?: never;
         patch: operations["updateBookingPage"];
+        trace?: never;
+    };
+    "/booking/appointments/{id}/link-client": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Staff confirm the booking's client (suggested or chosen); the client must be visible for communication:edit. */
+        post: operations["linkAppointmentClient"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/booking/appointments": {
@@ -3764,6 +3798,7 @@ export interface components {
             version?: number;
         };
         CalendarItem: {
+            invited?: boolean;
             /** @enum {string} */
             source?: "event" | "task" | "leave" | "holiday";
             id?: string;
@@ -11858,6 +11893,33 @@ export interface operations {
             };
         };
     };
+    respondCalendarInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    accept: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Recorded */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+        };
+    };
     listIcsFeeds: {
         parameters: {
             query?: never;
@@ -12021,6 +12083,33 @@ export interface operations {
                     "application/json": Record<string, never>;
                 };
             };
+        };
+    };
+    linkAppointmentClient: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    clientId: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Linked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
         };
     };
     listAppointments: {

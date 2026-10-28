@@ -80,7 +80,8 @@ export class BroadcastService implements OnModuleInit {
   private async plan(tx: Tx, a: RequestActor, b: Record<string, unknown>): Promise<{ rows: Planned[]; duplicates: number; unitPaise: number; capWarning: boolean }> {
     const f = (b.filters ?? {}) as BroadcastFilters;
     const channel = b.channel as CommChannel; const category = b.category as TemplateCategory;
-    const t = (await tx.query('SELECT body FROM comm_template WHERE id = $1', [b.template_id])).rows[0];
+    // A sent broadcast plans against its snapshot; a draft against the current template.
+    const t = b.template_body ? { body: b.template_body as string } : (await tx.query('SELECT body FROM comm_template WHERE id = $1', [b.template_id])).rows[0];
     const p = new Params();
     const conds = ['c.deleted_at IS NULL', CommService.audienceScope(a, p)];
     if (!f.includeInactive) conds.push(`c.status = 'active'`);
@@ -152,7 +153,11 @@ export class BroadcastService implements OnModuleInit {
       const b = await this.load(tx, a, id, true);
       if (b.created_by !== a.userId && !a.superAdmin) throw new ForbiddenException('Only the creator sends a broadcast');
       if (b.status !== 'draft') throw new ConflictException({ message: `Broadcast is ${b.status}`, code: 'bad_status' });
-      await this.template(tx, b.template_id, b.channel);
+      const tp = await this.template(tx, b.template_id, b.channel);
+      // Snapshot the approved template: the job sends exactly this, even if the template changes later (D111).
+      await tx.query(`UPDATE broadcast SET template_version = $2, template_name = $3, template_language = $4, template_subject = $5, template_body = $6, template_dlt_id = $7 WHERE id = $1`,
+        [id, tp.version, tp.name, tp.language, tp.subject, tp.body, tp.dlt_template_id]);
+      Object.assign(b, { template_version: tp.version, template_name: tp.name, template_language: tp.language, template_subject: tp.subject, template_body: tp.body, template_dlt_id: tp.dlt_template_id });
       const at = body.scheduledAt ? new Date(body.scheduledAt) : b.scheduled_at ? new Date(b.scheduled_at) : now;
       const runAt = at > now ? at : now;
       const planned = await this.plan(tx, a, b);
@@ -234,7 +239,8 @@ export class BroadcastService implements OnModuleInit {
       if (allowed > at) throw new Reschedule(allowed);
       if (b.status === 'scheduled') await tx.query(`UPDATE broadcast SET status = 'sending' WHERE id = $1`, [id]);
       const batch = (await tx.query(`SELECT id FROM broadcast_recipient WHERE broadcast_id = $1 AND status IN ('pending','sending') ORDER BY id LIMIT $2`, [id, s.broadcast.batchSize])).rows.map((r) => r.id as string);
-      const t = (await tx.query('SELECT * FROM comm_template WHERE id = $1', [b.template_id])).rows[0];
+      const t = { id: b.template_id, name: b.template_name, language: b.template_language, subject: b.template_subject, body: b.template_body, dlt_template_id: b.template_dlt_id };
+      if (!t.body) throw new Error('broadcast has no template snapshot');
       return { b, s, t, batch, firm: await firmName(tx) };
     });
     if (!prep) return;
@@ -258,7 +264,7 @@ export class BroadcastService implements OnModuleInit {
         }
         const q = await this.comm.queueTx(tx, tenantId, { clientId: r.client_id, contactId: r.contact_id, channel: b.channel, address: r.address, category: b.category, subject, text,
           templateId: t.id, templateName: t.name, language: t.language, templateParams: placeholdersOf(t.body).map((p) => vars[p] ?? ''), dltTemplateId: t.dlt_template_id,
-          createdBy: b.created_by, broadcastId: id, now: at });
+          createdBy: b.created_by, broadcastId: id, now: at, format: b.channel === 'email' ? 'html' : 'text' });
         if ('error' in q) {
           await tx.query(`UPDATE broadcast_recipient SET status = $2, error = $3, updated_at = now() WHERE id = $1`, [rid, q.error === 'over_cap' ? 'skipped_cap' : 'skipped_optout', q.error]);
           return null;

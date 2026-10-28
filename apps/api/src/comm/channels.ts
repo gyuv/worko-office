@@ -1,7 +1,6 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { connect } from 'node:net';
 import type { CommChannel } from '@worko/domain';
-import type { ClientMessage, ClientMessenger } from '../billing/providers.js';
 
 /**
  * Phase 7 channel layer: one adapter per channel (email / WhatsApp / SMS) selected by env (`mock` default), inbound
@@ -146,24 +145,11 @@ export function channelAdaptersFactory(hub: MockChannelHub): ChannelAdapters {
   return { email, whatsapp, sms };
 }
 
-/**
- * Billing follow-ups/"send invoice" through the shared channel layer (D99): used when any real channel is configured;
- * with all-mock channels billing keeps its own `MockMessenger` (its tests read that outbox).
- */
-export class ChannelMessenger implements ClientMessenger {
-  constructor(private adapters: ChannelAdapters) {}
-  async send(m: ClientMessage) {
-    try {
-      return await this.adapters[m.channel].send({ tenantId: m.tenantId, channel: m.channel, to: m.to, subject: m.subject, text: m.text, idempotencyKey: `invoice:${m.invoiceId}:${createHash('sha256').update(m.text).digest('hex').slice(0, 12)}` });
-    } catch (e) { return { status: 'failed' as const, error: (e as Error).message.slice(0, 300) }; }
-  }
-}
-
 // ---------------- Inbound webhooks (WhatsApp / SMS) ----------------
 
 export type InboundEvent =
-  | { eventId: string; kind: 'message'; channel: 'whatsapp' | 'sms'; from: string; text: string; providerRef: string; at: Date | null }
-  | { eventId: string; kind: 'status'; channel: 'whatsapp' | 'sms'; providerRef: string; status: 'delivered' | 'read' | 'failed'; at: Date | null };
+  | { eventId: string; kind: 'message'; channel: 'whatsapp' | 'sms'; from: string; text: string; providerRef: string; at: Date | null; account: string | null }
+  | { eventId: string; kind: 'status'; channel: 'whatsapp' | 'sms'; providerRef: string; status: 'delivered' | 'read' | 'failed'; at: Date | null; account: string | null };
 type Headers = Record<string, string | string[] | undefined>;
 export interface InboundProvider {
   readonly name: string;
@@ -194,11 +180,12 @@ export class MockInboundProvider implements InboundProvider {
       const channel = e.channel === 'sms' ? 'sms' : 'whatsapp';
       const at = typeof e.at === 'string' && !Number.isNaN(Date.parse(e.at)) ? new Date(e.at) : null;
       if (typeof e.id !== 'string') return [];
+      const account = typeof e.account === 'string' ? e.account : null;
       if (e.type === 'status' && typeof e.ref === 'string' && ['delivered', 'read', 'failed'].includes(String(e.status))) {
-        return [{ eventId: e.id, kind: 'status', channel, providerRef: e.ref, status: e.status as 'delivered', at }];
+        return [{ eventId: e.id, kind: 'status', channel, providerRef: e.ref, status: e.status as 'delivered', at, account }];
       }
       if (typeof e.from !== 'string' || typeof e.text !== 'string') return [];
-      return [{ eventId: e.id, kind: 'message', channel, from: e.from, text: e.text.slice(0, 4096), providerRef: typeof e.ref === 'string' ? e.ref : e.id, at }];
+      return [{ eventId: e.id, kind: 'message', channel, from: e.from, text: e.text.slice(0, 4096), providerRef: typeof e.ref === 'string' ? e.ref : e.id, at, account }];
     });
   }
 }
@@ -218,13 +205,14 @@ export class MetaInboundProvider implements InboundProvider {
     return token && q['hub.mode'] === 'subscribe' && q['hub.verify_token'] && safeEq(q['hub.verify_token'], token) ? (q['hub.challenge'] ?? '').slice(0, 200) : null;
   }
   parse(raw: Buffer): InboundEvent[] {
-    type V = { messages?: Array<{ id: string; from: string; timestamp?: string; type?: string; text?: { body?: string } }>; statuses?: Array<{ id: string; status: string; timestamp?: string }> };
+    type V = { metadata?: { phone_number_id?: string }; messages?: Array<{ id: string; from: string; timestamp?: string; type?: string; text?: { body?: string } }>; statuses?: Array<{ id: string; status: string; timestamp?: string }> };
     const b = JSON.parse(raw.toString('utf8')) as { entry?: Array<{ changes?: Array<{ value?: V }> }> };
     const out: InboundEvent[] = [];
     const ts = (t?: string) => (t && /^\d+$/.test(t) ? new Date(Number(t) * 1000) : null);
     for (const en of b.entry ?? []) for (const ch of en.changes ?? []) {
-      for (const m of ch.value?.messages ?? []) out.push({ eventId: `msg:${m.id}`, kind: 'message', channel: 'whatsapp', from: `+${m.from}`, text: (m.text?.body ?? `[${m.type ?? 'media'}]`).slice(0, 4096), providerRef: m.id, at: ts(m.timestamp) });
-      for (const s of ch.value?.statuses ?? []) if (['delivered', 'read', 'failed'].includes(s.status)) out.push({ eventId: `st:${s.id}:${s.status}`, kind: 'status', channel: 'whatsapp', providerRef: s.id, status: s.status as 'delivered', at: ts(s.timestamp) });
+      const account = ch.value?.metadata?.phone_number_id ?? null;
+      for (const m of ch.value?.messages ?? []) out.push({ eventId: `msg:${m.id}`, kind: 'message', channel: 'whatsapp', from: `+${m.from}`, text: (m.text?.body ?? `[${m.type ?? 'media'}]`).slice(0, 4096), providerRef: m.id, at: ts(m.timestamp), account });
+      for (const s of ch.value?.statuses ?? []) if (['delivered', 'read', 'failed'].includes(s.status)) out.push({ eventId: `st:${s.id}:${s.status}`, kind: 'status', channel: 'whatsapp', providerRef: s.id, status: s.status as 'delivered', at: ts(s.timestamp), account });
     }
     return out;
   }
@@ -254,6 +242,8 @@ export interface OAuthProvider {
   listEvents(accessToken: string, cursor: string | null): Promise<{ events: ExternalEvent[]; cursor: string | null }>;
   /** Creates/updates an event; `etag` mismatch → `{ conflict: true }` (the external copy wins, D103). */
   upsertEvent(accessToken: string, ev: { externalId: string | null; etag: string | null; title: string; startsAt: Date; endsAt: Date; allDay: boolean }): Promise<{ id: string; etag: string } | { conflict: true }>;
+  /** Revokes the grant at the provider. */
+  revoke(accessToken: string): Promise<void>;
 }
 export const OAUTH_PROVIDERS = 'COMM_OAUTH_PROVIDERS';
 
@@ -263,6 +253,8 @@ export class MockOAuthProvider implements OAuthProvider {
   readonly inbox = new Map<string, ExternalMail[]>();
   readonly events = new Map<string, ExternalEvent[]>();
   readonly pushed: Array<{ account: string; title: string; externalId: string }> = [];
+  readonly revoked: string[] = [];
+  async revoke(t: string) { this.revoked.push(t); this.tokens.delete(t); }
   /** Test hook: every token handed out (to assert none leaks into audit/logs/sync). */
   readonly issued: string[] = [];
   private tokens = new Map<string, string>();
@@ -317,6 +309,12 @@ class HttpOAuthProvider implements OAuthProvider {
     let email = '';
     try { email = j.id_token ? String((JSON.parse(Buffer.from(j.id_token.split('.')[1]!, 'base64url').toString('utf8')) as { email?: string }).email ?? '') : ''; } catch { email = ''; }
     return { accessToken: j.access_token, refreshToken: j.refresh_token ?? null, expiresAt: j.expires_in ? new Date(Date.now() + j.expires_in * 1000) : null, accountEmail: email, scopes: (j.scope ?? '').split(/\s+/).filter(Boolean) };
+  }
+  /** // VERIFY AGAINST OFFICIAL DOCS: Google `POST https://oauth2.googleapis.com/revoke?token=…`; Microsoft has no token revoke endpoint (revoke sessions via Graph). */
+  async revoke(token: string) {
+    if (this.name !== 'google') return;
+    const res = await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(token)}`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+    if (!res.ok) throw new Error(`revoke ${res.status}`);
   }
   async fetchMail(): Promise<never> { throw new Error(`${this.name} mail fetch not implemented`); }
   async listEvents(): Promise<never> { throw new Error(`${this.name} calendar sync not implemented`); }

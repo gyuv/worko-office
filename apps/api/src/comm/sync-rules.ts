@@ -4,6 +4,7 @@ import type { RequestActor } from '../auth/context.js';
 import { clientScopeSql, Params, visibilityOf } from '../clients/scope.js';
 import type { Tx } from '../db/db.service.js';
 import { insertNotifications } from '../notifications/insert.js';
+import { loadTeamIds, loadUserRoles } from '../auth/roles.repo.js';
 import { loadCommSettings } from './common.js';
 
 /**
@@ -26,8 +27,18 @@ export async function isMember(tx: Tx, a: RequestActor, channelId: unknown): Pro
   const p = new Params([channelId]);
   return !!(await tx.query(`SELECT 1 WHERE ${memberSql(a, p, '$1::uuid')}`, p.values)).rowCount;
 }
+/** Members who can currently use the channel: for a client channel, only those who still see the client (D106). */
 async function memberIds(tx: Tx, channelId: string): Promise<Set<string>> {
-  return new Set((await tx.query('SELECT user_id FROM chat_member WHERE channel_id = $1 AND deleted_at IS NULL', [channelId])).rows.map((r) => r.user_id as string));
+  const ids = (await tx.query('SELECT user_id FROM chat_member WHERE channel_id = $1 AND deleted_at IS NULL', [channelId])).rows.map((r) => r.user_id as string);
+  const ch = (await tx.query('SELECT tenant_id, client_id FROM chat_channel WHERE id = $1', [channelId])).rows[0];
+  if (!ch?.client_id) return new Set(ids);
+  const out = new Set<string>();
+  for (const u of ids) {
+    const row = (await tx.query('SELECT branch_id FROM app_user WHERE id = $1', [u])).rows[0];
+    const actor = { userId: u, tenantId: ch.tenant_id, sessionId: '', deviceId: '', branchId: row?.branch_id ?? null, teamIds: await loadTeamIds(tx, u), roles: await loadUserRoles(tx, u) } as RequestActor;
+    if (await isMember(tx, actor, channelId)) out.add(u);
+  }
+  return out;
 }
 const sameSet = (x: unknown, y: unknown) => JSON.stringify([...((x as string[]) ?? [])].sort()) === JSON.stringify([...((y as string[]) ?? [])].sort());
 

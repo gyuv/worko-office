@@ -52,6 +52,8 @@ export class CalendarController {
   @Post('events') createEvent(@CurrentActor() a: RequestActor, @Body(new ZodPipe(eventB)) b: z.infer<typeof eventB>) { return this.cal.createEvent(a, toRow(b)); }
   @Patch('events/:id') @HttpCode(204) updateEvent(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(eventPatchB)) b: z.infer<typeof eventPatchB>) { return this.cal.updateEvent(a, id, toRow(b)); }
   @Delete('events/:id') @HttpCode(204) deleteEvent(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string) { return this.cal.updateEvent(a, id, {}, true); }
+  @Post('events/:id/respond') @HttpCode(204)
+  respond(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(z.object({ accept: z.boolean() }).strict())) b: { accept: boolean }) { return this.cal.respond(a, id, b.accept); }
   @Get('feeds') feeds(@CurrentActor() a: RequestActor) { return this.cal.feeds(a); }
   @Post('feeds') createFeed(@CurrentActor() a: RequestActor, @Body(new ZodPipe(z.object({ maskClients: z.boolean().optional(), label: z.string().max(100).nullable().optional() }).strict())) b: { maskClients?: boolean; label?: string | null }) { return this.cal.createFeed(a, b); }
   @Delete('feeds/:id') @HttpCode(204) revokeFeed(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string) { return this.cal.revokeFeed(a, id); }
@@ -65,6 +67,8 @@ export class BookingAdminController {
   @Get('pages') pages(@CurrentActor() a: RequestActor) { return this.cal.pages(a); }
   @Post('pages') @Perm('communication', 'create') create(@CurrentActor() a: RequestActor, @Body(new ZodPipe(pageB)) b: z.infer<typeof pageB>) { return this.cal.savePage(a, null, b); }
   @Patch('pages/:id') @Perm('communication', 'edit') update(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(pageB.partial().strict())) b: Partial<z.infer<typeof pageB>>) { return this.cal.savePage(a, id, b); }
+  @Post('appointments/:id/link-client') @HttpCode(204) @Perm('communication', 'edit')
+  link(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(z.object({ clientId: z.string().uuid() }).strict())) b: { clientId: string }) { return this.cal.linkClient(a, id, b.clientId); }
   @Get('appointments') @Perm('communication', 'view')
   appointments(@CurrentActor() a: RequestActor, @Query(new ZodPipe(z.object({ from: date.optional(), to: date.optional() }))) q: { from?: string; to?: string }) { return this.cal.appointments(a, q); }
 }

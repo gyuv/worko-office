@@ -1,6 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import {
-  can, capCheck, clientCtx, commSettingsSchema, defaultCommSettings, rateFor, smsSegments, type CommChannel, type CommRate, type CommSettings, type TemplateCategory,
+  can, capCheck, clientCtx, normalizeAddress, commSettingsSchema, defaultCommSettings, rateFor, smsSegments, type CommChannel, type CommRate, type CommSettings, type TemplateCategory,
 } from '@worko/domain';
 import { nextAllowed } from '@worko/notify';
 import type { RequestActor } from '../auth/context.js';
@@ -41,7 +41,8 @@ export async function usedPaise(tx: Tx, channel: CommChannel, month: string): Pr
     AND status = ANY($4) AND deleted_at IS NULL`, [channel, s, e, SPENT_STATUSES])).rows[0].p);
 }
 
-export type ConsentRow = { status: 'opted_in' | 'opted_out' } | undefined;
+/** `pending_verification` (unverified source, e.g. a public booking form) counts as no consent. */
+export type ConsentRow = { status: 'opted_in' | 'opted_out' | 'pending_verification' } | undefined;
 export async function consentOf(tx: Tx, channel: CommChannel, address: string): Promise<ConsentRow> {
   return (await tx.query('SELECT status FROM comm_consent WHERE channel = $1 AND address = $2', [channel, address])).rows[0];
 }
@@ -49,7 +50,7 @@ export async function consentOf(tx: Tx, channel: CommChannel, address: string): 
 export function consentError(c: ConsentRow, category: TemplateCategory, s: CommSettings): 'opted_out' | 'not_opted_in' | null {
   if (category === 'marketing') return c?.status === 'opted_in' ? null : c?.status === 'opted_out' ? 'opted_out' : 'not_opted_in';
   if (c?.status === 'opted_out' && s.consent.optOutBlocksTransactional) return 'opted_out';
-  if (!c && s.consent.transactionalRequiresOptIn) return 'not_opted_in';
+  if ((!c || c.status === 'pending_verification') && s.consent.transactionalRequiresOptIn) return 'not_opted_in';
   return null;
 }
 
@@ -86,7 +87,7 @@ export async function visibleClient(tx: Tx, a: RequestActor, clientId: string, a
  * Inbound matching (D102): an address matches a client through a contact's phone/WhatsApp/email or the client's own.
  * Indian numbers compare on the last 10 digits (stored numbers vary in format). One client → matched; several → ambiguous.
  */
-export async function matchAddress(tx: Tx, channel: CommChannel, address: string): Promise<{ clientId: string | null; contactId: string | null; ambiguous: boolean }> {
+export async function matchAddress(tx: Tx, channel: CommChannel, address: string): Promise<{ clientId: string | null; contactId: string | null; ambiguous: boolean; candidates: string[] }> {
   let rows: Array<{ client_id: string; contact_id: string | null }>;
   if (channel === 'email') {
     rows = (await tx.query(`SELECT ct.client_id, ct.id AS contact_id FROM contact ct JOIN client c ON c.id = ct.client_id AND c.deleted_at IS NULL
@@ -103,8 +104,8 @@ export async function matchAddress(tx: Tx, channel: CommChannel, address: string
       UNION ALL SELECT c.id, NULL FROM client c WHERE c.deleted_at IS NULL AND ${m('c.phone')}`, [key])).rows;
   }
   const clients = [...new Set(rows.map((r) => r.client_id))];
-  if (clients.length !== 1) return { clientId: null, contactId: null, ambiguous: clients.length > 1 };
-  return { clientId: clients[0]!, contactId: rows.find((r) => r.contact_id)?.contact_id ?? null, ambiguous: false };
+  if (clients.length !== 1) return { clientId: null, contactId: null, ambiguous: clients.length > 1, candidates: clients };
+  return { clientId: clients[0]!, contactId: rows.find((r) => r.contact_id)?.contact_id ?? null, ambiguous: false, candidates: clients };
 }
 
 /** The address a client is reached at on a channel: the chosen (else primary, else first) contact, then the client's own. */
@@ -115,6 +116,14 @@ export async function addressFor(tx: Tx, clientId: string, channel: CommChannel,
   const c = (await tx.query('SELECT email, phone FROM client WHERE id = $1', [clientId])).rows[0];
   const raw = channel === 'email' ? ct?.email ?? c?.email : channel === 'whatsapp' ? ct?.whatsapp ?? ct?.phone ?? c?.phone : ct?.phone ?? c?.phone;
   return { address: raw ?? null, contactId: ct?.id ?? null, contactName: ct?.name ?? null };
+}
+
+/** Every normalised address of a client on a channel (its own + its contacts'): a send may only target one of these. */
+export async function clientAddresses(tx: Tx, clientId: string, channel: CommChannel): Promise<Set<string>> {
+  const c = (await tx.query('SELECT email, phone FROM client WHERE id = $1', [clientId])).rows[0] ?? {};
+  const cts = (await tx.query('SELECT email, phone, whatsapp FROM contact WHERE client_id = $1 AND deleted_at IS NULL', [clientId])).rows;
+  const raw = channel === 'email' ? [c.email, ...cts.map((x) => x.email)] : [c.phone, ...cts.flatMap((x) => [x.phone, x.whatsapp])];
+  return new Set(raw.map((r) => normalizeAddress(channel, r)).filter((x): x is string => !!x));
 }
 
 export const firmName = async (tx: Tx) => String((await tx.query('SELECT name FROM tenant WHERE id = current_tenant()')).rows[0]?.name ?? '');

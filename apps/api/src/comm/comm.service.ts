@@ -16,7 +16,7 @@ import { RealtimeService } from '../realtime/realtime.service.js';
 import { requireFirmWide } from '../tasks/system-actor.js';
 import { taskScopeSql } from '../tasks/scope.js';
 import { assertCommConfig, COMM_CHANNELS_TOKEN, INBOUND_PROVIDERS, mockInboundAllowed, TransientSendError, type ChannelAdapters, type InboundProvider } from './channels.js';
-import { addressFor, checkSend, consentError, consentOf, firmName, istMonth, loadCommSettings, loadRates, matchAddress, monthRange, SPENT_STATUSES, usedPaise, visibleClient } from './common.js';
+import { addressFor, checkSend, clientAddresses, consentError, consentOf, firmName, istMonth, loadCommSettings, loadRates, matchAddress, monthRange, SPENT_STATUSES, usedPaise, visibleClient } from './common.js';
 
 export const SEND_JOB = 'comm.send';
 const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
@@ -25,6 +25,8 @@ export type QueueInput = {
   clientId: string | null; contactId: string | null; channel: CommChannel; address: string; category: TemplateCategory;
   subject: string | null; text: string; templateId?: string | null; templateParams?: string[]; templateName?: string | null; language?: string | null;
   dltTemplateId?: string | null; createdBy: string | null; broadcastId?: string | null; now: Date; meta?: Record<string, unknown>;
+  /** Email body format, set by the sender (templates: html; free text: text) — never guessed from content. */
+  format?: 'text' | 'html';
 };
 export type Queued = { id: string; sendAt: Date; costPaise: number; capWarning: boolean } | { error: 'opted_out' | 'not_opted_in' | 'over_cap' };
 
@@ -123,6 +125,10 @@ export class CommService implements OnModuleInit {
       const t = (await tx.query('SELECT * FROM comm_template WHERE id = $1 AND deleted_at IS NULL FOR UPDATE', [id])).rows[0];
       if (!t) throw new NotFoundException();
       const body = b.body ?? t.body; const subject = b.subject === undefined ? t.subject : b.subject;
+      if ((b.body !== undefined || b.subject !== undefined || b.category !== undefined) && (await tx.query(`SELECT 1 FROM broadcast WHERE template_id = $1 AND deleted_at IS NULL
+          AND status IN ('pending_approval','approved','scheduled','sending')`, [id])).rowCount) {
+        throw new ConflictException({ message: 'A live broadcast uses this template; cancel it or create a new template', code: 'template_in_use' });
+      }
       this.validateBody(body, subject);
       // A changed body or category needs approval again (WhatsApp: provider re-review).
       const reset = (b.body !== undefined && b.body !== t.body) || (b.subject !== undefined && b.subject !== t.subject) || (b.category !== undefined && b.category !== t.category);
@@ -228,13 +234,16 @@ export class CommService implements OnModuleInit {
    */
   async queueTx(tx: Tx, tenantId: string, i: QueueInput): Promise<Queued> {
     const s = await loadCommSettings(tx);
+    // Serialise cap checks per tenant × channel so concurrent sends can't both squeeze under the cap.
+    await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`comm-cap:${tenantId}:${i.channel}`]);
     const chk = await checkSend(tx, s, await loadRates(tx), { channel: i.channel, address: i.address, category: i.category, text: i.text, now: i.now });
     if (chk.error) return { error: chk.error };
     const id = uuidv7();
     await tx.query(`INSERT INTO comm_message (id, tenant_id, client_id, contact_id, direction, channel, address, subject, body, template_id, category, status, cost_paise, cap_warning,
-        broadcast_id, send_at, created_by, occurred_at, meta, device_id) VALUES ($1,$2,$3,$4,'out',$5,$6,$7,$8,$9,$10,'queued',$11,$12,$13,$14,$15,$16,$17,'server')`,
+        broadcast_id, send_at, created_by, occurred_at, meta, format, device_id) VALUES ($1,$2,$3,$4,'out',$5,$6,$7,$8,$9,$10,'queued',$11,$12,$13,$14,$15,$16,$17,$18,'server')`,
       [id, tenantId, i.clientId, i.contactId, i.channel, i.address, i.subject, i.text, i.templateId ?? null, i.category, chk.costPaise, chk.capWarning, i.broadcastId ?? null,
-        chk.sendAt, i.createdBy, i.now, JSON.stringify({ ...(i.meta ?? {}), template: i.templateName ? { name: i.templateName, language: i.language ?? 'en', params: i.templateParams ?? [] } : null, dlt: i.dltTemplateId ?? null })]);
+        chk.sendAt, i.createdBy, i.now, JSON.stringify({ ...(i.meta ?? {}), template: i.templateName ? { name: i.templateName, language: i.language ?? 'en', params: i.templateParams ?? [] } : null, dlt: i.dltTemplateId ?? null }),
+        i.channel === 'email' && i.format === 'html' ? 'html' : 'text']);
     if (chk.sendAt > i.now) await this.jobs.enqueue(tx, tenantId, SEND_JOB, id, chk.sendAt);
     return { id, sendAt: chk.sendAt, costPaise: chk.costPaise, capWarning: chk.capWarning };
   }
@@ -262,7 +271,8 @@ export class CommService implements OnModuleInit {
     if (m instanceof Date || m === 'cancelled') return m;
     const meta = (m.meta ?? {}) as { template?: { name: string; language: string; params: string[] } | null; dlt?: string | null };
     const adapter = this.adapters[m.channel as CommChannel];
-    const res = await adapter.send({ tenantId, channel: m.channel, to: m.address, subject: m.subject, text: m.body, html: m.channel === 'email' && /<[a-z][^>]*>/i.test(m.body) ? m.body : null,
+    const html = m.channel === 'email' && m.format === 'html';
+    const res = await adapter.send({ tenantId, channel: m.channel, to: m.address, subject: m.subject, text: html ? m.body.replace(/<[^>]*>/g, '') : m.body, html: html ? m.body : null,
       template: meta.template ?? null, dltTemplateId: meta.dlt ?? null, idempotencyKey: `msg:${id}` });
     await this.db.tenantTx(tenantId, async (tx) => {
       await tx.query(`UPDATE comm_message SET status = $2, provider = $3, provider_ref = $4, error = $5, occurred_at = CASE WHEN $2 = 'sent' THEN $6 ELSE occurred_at END WHERE id = $1`,
@@ -287,12 +297,14 @@ export class CommService implements OnModuleInit {
       const target = await addressFor(tx, client.id, b.channel, b.contactId);
       const address = normalizeAddress(b.channel, b.address ?? target.address);
       if (!address) throw new ConflictException({ message: 'No valid address for this client on that channel', code: 'no_address' });
+      // Only the client's own (or its contacts') addresses: the client scope must not become a way to message anyone.
+      if (b.address && !(await clientAddresses(tx, client.id, b.channel)).has(address)) throw new BadRequestException({ message: 'Address is not on this client', code: 'address_not_on_client' });
       let category: TemplateCategory = b.category ?? 'transactional'; let subject = b.subject ?? null; let text: string;
       let tpl: Record<string, string | string[] | null> | null = null;
       if (b.templateId) {
         tpl = (await tx.query('SELECT * FROM comm_template WHERE id = $1 AND deleted_at IS NULL', [b.templateId])).rows[0] ?? null;
         if (!tpl || tpl.channel !== b.channel) throw new BadRequestException({ message: 'Template not found for this channel', code: 'bad_template' });
-        if (tpl.status === 'rejected' || (b.channel === 'whatsapp' && tpl.status !== 'approved')) throw new ConflictException({ message: 'Template is not approved', code: 'template_not_approved' });
+        if (tpl.status !== 'approved') throw new ConflictException({ message: 'Template is not approved', code: 'template_not_approved' });
         const vars = { ...Object.fromEntries(Object.entries(b.vars ?? {}).filter(([k]) => placeholdersOf(String(tpl!.body)).includes(k))), ...(await this.baseVars(tx, a, client.id, client.name, target.contactName)) };
         const r = renderTemplate(String(tpl.body), vars, b.channel === 'email' ? 'html' : 'text');
         if (r.missing.length) throw new BadRequestException({ message: 'Missing template variables', code: 'missing_variables', issues: r.missing });
@@ -301,6 +313,9 @@ export class CommService implements OnModuleInit {
         tpl = { ...tpl, params: placeholdersOf(String(tpl.body)).map((p) => vars[p] ?? '') };
       } else {
         if (!b.body?.trim()) throw new BadRequestException({ message: 'Body or template required', code: 'body_required' });
+        // Free text is transactional only; marketing/utility go through approved templates.
+        if (b.category && b.category !== 'transactional') throw new BadRequestException({ message: 'Use an approved template for this category', code: 'template_required_for_category' });
+        category = 'transactional';
         text = b.body;
         // Business-initiated WhatsApp outside the 24-hour customer-service window needs an approved template. // VERIFY AGAINST OFFICIAL DOCS
         if (b.channel === 'whatsapp' && !(await tx.query(`SELECT 1 FROM comm_message WHERE direction = 'in' AND channel = 'whatsapp' AND address = $1 AND occurred_at > $2::timestamptz - interval '24 hours'`, [address, now])).rowCount) {
@@ -310,7 +325,7 @@ export class CommService implements OnModuleInit {
       }
       const q = await this.queueTx(tx, a.tenantId, { clientId: client.id, contactId: target.contactId, channel: b.channel, address, category, subject, text,
         templateId: (tpl?.id as string) ?? null, templateName: (tpl?.name as string) ?? null, language: (tpl?.language as string) ?? null, templateParams: (tpl?.params as string[]) ?? [],
-        dltTemplateId: (tpl?.dlt_template_id as string) ?? null, createdBy: a.userId, now });
+        dltTemplateId: (tpl?.dlt_template_id as string) ?? null, createdBy: a.userId, now, format: tpl && b.channel === 'email' ? 'html' : 'text' });
       const sensitive = !!tpl?.sensitive;
       if ('error' in q) {
         await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'comm.message_refused', entity: 'client', entityId: client.id, diff: { channel: b.channel, category, reason: q.error, address: maskAddress(address) } });
@@ -383,8 +398,17 @@ export class CommService implements OnModuleInit {
   }
   inbox(a: RequestActor) {
     this.requireTriage(a);
-    return this.db.tenantTx(a.tenantId, async (tx) => (await tx.query(`SELECT id, channel, address, subject, body, triage, occurred_at AS "occurredAt" FROM comm_message
-      WHERE client_id IS NULL AND direction = 'in' AND deleted_at IS NULL ORDER BY occurred_at DESC LIMIT 200`)).rows);
+    return this.db.tenantTx(a.tenantId, async (tx) => {
+      const rows = (await tx.query(`SELECT id, channel, address, subject, body, triage, meta, occurred_at AS "occurredAt" FROM comm_message
+        WHERE client_id IS NULL AND direction = 'in' AND deleted_at IS NULL ORDER BY occurred_at DESC LIMIT 200`)).rows;
+      // Ambiguous = the sender matches several clients: the text is shown only to triagers who can see one of them (D110).
+      const ids = [...new Set(rows.flatMap((r) => (r.triage === 'ambiguous' ? ((r.meta?.candidates as string[]) ?? []) : [])))];
+      const visible = new Set((await tx.query('SELECT * FROM client WHERE id = ANY($1)', [ids])).rows.filter((c) => can(a, 'clients', 'view', clientCtx(visibilityOf(c)))).map((c) => c.id));
+      return rows.map(({ meta, ...r }) => {
+        const show = r.triage !== 'ambiguous' || ((meta?.candidates as string[]) ?? []).some((id) => visible.has(id));
+        return { ...r, subject: show ? r.subject : null, body: show ? r.body : null, redacted: !show };
+      });
+    });
   }
   async assignInbound(a: RequestActor, id: string, b: { clientId: string; contactId?: string | null }) {
     this.requireTriage(a);
@@ -420,6 +444,9 @@ export class CommService implements OnModuleInit {
     let events;
     try { events = prov.parse(raw); } catch { throw new BadRequestException('Unrecognised payload'); }
     const now = this.clock.now();
+    const bound = (await this.db.tenantTx(tenantId, (tx) => loadCommSettings(tx))).providers.inboundAccounts[providerName as 'mock' | 'meta'];
+    // Tenant binding (D110): events must name the firm's own provider account; Meta requires the binding.
+    if ((providerName === 'meta' && !bound) || (bound && events.some((e) => e.account !== bound))) throw new ForbiddenException({ message: 'Provider account not bound to this firm', code: 'account_mismatch' });
     const results: Array<{ eventId: string; outcome: string }> = [];
     const notify: number[] = [];
     for (const ev of events) {
@@ -441,9 +468,9 @@ export class CommService implements OnModuleInit {
         if (!from) return done('bad_sender');
         const match = await matchAddress(tx, ev.channel, from);
         const id = uuidv7();
-        const ins2 = await tx.query(`INSERT INTO comm_message (id, tenant_id, client_id, contact_id, direction, channel, address, body, status, provider, provider_ref, triage, occurred_at, device_id)
-          VALUES ($1,$2,$3,$4,'in',$5,$6,$7,'received',$8,$9,$10,$11,'server') ON CONFLICT (tenant_id, provider, provider_ref) WHERE provider_ref IS NOT NULL AND direction = 'in' DO NOTHING RETURNING id`,
-          [id, tenantId, match.clientId, match.contactId, ev.channel, from, ev.text, prov.name, ev.providerRef, match.clientId ? null : match.ambiguous ? 'ambiguous' : 'unmatched', ev.at ?? now]);
+        const ins2 = await tx.query(`INSERT INTO comm_message (id, tenant_id, client_id, contact_id, direction, channel, address, body, status, provider, provider_ref, triage, occurred_at, meta, device_id)
+          VALUES ($1,$2,$3,$4,'in',$5,$6,$7,'received',$8,$9,$10,$11,$12,'server') ON CONFLICT (tenant_id, provider, provider_ref) WHERE provider_ref IS NOT NULL AND direction = 'in' DO NOTHING RETURNING id`,
+          [id, tenantId, match.clientId, match.contactId, ev.channel, from, ev.text, prov.name, ev.providerRef, match.clientId ? null : match.ambiguous ? 'ambiguous' : 'unmatched', ev.at ?? now, JSON.stringify(match.ambiguous ? { candidates: match.candidates } : {})]);
         if (!ins2.rowCount) return done('duplicate_message');
         const kw = parseKeyword(ev.text);
         if (kw) {

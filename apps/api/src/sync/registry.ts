@@ -498,7 +498,7 @@ export const SYNC_TABLES: Record<string, SyncTableDef> = {
   // Devices create/edit their own meetings and personal events; appointment and external (synced-in) events are read-only.
   calendar_event: {
     table: 'calendar_event',
-    columns: ['owner_id', 'kind', 'title', 'description', 'location', 'starts_at', 'ends_at', 'all_day', 'client_id', 'attendee_ids', 'appointment_id', 'busy', 'created_at'],
+    columns: ['owner_id', 'kind', 'title', 'description', 'location', 'starts_at', 'ends_at', 'all_day', 'client_id', 'attendee_ids', 'accepted_ids', 'appointment_id', 'busy', 'created_at'],
     writable: calendarWritable,
     scope: (a, p) => calendarScopeSql(a, p),
     visible: (a) => !!a.roles.length || !!a.superAdmin,
@@ -507,6 +507,8 @@ export const SYNC_TABLES: Record<string, SyncTableDef> = {
     canUpdate: (a, row) => ownEditable(a, row),
     canDelete: (a, row) => ownEditable(a, row),
     validate: (a, cur, next, tx) => calendarEventError(a, cur, next, tx),
+    // Attendees are invited until they accept (REST respond); removed attendees lose their acceptance.
+    derive: (_a, cur, patch) => ('attendee_ids' in patch ? { accepted_ids: ((cur?.accepted_ids as string[]) ?? []).filter((u) => (patch.attendee_ids as string[]).includes(u)) } : {}),
     audit: true,
   },
 };

@@ -107,3 +107,24 @@ describe('team chat', () => {
     expect((await pull(A)).filter((c) => c.table === 'chat_message')).toHaveLength(1);
   });
 });
+
+describe('chat review fixes', () => {
+  it('members who lost client visibility cannot be mentioned; re-added members re-sync; firm-wide editors manage any channel', async () => {
+    const cid = (await t.http().post('/v1/clients').set(H(P)).send({ name: 'Kaveri Foods', entityType: 'PARTNERSHIP', staffIds: [S.userId] }).expect(201)).body.id;
+    const ch = (await t.http().post('/v1/chat/channels').set(H(P)).send({ kind: 'client', clientId: cid, memberIds: [S.userId] }).expect(201)).body.id;
+    await t.http().put(`/v1/clients/${cid}/access`).set(H(P)).send({ staffIds: [] }).expect(204);
+    expect((await t.http().post(`/v1/chat/channels/${ch}/messages`).set(H(P)).send({ body: 'hi', mentions: [S.userId] }).expect(400)).body.code).toBe('invalid:mentions');
+    const m = (await t.http().post(`/v1/chat/channels/${ch}/messages`).set(H(P)).send({ body: `fyi @[Sita](${S.userId})` }).expect(201)).body;
+    expect(m.mentions).toEqual([]); // body mention of a member who can't see the client is dropped
+    await t.http().put(`/v1/clients/${cid}/access`).set(H(P)).send({ staffIds: [S.userId] }).expect(204);
+
+    const g = (await t.http().post('/v1/chat/channels').set(H(M)).send({ kind: 'group', name: 'Side', memberIds: [S.userId] }).expect(201)).body.id;
+    await t.http().post(`/v1/chat/channels/${g}/messages`).set(H(M)).send({ body: 'history' }).expect(201);
+    await t.http().post(`/v1/chat/channels/${g}/members`).set(H(P)).send({ remove: [S.userId] }).expect(200); // partner: not a member, firm-wide edit
+    const cur = (await t.http().get('/v1/sync/pull?since=0&limit=1000').set(H(S))).body.cursor;
+    await t.http().post(`/v1/chat/channels/${g}/members`).set(H(P)).send({ add: [S.userId] }).expect(200);
+    const again = (await t.http().get(`/v1/sync/pull?since=${cur}&limit=1000`).set(H(S))).body.changes as Array<{ table: string; deleted: boolean; fields: Record<string, unknown> }>;
+    expect(again.some((c) => c.table === 'chat_message' && !c.deleted && c.fields.body === 'history')).toBe(true);
+    expect(again.some((c) => c.table === 'chat_channel' && !c.deleted)).toBe(true);
+  });
+});

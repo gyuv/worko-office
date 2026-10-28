@@ -270,11 +270,18 @@ describe('mailbox OAuth', () => {
   it('connects with a single-use state, imports mail and never exposes tokens (audit, API, sync)', async () => {
     const oauth = t.app.get<Record<string, MockOAuthProvider>>(OAUTH_PROVIDERS).mock!;
     const cid = await client('Sai Foods', { email: 'ravi@saifoods.in' });
-    const { id, authUrl } = (await t.http().post('/v1/comm/connections').set(H(P)).send({ provider: 'mock', purpose: 'mail' }).expect(201)).body;
+    const start = await t.http().post('/v1/comm/connections').set(H(P)).send({ provider: 'mock', purpose: 'mail' }).expect(201);
+    const { id, authUrl } = start.body;
+    const cookie = String(start.headers['set-cookie']).split(';')[0]!;
+    expect(String(start.headers['set-cookie'])).toMatch(/HttpOnly/);
+    expect(JSON.stringify(start.body)).not.toContain(cookie.split('=')[1]);
     const state = new URL(authUrl).searchParams.get('state')!;
-    await t.http().get(`/v1/comm/oauth/callback?state=${encodeURIComponent(state.replace(/.$/, 'x'))}&code=mock:partner@commfirm.in`).expect(404);
-    expect((await t.http().get(`/v1/comm/oauth/callback?state=${encodeURIComponent(state)}&code=mock:partner@commfirm.in`).expect(200)).body.status).toBe('connected');
-    await t.http().get(`/v1/comm/oauth/callback?state=${encodeURIComponent(state)}&code=mock:partner@commfirm.in`).expect(404); // single use
+    const cb = (st: string, c: string | null) => { const r = t.http().get(`/v1/comm/oauth/callback?state=${encodeURIComponent(st)}&code=mock:partner@commfirm.in`); return c ? r.set('Cookie', c) : r; };
+    await cb(state.replace(/.$/, 'x'), cookie).expect(404);
+    await cb(state, null).expect(404); // state link opened in another browser (no binding cookie)
+    await cb(state, 'worko_oauth=' + 'y'.repeat(32)).expect(404);
+    expect((await cb(state, cookie).expect(200)).body.status).toBe('connected');
+    await cb(state, cookie).expect(404); // single use
     oauth.inbox.set('partner@commfirm.in', [
       { id: 'm1', from: 'Ravi <ravi@saifoods.in>', to: 'partner@commfirm.in', subject: 'Form 16', text: 'Attached Form 16', at: NOW },
       { id: 'm2', from: 'stranger@spam.in', to: 'partner@commfirm.in', subject: 'Offer', text: 'Buy now', at: NOW },
@@ -288,7 +295,70 @@ describe('mailbox OAuth', () => {
     const everything = JSON.stringify([list, await t.sql('SELECT diff FROM audit_log'), (await t.http().get('/v1/sync/pull?since=0&limit=1000').set(H(P))).body,
       await t.sql(`SELECT encode(access_token_enc, 'escape') AS a, encode(refresh_token_enc, 'escape') AS r FROM oauth_connection`)]);
     for (const tok of oauth.issued) expect(everything).not.toContain(tok);
+    oauth.inbox.get('partner@commfirm.in')!.push({ id: 'm3', from: 'partner@commfirm.in', to: 'ravi@saifoods.in', subject: 'Re: Form 16', text: 'Thanks', at: NOW });
+    expect((await t.http().post(`/v1/comm/connections/${id}/sync`).set(H(P)).expect(200)).body).toMatchObject({ fetched: 1, matched: 1 });
+    await t.sql('UPDATE oauth_connection SET sync_cursor_ext = NULL WHERE id = $1', [id]); // provider replays everything
+    expect((await t.http().post(`/v1/comm/connections/${id}/sync`).set(H(P)).expect(200)).body).toMatchObject({ fetched: 3, duplicates: 3 });
+    expect(Number((await t.sql<{ n: string }>(`SELECT count(*) AS n FROM comm_message WHERE provider LIKE 'mock:mail:%'`))[0]!.n)).toBe(3);
     await t.http().delete(`/v1/comm/connections/${id}`).set(H(P)).expect(204);
+    expect(oauth.revoked).toEqual([oauth.issued[0]]); // revoked at the provider too
     expect((await t.sql<{ a: unknown }>('SELECT access_token_enc AS a FROM oauth_connection WHERE id = $1', [id]))[0]!.a).toBeNull();
+  });
+});
+
+describe('review fixes', () => {
+  it('sends: free text is transactional only, drafts cannot send, addresses must belong to the client', async () => {
+    const cid = await client('Review One', { phone: '+919855500001', email: 'one@review.in' });
+    expect((await t.http().post('/v1/comm/messages').set(H(P)).send({ clientId: cid, channel: 'email', subject: 'x', body: 'Sale!', category: 'marketing' }).expect(400)).body.code).toBe('template_required_for_category');
+    const draft = await template({ name: 'draft_mail', channel: 'email', category: 'transactional', subject: 'Hi', body: 'Hello {{contact.name}}' }, false);
+    expect((await t.http().post('/v1/comm/messages').set(H(P)).send({ clientId: cid, channel: 'email', templateId: draft }).expect(409)).body.code).toBe('template_not_approved');
+    expect((await t.http().post('/v1/comm/messages').set(H(P)).send({ clientId: cid, channel: 'email', address: 'someone@else.in', subject: 'x', body: 'y' }).expect(400)).body.code).toBe('address_not_on_client');
+    await t.http().post('/v1/comm/messages').set(H(P)).send({ clientId: cid, channel: 'email', address: 'ONE@review.in', subject: 'x', body: 'y' }).expect(201);
+  });
+
+  it('email: HTML only from templates, user values escaped; free text is never treated as HTML', async () => {
+    const cid = await client('Review Two', { email: 'two@review.in', name: '<a href="https://evil.example">Click</a>' });
+    await t.http().post('/v1/comm/messages').set(H(P)).send({ clientId: cid, channel: 'email', subject: 's', body: '<b>looks like html</b>' }).expect(201);
+    expect(hub.outbox.at(-1)).toMatchObject({ html: null, text: '<b>looks like html</b>' });
+    const tid = await template({ name: 'html_mail', channel: 'email', category: 'transactional', subject: 'Hi', body: '<p>Dear {{contact.name}}</p>' });
+    await t.http().post('/v1/comm/messages').set(H(P)).send({ clientId: cid, channel: 'email', templateId: tid }).expect(201);
+    expect(hub.outbox.at(-1)!.html).toBe('<p>Dear &lt;a href=&quot;https://evil.example&quot;&gt;Click&lt;/a&gt;</p>');
+  });
+
+  it('cap checks are serialised: concurrent sends cannot overshoot', async () => {
+    const cid = await client('Review Three', { phone: '+919855500003', whatsapp: '+919855500003' });
+    await t.http().post('/v1/comm/consents').set(H(P)).send({ clientId: cid, channel: 'whatsapp', status: 'opted_in', source: 'form' }).expect(201);
+    const tid = await template({ name: 'race_promo', channel: 'whatsapp', category: 'marketing', body: 'Hi {{contact.name}}' });
+    const s = (await t.http().get('/v1/comm/settings').set(H(P))).body;
+    const used = (await t.http().get('/v1/comm/usage?month=2026-10').set(H(P))).body.byChannel.find((c: { channel: string }) => c.channel === 'whatsapp').costPaise;
+    await t.http().put('/v1/comm/settings').set(H(P)).send({ ...s, caps: { ...s.caps, mode: 'block', monthlyPaise: { ...s.caps.monthlyPaise, whatsapp: used + 100 } } }).expect(200);
+    const res = await Promise.all([1, 2, 3, 4].map(() => t.http().post('/v1/comm/messages').set(H(P)).send({ clientId: cid, channel: 'whatsapp', templateId: tid })));
+    expect(res.map((r) => r.status).sort()).toEqual([201, 409, 409, 409]);
+    await t.http().put('/v1/comm/settings').set(H(P)).send(s).expect(200);
+  });
+
+  it('broadcasts send their template snapshot; live templates cannot be edited', async () => {
+    const cid = await client('Review Four', { phone: '+919855500004', whatsapp: '+919855500004' });
+    await t.http().post('/v1/comm/consents').set(H(P)).send({ clientId: cid, channel: 'whatsapp', status: 'opted_in', source: 'form' }).expect(201);
+    const tid = await template({ name: 'snap_promo', channel: 'whatsapp', category: 'marketing', body: 'Original {{contact.name}}' });
+    const b = (await t.http().post('/v1/comm/broadcasts').set(H(P)).send({ name: 'Snap', channel: 'whatsapp', templateId: tid, filters: { clientIds: [cid] } }).expect(201)).body.id;
+    await t.http().post(`/v1/comm/broadcasts/${b}/send`).set(H(P)).send({ scheduledAt: '2026-10-15T12:00:00+05:30' }).expect(200);
+    expect((await t.http().patch(`/v1/comm/templates/${tid}`).set(H(P)).send({ body: 'Changed {{contact.name}}' }).expect(409)).body.code).toBe('template_in_use');
+    await t.sql(`UPDATE comm_template SET body = 'Tampered {{contact.name}}' WHERE id = $1`, [tid]); // even a direct change doesn't leak in
+    await jobs.runOnce(50, new Date('2026-10-15T12:01:00+05:30'));
+    expect(hub.outbox.at(-1)).toMatchObject({ to: '+919855500004', text: 'Original Review Four Owner' });
+  });
+
+  it('webhooks are bound to the firm\'s provider account; ambiguous inbox text only for triagers who see a candidate', async () => {
+    const s = (await t.http().get('/v1/comm/settings').set(H(P))).body;
+    await t.http().put('/v1/comm/settings').set(H(P)).send({ ...s, providers: { inboundAccounts: { mock: 'acct-1' } } }).expect(200);
+    expect((await webhook([{ id: 'ev-acc-1', channel: 'sms', from: '+919800012345', text: 'hi', account: 'acct-2' }]).expect(403)).body.code).toBe('account_mismatch');
+    await webhook([{ id: 'ev-acc-2', channel: 'sms', from: '+919800012345', text: 'hi', account: 'acct-1' }]).expect(200);
+    await t.http().put('/v1/comm/settings').set(H(P)).send(s).expect(200);
+    await client('Twin A', { phone: '+919866600001' }); await client('Twin B', { phone: '+919866600001' });
+    await webhook([{ id: 'ev-amb', channel: 'sms', from: '+919866600001', text: 'Private: my salary details', ref: 'amb-1' }]).expect(200);
+    const mi = (await t.http().get('/v1/comm/inbox').set(H(M)).expect(200)).body.find((x: { address: string }) => x.address === '+919866600001');
+    expect(mi).toMatchObject({ triage: 'ambiguous', body: null, redacted: true });
+    expect((await t.http().get('/v1/comm/inbox').set(H(P))).body.find((x: { address: string }) => x.address === '+919866600001').body).toBe('Private: my salary details');
   });
 });

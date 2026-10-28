@@ -9,6 +9,7 @@ import { BroadcastService } from './broadcast.service.js';
 import { CommService } from './comm.service.js';
 import { ConnectionsService } from './connections.service.js';
 
+const OAUTH_COOKIE = 'worko_oauth';
 const channel = z.enum(COMM_CHANNELS);
 const category = z.enum(TEMPLATE_CATEGORIES);
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((s) => !Number.isNaN(Date.parse(s)), 'Invalid date');
@@ -85,12 +86,20 @@ export class CommController {
 
   @Get('connections') @Perm('communication', 'view') connectionsList(@CurrentActor() a: RequestActor) { return this.connections.list(a); }
   @Post('connections') @Perm('communication', 'create')
-  connect(@CurrentActor() a: RequestActor, @Body(new ZodPipe(z.object({ provider: z.enum(['mock', 'google', 'microsoft']), purpose: z.enum(['mail', 'calendar']) }).strict())) b: { provider: 'mock'; purpose: 'mail' }) { return this.connections.start(a, b); }
+  async connect(@CurrentActor() a: RequestActor, @Body(new ZodPipe(z.object({ provider: z.enum(['mock', 'google', 'microsoft']), purpose: z.enum(['mail', 'calendar']) }).strict())) b: { provider: 'mock'; purpose: 'mail' },
+    @Res({ passthrough: true }) res: Response) {
+    const { binding, ...out } = await this.connections.start(a, b);
+    res.setHeader('Set-Cookie', `${OAUTH_COOKIE}=${binding}; HttpOnly; Secure; SameSite=Lax; Path=/v1/comm/oauth; Max-Age=900`);
+    return out;
+  }
   @Delete('connections/:id') @HttpCode(204) @Perm('communication', 'view') disconnect(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string) { return this.connections.revoke(a, id); }
   @Post('connections/:id/sync') @HttpCode(200) @Perm('communication', 'view') syncConnection(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string) { return this.connections.syncNow(a, id); }
   /** OAuth redirect target (public by necessity; the single-use state authenticates it). */
   @Get('oauth/callback') @Public() @Throttle({ default: { limit: 30, ttl: 60_000 } })
-  callback(@Query(new ZodPipe(z.object({ state: z.string().max(300).optional(), code: z.string().max(2000).optional(), error: z.string().max(200).optional() }))) q: { state?: string; code?: string; error?: string }) { return this.connections.callback(q); }
+  callback(@Query(new ZodPipe(z.object({ state: z.string().max(300).optional(), code: z.string().max(2000).optional(), error: z.string().max(200).optional() }))) q: { state?: string; code?: string; error?: string }, @Req() req: Request) {
+    const m = new RegExp(`(?:^|;\\s*)${OAUTH_COOKIE}=([A-Za-z0-9_-]{20,64})`).exec(req.headers.cookie ?? '');
+    return this.connections.callback(q, m?.[1] ?? null);
+  }
 
   // ---------- Public provider webhooks ----------
   @Get('webhooks/:provider/:tenantId') @Public() @Header('Content-Type', 'text/plain')

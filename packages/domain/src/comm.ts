@@ -47,6 +47,8 @@ export const commSettingsSchema = z.object({
     editWindowMinutes: z.number().int().min(0).max(10_080).default(15),
     maxLength: z.number().int().min(100).max(10_000).default(4000),
   }).default({}),
+  /** Inbound webhook binding: provider → the firm's account id (WhatsApp phone_number_id). Events for other accounts are rejected (Meta: required). */
+  providers: z.object({ inboundAccounts: z.record(z.enum(['mock', 'meta']), z.string().max(64)).default({}) }).default({}),
   appointments: z.object({ reminderMinutesBefore: z.array(z.number().int().min(5).max(10_080)).max(3).default([1440, 60]) }).default({}),
 });
 export type CommSettings = z.infer<typeof commSettingsSchema>;
