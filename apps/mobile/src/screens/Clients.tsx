@@ -110,6 +110,8 @@ export function ClientDetail({ theme, nav, id, onBack }: { theme: Theme; nav: Na
             <Feather name="log-out" size={16} color={theme.primary} /><Text style={s.ghostText}>{t('m.client.newOutward')}</Text></Pressable>
           <Pressable style={s.ghost} onPress={() => nav.push({ name: 'registers', clientId: id })} accessibilityRole="button">
             <Feather name="book" size={16} color={theme.primary} /><Text style={s.ghostText}>{t('m.client.registers')}</Text></Pressable>
+          <Pressable style={s.ghost} onPress={() => nav.push({ name: 'timeline', clientId: id })} accessibilityRole="button">
+            <Feather name="message-square" size={16} color={theme.primary} /><Text style={s.ghostText}>{t('m.comm.timeline')}</Text></Pressable>
           {billing && <Pressable style={s.ghost} onPress={() => nav.push({ name: 'outstanding', clientId: id })} accessibilityRole="button">
             <Feather name="credit-card" size={16} color={theme.primary} /><Text style={s.ghostText}>{t('m.bill.outstanding')}</Text></Pressable>}
         </View>

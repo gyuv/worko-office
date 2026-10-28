@@ -5,6 +5,7 @@ import pg from 'pg';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
+import { Clock } from '../src/common/clock.js';
 import { base32Decode, totp } from '../src/auth/crypto.js';
 import { type MockSmsProvider, SMS_PROVIDER } from '../src/auth/sms.provider.js';
 import { migrate } from '../src/db/migrate.js';
@@ -225,6 +226,49 @@ describe('demo seed', () => {
     expect(sma).toEqual([...sma].sort()); // numbers follow date order
     expect(all.items.some((x: { periodKey: string; status: string }) => x.periodKey === '2026-09' && x.status === 'done')).toBe(true); // recent done work exists
     expect((await http().post('/v1/billing/tally/dry-run').set(P).send({ entityId: e1, from: '2026-04-01', to: '2027-03-31' }).expect(200)).body.errors).toEqual([]);
+    // Phase 6: holidays, office fence, cost rates, time (approved + submitted), attendance (one flagged), leave incl. study leave, comp-off, expenses.
+    const A = bearer(tok.article!); const M = bearer(tok.manager!);
+    expect((await http().get('/v1/hr/holidays').set(A).expect(200)).body).toHaveLength(2);
+    expect((await http().get('/v1/hr/office-locations').set(P).expect(200)).body).toHaveLength(1);
+    expect((await http().get('/v1/hr/cost-rates').set(P).expect(200)).body).toHaveLength(5);
+    const te = (await http().get('/v1/time/entries?limit=1000').set(P).expect(200)).body.items as Array<{ status: string }>;
+    expect(te.filter((x) => x.status === 'approved').length).toBeGreaterThan(10);
+    expect(te.filter((x) => x.status === 'submitted').length).toBe(15);
+    const att = (await http().get('/v1/hr/attendance').set(M).expect(200)).body as Array<{ flags: string[] }>;
+    expect(att.filter((x) => x.flags.includes('out_of_fence'))).toHaveLength(1);
+    const lr = (await http().get('/v1/hr/leave/requests').set(A).expect(200)).body as Array<{ leaveTypeKey: string; status: string }>;
+    expect(lr.find((x) => x.leaveTypeKey === 'study')?.status).toBe('partially_approved');
+    const bal = (await http().get('/v1/hr/leave/balances').set(A).expect(200)).body.balances as Array<{ leaveType: { key: string }; balance: number }>;
+    expect(bal.find((b) => b.leaveType.key === 'comp_off')?.balance).toBe(0.5);
+    expect(bal.find((b) => b.leaveType.key === 'study')?.balance).toBe(8);
+    const claims = (await http().get('/v1/hr/expenses/claims').set(A).expect(200)).body as Array<{ status: string; advanceSettledPaise: number }>;
+    expect(claims[0]).toMatchObject({ status: 'paid', advanceSettledPaise: 140_000, paidPaise: 0 });
+    expect((await http().get('/v1/hr/expenses/advances').set(A).expect(200)).body.outstandingPaise).toBe(60_000);
+    expect((await http().get('/v1/hr/expenses/reimbursable').set(P).expect(200)).body.items).toHaveLength(0); // already linked to an invoice
+    const pnl = (await http().get('/v1/reports/job-pnl?from=2026-01-01&to=2026-12-31&groupBy=client').set(P).expect(200)).body;
+    expect(pnl.totals.costPaise).toBeGreaterThan(0);
+    expect((await http().get('/v1/reports/capacity?weeks=4&from=2026-10-12').set(M).expect(200)).body.users.length).toBeGreaterThanOrEqual(3);
+    // Phase 7: templates, consents (one opted out), a mixed timeline, triage inbox, broadcasts, team chat, calendar, booking.
+    const tpls = (await http().get('/v1/comm/templates').set(P).expect(200)).body as Array<{ status: string; name: string }>;
+    expect(new Set(tpls.map((x) => x.status))).toEqual(new Set(['approved', 'draft']));
+    const q = async <T,>(text: string) => { const c = new pg.Client({ connectionString: db.url }); await c.connect(); try { return (await c.query(text)).rows as T[]; } finally { await c.end(); } };
+    const firstClient = (await q<{ id: string }>(`SELECT id FROM client ORDER BY file_no LIMIT 1`))[0]!.id;
+    const tl = (await http().get(`/v1/clients/${firstClient}/timeline`).set(P).expect(200)).body.items as Array<{ kind: string; channel: string | null }>;
+    for (const ch of ['email', 'whatsapp', 'sms', 'note', 'call']) expect(tl.some((x) => x.kind === 'message' && x.channel === ch)).toBe(true);
+    expect(tl.some((x) => x.kind === 'document')).toBe(true);
+    expect((await http().get('/v1/comm/inbox').set(M).expect(200)).body).toHaveLength(1);
+    const cons = await q<{ status: string }>(`SELECT status FROM comm_consent`);
+    expect(cons.filter((x) => x.status === 'opted_out')).toHaveLength(1);
+    const bcs = (await http().get('/v1/comm/broadcasts').set(P).expect(200)).body as Array<{ status: string; id: string }>;
+    expect(bcs.map((b) => b.status).sort()).toEqual(['completed', 'draft']);
+    expect((await http().get(`/v1/comm/broadcasts/${bcs.find((b) => b.status === 'completed')!.id}`).set(P)).body.progress.counts).toEqual({ sent: 5, skipped_optout: 1 });
+    const chans = (await http().get('/v1/chat/channels').set(bearer(tok.senior!)).expect(200)).body as Array<{ kind: string }>;
+    expect(chans.map((c) => c.kind).sort()).toEqual(['client', 'team']);
+    expect((await http().get('/v1/notifications').set(A).expect(200)).body.some((n: { category: string }) => n.category === 'chat.mentioned')).toBe(true);
+    expect((await http().get('/v1/calendar/events?from=2026-10-15&to=2026-10-31').set(M).expect(200)).body.filter((i: { source: string }) => i.source === 'event').length).toBeGreaterThanOrEqual(3);
+    expect((await http().get('/v1/booking/appointments').set(P).expect(200)).body).toHaveLength(2);
+    app.get(Clock).set(new Date('2026-10-15T12:00:00+05:30')); // slots depend on "now"
+    try { expect((await http().get('/v1/book/demo/consult?from=2026-10-16&to=2026-10-22').expect(200)).body.slots.length).toBeGreaterThan(10); } finally { app.get(Clock).set(null); }
   });
 });
 

@@ -1,6 +1,6 @@
 import type { MessageKey } from '@worko/i18n';
 import type { Action, Module } from '@worko/domain';
-import { BarChart3, Bell, Briefcase, CalendarCheck, FileText, Home, IndianRupee, ScrollText, Shield, Users, CheckSquare, ArrowLeftRight, ListTodo, Settings, Wallet, type LucideIcon } from 'lucide-react';
+import { BarChart3, Bell, Clock, Fingerprint, Plane, Receipt, Briefcase, CalendarCheck, FileText, Home, IndianRupee, ScrollText, Shield, Users, CheckSquare, ArrowLeftRight, ListTodo, Settings, Wallet, Megaphone, MessagesSquare, CalendarDays, CalendarClock, type LucideIcon } from 'lucide-react';
 import type { Route } from '../lib/router';
 
 export type NavItem = { route: Route; label: MessageKey; icon: LucideIcon; phase?: number; perm?: [Module, Action]; shortcut?: string };
@@ -15,7 +15,15 @@ export const NAV: NavItem[] = [
   { route: 'receipts', label: 'nav.receipts', icon: Wallet, perm: ['receipts', 'view'] },
   { route: 'documents', label: 'nav.documents', icon: FileText, shortcut: 'g d' },
   { route: 'registers', label: 'nav.registers', icon: ArrowLeftRight, perm: ['registers', 'view'], shortcut: 'g r' },
-  { route: 'reports', label: 'nav.reports', icon: BarChart3, phase: 11 },
+  { route: 'time', label: 'p6.nav.time', icon: Clock, perm: ['time', 'view'] },
+  { route: 'attendance', label: 'p6.nav.attendance', icon: Fingerprint, perm: ['hr', 'view'] },
+  { route: 'leave', label: 'p6.nav.leave', icon: Plane, perm: ['hr', 'view'] },
+  { route: 'expenses', label: 'p6.nav.expenses', icon: Receipt, perm: ['hr', 'view'] },
+  { route: 'comm', label: 'p7.nav.comm', icon: Megaphone, perm: ['communication', 'view'] },
+  { route: 'chat', label: 'p7.nav.chat', icon: MessagesSquare },
+  { route: 'calendar', label: 'p7.nav.calendar', icon: CalendarDays },
+  { route: 'booking', label: 'p7.nav.booking', icon: CalendarClock, perm: ['communication', 'view'] },
+  { route: 'reports', label: 'nav.reports', icon: BarChart3 },
   { route: 'notifications', label: 'nav.notifications', icon: Bell, shortcut: 'g n' },
   { route: 'team', label: 'nav.team', icon: Users, perm: ['users', 'view'] },
   { route: 'security', label: 'nav.security', icon: Shield },

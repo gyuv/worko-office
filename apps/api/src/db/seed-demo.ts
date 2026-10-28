@@ -27,6 +27,8 @@ import { BillingAutoService } from '../billing/auto.service.js';
 import { InvoicesService } from '../billing/invoices.service.js';
 import { Clock } from '../common/clock.js';
 import { ReceiptsService } from '../billing/receipts.service.js';
+import { seedHr } from './seed-hr.js';
+import { seedComm } from './seed-comm.js';
 
 export const DEMO = { firm: 'demo', password: 'Demo@12345', users: [
   { name: 'Anita Sharma', email: 'partner@demo.worko.in', role: 'partner', phone: '+919800000001' },
@@ -71,6 +73,8 @@ export async function seedDemo(url: string, opts: { today?: string } = {}) {
       await seedTasks(db, tx, tenantId, userIds, today);
     });
     await seedBilling(db, tenantId, today);
+    await seedHr(db, tenantId, today);
+    await seedComm(db, tenantId, today);
     return { created: true, tenantId };
   } finally {
     await db.pool.end();

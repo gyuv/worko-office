@@ -53,17 +53,35 @@ import { BillingController } from './billing/billing.controller.js';
 import { CollectionsService } from './billing/collections.service.js';
 import { BillingConfigService } from './billing/config.service.js';
 import { InvoicesService } from './billing/invoices.service.js';
-import { CLIENT_MESSENGER, MockMessenger, PAYMENT_PROVIDERS, paymentProvidersFactory } from './billing/providers.js';
+import { CLIENT_MESSENGER, PAYMENT_PROVIDERS, paymentProvidersFactory } from './billing/providers.js';
 import { ReceiptsService } from './billing/receipts.service.js';
 import { Clock } from './common/clock.js';
 import { BillingReportsService } from './billing/reports.service.js';
+import { TimeController } from './time/time.controller.js';
+import { TimeService } from './time/time.service.js';
+import { TimeReportsService } from './time/reports.service.js';
+import { HrController } from './hr/hr.controller.js';
+import { HrConfigService } from './hr/config.service.js';
+import { AttendanceService } from './hr/attendance.service.js';
+import { LeaveService } from './hr/leave.service.js';
+import { ExpensesService } from './hr/expenses.service.js';
+import { BroadcastService } from './comm/broadcast.service.js';
+import { CalendarService } from './comm/calendar.service.js';
+import { channelAdaptersFactory, COMM_CHANNELS_TOKEN, INBOUND_PROVIDERS, inboundProvidersFactory, MockChannelHub, OAUTH_PROVIDERS, oauthProvidersFactory } from './comm/channels.js';
+import { CommMessenger } from './comm/billing-messenger.js';
+import { BookingAdminController, BookingPublicController, CalendarController, ChatController } from './comm/chat.controller.js';
+import { ChatService } from './comm/chat.service.js';
+import { CommController, TimelineController } from './comm/comm.controller.js';
+import { CommService } from './comm/comm.service.js';
+import { ConnectionsService } from './comm/connections.service.js';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ limit: Number(process.env.RATE_LIMIT ?? 300), ttl: 60_000 }])],
   controllers: [HealthController, RulesController, AuthController, UsersController, AuditController, TenancyController,
     SyncController, NotificationsController, TeamsController,
     ImportController, ClientsController, VaultController, DocumentsController, RegistersController,
-    TasksController, ComplianceController, BillingController],
+    TasksController, ComplianceController, BillingController, TimeController, HrController,
+    CommController, TimelineController, ChatController, CalendarController, BookingAdminController, BookingPublicController],
   providers: [
     DbService, AuditService, TokenService, AuthService, TenancyService, UsersService, RulesService,
     RealtimeService, RealtimeGateway, JobQueueService, SyncService, NotificationsService,
@@ -72,7 +90,14 @@ import { BillingReportsService } from './billing/reports.service.js';
     RulePackService, CatalogueService, TasksService, AutoTaskService, ComplianceService,
     { provide: Clock, useFactory: () => new Clock() },
     BillingConfigService, InvoicesService, ReceiptsService, BillingAutoService, BillingReportsService, CollectionsService,
-    { provide: CLIENT_MESSENGER, useFactory: () => new MockMessenger() },
+    TimeService, TimeReportsService, HrConfigService, AttendanceService, LeaveService, ExpensesService,
+    CommService, BroadcastService, ChatService, CalendarService, ConnectionsService,
+    { provide: MockChannelHub, useFactory: () => new MockChannelHub() },
+    { provide: COMM_CHANNELS_TOKEN, useFactory: channelAdaptersFactory, inject: [MockChannelHub] },
+    { provide: INBOUND_PROVIDERS, useFactory: inboundProvidersFactory },
+    { provide: OAUTH_PROVIDERS, useFactory: oauthProvidersFactory },
+    // Billing messages go through the communication pipeline (consent, quiet hours, caps, timeline — D98).
+    CommMessenger, { provide: CLIENT_MESSENGER, useExisting: CommMessenger },
     { provide: PAYMENT_PROVIDERS, useFactory: paymentProvidersFactory },
     { provide: KMS_PROVIDER, useFactory: () => new LocalKms() },
     { provide: STORAGE, useFactory: storageFactory },

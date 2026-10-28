@@ -22,7 +22,7 @@ export function channelFor(category: string, priority: string): string {
     case 'task': return 'tasks';
     case 'invoice': case 'payment': return 'billing';
     case 'dsc': case 'licence': case 'document': case 'client': return 'registers';
-    case 'leave': case 'attendance': case 'whatsapp': case 'automation': return 'team';
+    case 'leave': case 'attendance': case 'whatsapp': case 'automation': case 'chat': case 'comm': case 'broadcast': case 'appointment': return 'team';
     default: return 'system';
   }
 }

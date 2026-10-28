@@ -6,7 +6,8 @@ import { CollectionsService } from '../src/billing/collections.service.js';
 import { JobQueueService } from '../src/jobs/job-queue.service.js';
 import { Clock } from '../src/common/clock.js';
 import { assertPaymentConfig, type MockPaymentProvider, PAYMENT_PROVIDERS } from '../src/billing/providers.js';
-import { CLIENT_MESSENGER, type MockMessenger } from '../src/billing/providers.js';
+import { CLIENT_MESSENGER } from '../src/billing/providers.js';
+import type { CommMessenger as MockMessenger } from '../src/comm/billing-messenger.js';
 import { bearer, bootApp, type Session } from './helpers.js';
 
 let t: Awaited<ReturnType<typeof bootApp>>;
@@ -517,5 +518,17 @@ describe('phase 5 review fixes', () => {
     await t.http().get(`/v1/billing/public/${token}`).expect(200);
     await t.http().post(`/v1/billing/invoices/${x}/cancel`).set(H(f.p)).send({ reason: 'Raised in error' }).expect(204);
     await t.http().get(`/v1/billing/public/${token}`).expect(404);
+  });
+
+  it('billing sends go through the comm pipeline: a STOP\'d client gets no WhatsApp; email lands on the timeline', async () => {
+    const f = await firm('stopbill');
+    const c = await client(f.p, 'Stopper Ltd');
+    const id = await draft(f.p, c, [line(10_000)]); await issue(f.p, id, '2026-09-30').expect(200);
+    await t.http().post('/v1/comm/consents').set(H(f.p)).send({ clientId: c, channel: 'whatsapp', status: 'opted_out', source: 'whatsapp' }).expect(201);
+    expect((await t.http().post(`/v1/billing/invoices/${id}/send`).set(H(f.p)).send({ channel: 'whatsapp' }).expect(200)).body.status).toBe('failed');
+    expect((await t.sql<{ detail: string }>(`SELECT detail FROM billing_message WHERE invoice_id = $1 AND channel = 'whatsapp'`, [id]))[0]!.detail).toBe('opted_out');
+    expect((await t.http().post(`/v1/billing/invoices/${id}/send`).set(H(f.p)).send({ channel: 'email' }).expect(200)).body.status).toBe('sent');
+    const tl = (await t.http().get(`/v1/clients/${c}/timeline?channel=email`).set(H(f.p)).expect(200)).body.items;
+    expect(tl[0]).toMatchObject({ direction: 'out', status: 'sent', address: 'stopper@client.in' });
   });
 });

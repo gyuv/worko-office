@@ -14,6 +14,7 @@ import { themeFor, type Theme } from './theme';
 import { flushSignatures } from './net';
 import { useBillingPerms } from './screens/Billing';
 import { Stack } from './screens/Stack';
+import { useChatUnread } from './screens/Comm';
 
 const t = createTranslator('en-IN', { product: PRODUCT.name });
 const qc = new QueryClient({ defaultOptions: { queries: { retry: 1 } } });
@@ -87,7 +88,7 @@ function Tabs({ theme }: { theme: Theme }) {
   const s = styles(theme);
   const [tab, setTab] = useState<Tab>('home');
   const current = TABS.find((x) => x.key === tab)!;
-  const [sub, setSub] = useState<'registers' | 'collections' | null>(null);
+  const [sub, setSub] = useState<'registers' | 'collections' | 'hr' | 'chat' | 'calendar' | 'appointments' | null>(null);
   useSignatureRetry();
   return (
     <View style={{ flex: 1 }}>
@@ -98,7 +99,7 @@ function Tabs({ theme }: { theme: Theme }) {
             <Pressable onPress={() => setSub(null)} accessibilityRole="button" style={{ minHeight: 48, justifyContent: 'center' }}>
               <Text style={{ color: theme.primary, fontWeight: '600' }}>{t('nav.more')}</Text></Pressable>
             <Stack key={sub} theme={theme} root={{ name: sub }} /></View>
-            : <More theme={theme} onRegisters={() => setSub('registers')} onCollections={() => setSub('collections')} />) : tab === 'inbox' ? <Inbox theme={theme} />
+            : <More theme={theme} onRegisters={() => setSub('registers')} onCollections={() => setSub('collections')} onHr={() => setSub('hr')} onOpen={setSub} />) : tab === 'inbox' ? <Inbox theme={theme} />
           : <Text style={s.muted}>{t('home.comingSoon', { module: t(current.label), phase: current.phase ?? 0 })}</Text>}
       </View>
       <View style={s.tabbar} accessibilityRole="tablist">
@@ -196,7 +197,7 @@ function Home({ theme }: { theme: Theme }) {
   );
 }
 
-function More({ theme, onRegisters, onCollections }: { theme: Theme; onRegisters(): void; onCollections(): void }) {
+function More({ theme, onRegisters, onCollections, onHr, onOpen }: { theme: Theme; onRegisters(): void; onCollections(): void; onHr(): void; onOpen(x: 'chat' | 'calendar' | 'appointments'): void }) {
   const s = styles(theme);
   const qcl = useQueryClient();
   const setTokens = useSession((x) => x.setTokens);
@@ -207,13 +208,27 @@ function More({ theme, onRegisters, onCollections }: { theme: Theme; onRegisters
   });
   const active = useMemo(() => (sessions.data ?? []).filter((x) => !x.revokedAt), [sessions.data]);
   const billing = useBillingPerms().view;
+  const unread = useChatUnread();
   return (
     <View style={{ flex: 1 }}>
+      {([['chat', 'message-square', 'm.chat.title'], ['calendar', 'calendar', 'm.cal.title'], ['appointments', 'user-check', 'm.cal.appointments']] as const).map(([k, icon, label]) => (
+        <Pressable key={k} style={[s.row, { minHeight: 48 }]} onPress={() => onOpen(k)} accessibilityRole="button">
+          <Feather name={icon} size={18} color={theme.primary} style={{ marginRight: 10 }} />
+          <Text style={[s.text, { flex: 1 }]}>{t(label)}</Text>
+          {k === 'chat' && unread > 0 && <Text style={{ color: theme.primaryText, backgroundColor: theme.primary, borderRadius: 10, paddingHorizontal: 8, overflow: 'hidden', marginRight: 6 }}>{unread}</Text>}
+          <Feather name="chevron-right" size={18} color={theme.textMuted} />
+        </Pressable>
+      ))}
       {billing && <Pressable style={[s.row, { minHeight: 48 }]} onPress={onCollections} accessibilityRole="button">
         <Feather name="credit-card" size={18} color={theme.primary} style={{ marginRight: 10 }} />
         <Text style={[s.text, { flex: 1 }]}>{t('m.bill.collections')}</Text>
         <Feather name="chevron-right" size={18} color={theme.textMuted} />
       </Pressable>}
+      <Pressable style={[s.row, { minHeight: 48 }]} onPress={onHr} accessibilityRole="button">
+        <Feather name="clock" size={18} color={theme.primary} style={{ marginRight: 10 }} />
+        <Text style={[s.text, { flex: 1 }]}>{t('m.time.hub')}</Text>
+        <Feather name="chevron-right" size={18} color={theme.textMuted} />
+      </Pressable>
       <Pressable style={[s.row, { minHeight: 48 }]} onPress={onRegisters} accessibilityRole="button">
         <Feather name="book" size={18} color={theme.primary} style={{ marginRight: 10 }} />
         <Text style={[s.text, { flex: 1 }]}>{t('m.reg.title')}</Text>

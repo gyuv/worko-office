@@ -42,8 +42,8 @@ Each phase ends with a runnable build, green tests, reviewer-subagent audit, KNO
 - [x] Compliance rule engine core + seed pack + golden tests (`@worko/rules`)
 - [x] Rule pack storage/versions, firm approval flow, matrix view, trackers, late-fee calculators
 ## Phase 5 — Billing, receipts, ageing, auto-billing, follow-ups, reimbursements, payment links, Tally connector, exports ✅
-## Phase 6 — Time, costing, capacity; attendance (geofence), leave, expenses
-## Phase 7 — Email, WhatsApp/SMS, broadcasts, team chat, calendar sync, appointments
+## Phase 6 — Time, costing, capacity; attendance (geofence), leave, expenses ✅
+## Phase 7 — Email, WhatsApp/SMS, broadcasts, team chat, calendar sync, appointments ✅
 ## Phase 8 — Notices, audit workpapers, UDIN, DSC, licences, e-signature
 ## Phase 9 — Client portal (web + Android), leads/proposals
 ## Phase 10 — Automation builder, prebuilt agents, AI features

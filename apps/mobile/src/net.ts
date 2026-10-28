@@ -130,3 +130,32 @@ export async function recordReceipt(body: ReceiptBody) {
   void syncNow();
   return r;
 }
+
+// ---- phase 6: expense receipt photos (D93: receipts are documents the claimant uploaded; bytes never sync) ----
+
+/** Uploads a receipt photo as a firm document (no client) and returns its id for `receiptDocId`. */
+export async function uploadReceiptPhoto(f: RNFile, fy: string, category: string): Promise<string> {
+  const res = await postMultipart('/documents', () => {
+    const fd = new FormData();
+    fd.append('file', filePart(f)); fd.append('category', category); fd.append('fy', fy); fd.append('name', f.name);
+    return fd;
+  });
+  const body = (await res.json().catch(() => null)) as { id?: string; message?: string } | null;
+  if (!res.ok || !body?.id) throw new Error(body?.message ?? `HTTP ${res.status}`);
+  return body.id;
+}
+
+// ---- phase 7: chat photo attachments (D106: attachments = documents visible to members; bytes never sync) ----
+
+/** Uploads a photo as a document (under the channel's client when it has one) and returns its id for `attachment_doc_ids`. */
+export async function uploadChatPhoto(f: RNFile, meta: { clientId: string | null; fy: string; category: string }): Promise<string> {
+  const res = await postMultipart('/documents', () => {
+    const fd = new FormData();
+    fd.append('file', filePart(f)); fd.append('category', meta.category); fd.append('fy', meta.fy); fd.append('name', f.name);
+    if (meta.clientId) fd.append('clientId', meta.clientId);
+    return fd;
+  });
+  const body = (await res.json().catch(() => null)) as { id?: string; message?: string } | null;
+  if (!res.ok || !body?.id) throw new Error(body?.message ?? `HTTP ${res.status}`);
+  return body.id;
+}
