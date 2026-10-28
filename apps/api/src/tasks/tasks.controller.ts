@@ -38,10 +38,12 @@ const serviceB = z.object({
   description: z.string().max(2000).nullable().optional(), frequency: z.enum(SERVICE_FREQUENCIES), ruleId: z.string().max(100).nullable().optional(),
   slaDays: z.number().int().min(0).max(365).nullable().optional(), defaultChecks: z.array(checkSchema.pick({ key: true, label: true, required: true })).max(50).optional(),
   leaderId: uuidN, managerId: uuidN, reviewerId: uuidN, assigneeId: uuidN, billable: z.boolean().optional(), active: z.boolean().optional(),
+  sacCode: z.string().regex(/^\d{4,8}$/).nullable().optional(), gstRate: z.number().min(0).max(28).nullable().optional(),
 }).strict();
 const subB = z.object({
   active: z.boolean().optional(), startPeriod: month.nullable().optional(), endPeriod: month.nullable().optional(),
   leaderId: uuidN, managerId: uuidN, reviewerId: uuidN, assigneeId: uuidN, notes: z.string().max(2000).nullable().optional(),
+  billingFrequency: z.enum(['monthly', 'quarterly', 'annual']).nullable().optional(),
 }).strict();
 const todoWritable = z.object(SYNC_TABLES.todo!.writable).partial().strict();
 const templateB = z.object({ name: z.string().trim().min(1).max(200), items: z.array(z.object({ title: z.string().trim().min(1).max(300), offsetDays: z.number().int().min(-365).max(365).default(0) })).min(1).max(100) });

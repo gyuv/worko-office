@@ -7,6 +7,7 @@ const CHILD_MODULE: Record<string, Module> = {
   contact: 'clients', client_registration: 'clients', document: 'documents', inward_entry: 'registers', outward_entry: 'registers',
   // Tasks: approximated by the client's context (a task's own people may keep seeing it; they get it back on the touch below).
   client_service: 'tasks', task: 'tasks',
+  invoice: 'billing', receipt: 'receipts',
 };
 
 /**

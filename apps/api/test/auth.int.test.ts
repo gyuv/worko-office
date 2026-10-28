@@ -201,6 +201,26 @@ describe('demo seed', () => {
     expect(ext).toMatchObject({ status: 'draft', ruleId: 'gst.gstr3b.monthly', periodKey: '2026-09', newDueDate: '2026-10-25' });
     expect((await http().get(`/v1/compliance/extensions/${ext.id}/impact`).set(bearer(tok.partner!))).body.tasksToMove).toBeGreaterThan(0);
     expect((await http().post('/v1/tasks/auto/commit').set(bearer(tok.partner!)).send({ month: '2026-09' }).expect(200)).body.created).toBe(0);
+    // Phase 5: entities, invoices across statuses and ageing buckets, receipts with TDS, a credit note, advance, retainer, unbilled work.
+    const P = bearer(tok.partner!);
+    expect((await http().get('/v1/billing/entities').set(P).expect(200)).body.map((e: { invoicePrefix: string; registered: boolean }) => `${e.invoicePrefix}:${e.registered}`).sort()).toEqual(['SMA:true', 'SMK:true']);
+    const inv = (await http().get('/v1/billing/invoices?limit=1000').set(P).expect(200)).body.items as Array<{ status: string; kind: string; source: string; balancePaise: number; number: string | null }>;
+    for (const st of ['draft', 'issued', 'paid', 'partially_paid']) expect(inv.map((i) => i.status)).toContain(st);
+    expect(inv.some((i) => i.kind === 'credit_note')).toBe(true);
+    expect(inv.some((i) => i.source === 'retainer')).toBe(true);
+    expect(inv.find((i) => i.number === 'SMA/2627/0001')).toBeTruthy();
+    const ag = (await http().get('/v1/billing/ageing?asOf=2026-10-15').set(P).expect(200)).body;
+    expect(['notDue', 'd0_30', 'd31_60', 'd61_90', 'd90plus'].filter((b) => ag.totals[b] > 0).length).toBeGreaterThanOrEqual(4);
+    expect(ag.totals.totalPaise).toBe(inv.filter((i) => ['issued', 'partially_paid'].includes(i.status)).reduce((s, i) => s + i.balancePaise, 0));
+    expect(ag.totals.advancePaise).toBe(500_000);
+    const rec = (await http().get('/v1/billing/receipts').set(P).expect(200)).body.items as Array<{ tdsPaise: number }>;
+    expect(rec).toHaveLength(3);
+    expect(rec.some((r) => r.tdsPaise > 0)).toBe(true);
+    expect((await http().get('/v1/billing/unbilled').set(P).expect(200)).body.count).toBeGreaterThan(0);
+    expect((await http().get('/v1/billing/invoices').set(bearer(tok.accountant!)).expect(200)).body.total).toBe(inv.length);
+    await http().get('/v1/billing/invoices').set(bearer(tok.article!)).expect(403);
+    const e1 = (await http().get('/v1/billing/entities').set(P)).body.find((e: { invoicePrefix: string }) => e.invoicePrefix === 'SMA').id;
+    expect((await http().post('/v1/billing/tally/dry-run').set(P).send({ entityId: e1, from: '2026-04-01', to: '2027-03-31' }).expect(200)).body.errors).toEqual([]);
   });
 });
 

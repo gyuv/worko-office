@@ -22,6 +22,10 @@ import { SYNC_TABLES } from '../sync/registry.js';
 import { JobQueueService } from '../jobs/job-queue.service.js';
 import { todayIst } from '../compliance/facts.js';
 import { dates } from '@worko/rules';
+import { SEED_LADDER } from '@worko/domain';
+import { BillingAutoService } from '../billing/auto.service.js';
+import { InvoicesService } from '../billing/invoices.service.js';
+import { ReceiptsService } from '../billing/receipts.service.js';
 
 export const DEMO = { firm: 'demo', password: 'Demo@12345', users: [
   { name: 'Anita Sharma', email: 'partner@demo.worko.in', role: 'partner', phone: '+919800000001' },
@@ -65,6 +69,7 @@ export async function seedDemo(url: string, opts: { today?: string } = {}) {
       await seedPractice(tx, tenantId, branch, userIds, today);
       await seedTasks(db, tx, tenantId, userIds, today);
     });
+    await seedBilling(db, tenantId, today);
     return { created: true, tenantId };
   } finally {
     await db.pool.end();
@@ -185,7 +190,8 @@ async function seedTasks(db: DbService, tx: Tx, tenantId: string, users: Record<
   const tick = `(SELECT jsonb_agg(c || jsonb_build_object('done', true, 'doneBy', t.assignee_id, 'doneAt', now())) FROM jsonb_array_elements(t.checks) c)`;
   for (const id of older.ids) {
     const x = r();
-    if (x < 0.75) await tx.query(`UPDATE task t SET checks = ${tick}, status = 'done', completed_at = now(), outcome = $2, closed_at = CASE WHEN $2::text IS NULL THEN NULL ELSE now() END WHERE id = $1`, [id, x < 0.5 ? 'billed' : null]);
+    // Done tasks stay unbilled here; seedBilling invoices about two thirds of them (outcome 'billed' via the invoice link).
+    if (x < 0.75) await tx.query(`UPDATE task t SET checks = ${tick}, status = 'done', completed_at = $2 WHERE id = $1`, [id, new Date(`${dates.addDays(today, -25)}T12:00:00+05:30`)]);
     // the rest stay open → overdue in the demo
   }
   for (const id of recent.ids) {
@@ -193,7 +199,7 @@ async function seedTasks(db: DbService, tx: Tx, tenantId: string, users: Record<
     if (x < 0.2) await tx.query(`UPDATE task t SET status = 'in_progress' WHERE id = $1`, [id]);
     else if (x < 0.35) await tx.query(`UPDATE task t SET checks = ${tick}, status = 'review', reviewer_id = coalesce(reviewer_id, $2) WHERE id = $1`, [id, users.manager]);
     else if (x < 0.45) await tx.query(`UPDATE task t SET status = 'pending_client', pending_issue = 'Purchase register / bank statement awaited from client' WHERE id = $1`, [id]);
-    else if (x < 0.55) await tx.query(`UPDATE task t SET checks = ${tick}, status = 'done', completed_at = now() WHERE id = $1`, [id]);
+    else if (x < 0.55) await tx.query(`UPDATE task t SET checks = ${tick}, status = 'done', completed_at = $2 WHERE id = $1`, [id, new Date(`${dates.addDays(today, -3)}T12:00:00+05:30`)]);
   }
   await tx.query(`INSERT INTO task (id, tenant_id, title, description, statutory_due, act_by, assignee_id, manager_id, priority, created_by)
     VALUES ($1,$2,'Renew professional indemnity insurance','Firm task (no client)',$3,$3,$4,$4,'high',$4)`, [uuidv7(), tenantId, dates.addDays(today, 20), users.partner]);
@@ -208,6 +214,74 @@ async function seedTasks(db: DbService, tx: Tx, tenantId: string, users: Record<
   if (due) {
     await tx.query(`INSERT INTO rule_extension (id, tenant_id, rule_id, period_key, new_due_date, notification) VALUES ($1,$2,'gst.gstr3b.monthly',$3,$4,'DEMO — sample extension, not a real notification')`,
       [uuidv7(), tenantId, ym(-1), dates.addDays(due, 5)]);
+  }
+}
+
+/** Indicative demo fees per service (SAMPLE DATA — firms set their own rate tables). Rupees. */
+const DEMO_FEES: Record<string, number> = { GSTR3B: 1500, GSTR1: 1000, TDS_DEPOSIT: 750, TDS_RETURN: 2500, ITR: 3500, BOOKKEEPING: 5000, CONSULTATION: 3000 };
+
+/**
+ * Phase 5: two billing entities (registered in Maharashtra + a Karnataka LLP), rate tables for every service, ledger map,
+ * follow-up ladder, invoices auto-drafted from the older month's done tasks and issued on dates spread across the ageing
+ * buckets, a full payment, a part payment with TDS, a credit note, an advance, a retainer draft. Deterministic for `today`.
+ */
+async function seedBilling(db: DbService, tenantId: string, today: string) {
+  const audit = new AuditService(); const realtime = new RealtimeService();
+  const sync = new SyncService(db, audit, realtime, SYNC_TABLES);
+  const invoices = new InvoicesService(db, audit, sync, realtime);
+  const receipts = new ReceiptsService(db, audit, invoices, sync);
+  const auto = new BillingAutoService(db, invoices, audit, new JobQueueService(db));
+  const sys = systemActor(tenantId);
+  const [y, m] = today.split('-').map(Number) as [number, number];
+  const ym = (k: number) => { const x = dates.addMonths(y, m, k); return `${x.y}-${String(x.m).padStart(2, '0')}`; };
+  const toBill = await db.tenantTx(tenantId, async (tx) => {
+    const base = '27AABFS1234K1Z'; const base2 = '29AAKFS5678L1Z';
+    const e1 = (await tx.query('SELECT id FROM firm_entity ORDER BY id LIMIT 1')).rows[0].id;
+    await tx.query(`UPDATE firm_entity SET gstin = $2, pan = 'AABFS1234K', frn = '123456W', invoice_prefix = 'SMA', address = '301, Shivaji Nagar, Pune 411005',
+      email = 'accounts@sharmamehta.example.in', bank = $3 WHERE id = $1`,
+      [e1, base + gstinCheckChar(base), JSON.stringify({ name: 'HDFC Bank', accountNo: '50100012345678', ifsc: 'HDFC0000123', branch: 'Shivaji Nagar', upiId: 'sharmamehta@hdfcbank' })]);
+    await tx.query(`INSERT INTO firm_entity (id, tenant_id, name, gstin, pan, state_code, invoice_prefix, address) VALUES ($1,$2,'Sharma Mehta Advisory LLP',$3,'AAKFS5678L','29','SMK','12, MG Road, Bengaluru 560001')`,
+      [uuidv7(), tenantId, base2 + gstinCheckChar(base2)]);
+    await tx.query(`INSERT INTO billing_settings (tenant_id, default_entity_id, due_days, ladder, terms) VALUES ($1,$2,15,$3,'Payment within 15 days. Interest may apply on delayed payments.')`,
+      [tenantId, e1, JSON.stringify(SEED_LADDER)]);
+    const fy = `${m >= 4 ? y : y - 1}-04-01`;
+    await tx.query(`INSERT INTO billing_rate (id, tenant_id, service_type_id, amount_paise, effective_from, notes)
+      SELECT gen_random_uuid(), tenant_id, id, (COALESCE(($1::jsonb ->> key)::int, 2000) * 100), $2::date, 'Demo fee (sample)' FROM service_type WHERE deleted_at IS NULL`, [JSON.stringify(DEMO_FEES), fy]);
+    for (const [k, v] of [['sales', 'Professional Fees'], ['output_cgst', 'Output CGST'], ['output_sgst', 'Output SGST'], ['output_igst', 'Output IGST'], ['round_off', 'Round Off'],
+      ['reimbursement', 'Reimbursement of Expenses'], ['tds_receivable', 'TDS Receivable'], ['bank', 'HDFC Bank'], ['cash', 'Cash']]) {
+      await tx.query('INSERT INTO tally_ledger_map (id, tenant_id, account_key, ledger_name) VALUES ($1,$2,$3,$4)', [uuidv7(), tenantId, k, v]);
+    }
+    // A monthly bookkeeping retainer for the first two active clients.
+    const retain = (await tx.query(`SELECT id FROM client WHERE status = 'active' AND NOT sensitive ORDER BY file_no LIMIT 2`)).rows.map((r) => r.id);
+    await tx.query(`INSERT INTO client_service (id, tenant_id, client_id, service_type_id, billing_frequency)
+      SELECT gen_random_uuid(), $1, c, s.id, 'monthly' FROM unnest($2::uuid[]) c, service_type s WHERE s.key = 'BOOKKEEPING'`, [tenantId, retain]);
+    // Bill two thirds of the clients that have done-unbilled tasks from the older month.
+    const cs = (await tx.query(`SELECT DISTINCT t.client_id, c.file_no FROM task t JOIN client c ON c.id = t.client_id
+      WHERE t.status = 'done' AND t.outcome IS NULL AND t.period_key = $1 ORDER BY c.file_no`, [ym(-2)])).rows.map((r) => r.client_id as string);
+    return cs.filter((_, i) => i % 3 !== 2);
+  });
+  const { ids } = await auto.commit(sys, { to: dates.addDays(today, -20), clientIds: toBill });
+  await auto.commitRetainers(sys, ym(-1));
+  // Issue all but two drafts; issue dates walk back so balances land in every ageing bucket.
+  const offsets = [5, 12, 20, 40, 50, 70, 80, 100, 120, 150];
+  const issued: string[] = [];
+  for (const [i, id] of ids.entries()) {
+    if (i >= ids.length - 2) break;
+    const issueDate = dates.addDays(today, -offsets[i % offsets.length]!);
+    await invoices.issue(sys, id, { issueDate });
+    issued.push(id);
+  }
+  const inv = async (id: string) => invoices.get(sys, id);
+  if (issued.length >= 5) {
+    const full = await inv(issued[3]!);
+    await receipts.create(sys, { clientId: full.clientId as string, receivedOn: dates.addDays(today, -10), amountPaise: full.balancePaise, mode: 'bank', reference: 'NEFT DEMO001', allocations: [{ invoiceId: issued[3]!, amountPaise: full.balancePaise }] });
+    const part = await inv(issued[4]!);
+    const tds = Math.round(part.taxablePaise * 0.1);
+    await receipts.create(sys, { clientId: part.clientId as string, receivedOn: dates.addDays(today, -8), amountPaise: Math.round(part.balancePaise / 2) - tds, tdsPaise: tds, tdsSection: '194J',
+      mode: 'upi', reference: 'UPI DEMO002', allocations: [{ invoiceId: issued[4]!, amountPaise: Math.round(part.balancePaise / 2) - tds, tdsPaise: tds }] });
+    const cn = await inv(issued[2]!);
+    await invoices.note(sys, issued[2]!, { kind: 'credit_note', date: dates.addDays(today, -2), reason: 'Fee revised after discussion (demo)', lines: [{ description: 'Discount on GST compliance fees', taxablePaise: Math.min(50_000, Math.floor(cn.taxablePaise / 4)) }] });
+    await receipts.create(sys, { clientId: (await inv(issued[0]!)).clientId as string, receivedOn: dates.addDays(today, -1), amountPaise: 500_000, mode: 'cheque', reference: 'CHQ 000123', allocations: [] });
   }
 }
 

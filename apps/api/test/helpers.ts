@@ -16,7 +16,7 @@ export async function bootApp(opts: { listen?: boolean; override?: (b: TestingMo
   const db = await freshDatabase();
   let builder = Test.createTestingModule({ imports: [AppModule] });
   if (opts.override) builder = opts.override(builder);
-  const app: INestApplication = (await builder.compile()).createNestApplication();
+  const app: INestApplication = (await builder.compile()).createNestApplication({ rawBody: true });
   app.setGlobalPrefix('v1');
   if (opts.listen) await app.listen(0, '127.0.0.1'); else await app.init();
   const http = () => request(app.getHttpServer());

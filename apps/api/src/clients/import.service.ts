@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ENTITY_TYPES, entityHintFromPan, isValidGstin, isValidPan, panFromGstin, type EntityType } from '@worko/domain';
 import ExcelJS from 'exceljs';
+import { tabular } from '../common/export.js';
 import type { RequestActor } from '../auth/context.js';
 import { DbService } from '../db/db.service.js';
 import { clientCreate, type ClientCreate } from './clients.schemas.js';
@@ -172,18 +173,6 @@ export class ImportService {
     const cols = ['fileNo', 'name', 'tradeName', 'entityType', 'pan', 'primaryGstin', 'tan', 'email', 'phone', 'status', 'tags'] as const;
     const head = ['File no', 'Name', 'Trade name', 'Entity type', 'PAN', 'GSTIN', 'TAN', 'Email', 'Phone', 'Status', 'Tags'];
     const cell = (v: unknown) => (Array.isArray(v) ? v.join('; ') : v === null || v === undefined ? '' : String(v));
-    const date = new Date().toISOString().slice(0, 10);
-    if (format === 'csv') {
-      // Prefix formula-looking cells so spreadsheets don't execute them (CSV injection).
-      const esc = (s: string) => { const t = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s; return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
-      const body = [head, ...items.map((c) => cols.map((k) => cell(c[k])))].map((r) => r.map(esc).join(',')).join('\r\n');
-      return { name: `clients-${date}.csv`, mime: 'text/csv; charset=utf-8', body: Buffer.from('﻿' + body) };
-    }
-    const wb = new ExcelJS.Workbook();
-    const ws = wb.addWorksheet('Clients');
-    ws.addRow(head).font = { bold: true };
-    for (const c of items) ws.addRow(cols.map((k) => cell(c[k])));
-    ws.columns.forEach((col) => { col.width = 18; });
-    return { name: `clients-${date}.xlsx`, mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', body: Buffer.from(await wb.xlsx.writeBuffer()) };
+    return tabular(`clients-${new Date().toISOString().slice(0, 10)}`, 'Clients', head, items.map((c) => cols.map((k) => cell(c[k]))), format);
   }
 }

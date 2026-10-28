@@ -48,19 +48,30 @@ import { AutoTaskService } from './tasks/auto.service.js';
 import { CatalogueService } from './tasks/catalogue.service.js';
 import { TasksController } from './tasks/tasks.controller.js';
 import { TasksService } from './tasks/tasks.service.js';
+import { BillingAutoService } from './billing/auto.service.js';
+import { BillingController } from './billing/billing.controller.js';
+import { CollectionsService } from './billing/collections.service.js';
+import { BillingConfigService } from './billing/config.service.js';
+import { InvoicesService } from './billing/invoices.service.js';
+import { CLIENT_MESSENGER, MockMessenger, PAYMENT_PROVIDERS, paymentProvidersFactory } from './billing/providers.js';
+import { ReceiptsService } from './billing/receipts.service.js';
+import { BillingReportsService } from './billing/reports.service.js';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ limit: Number(process.env.RATE_LIMIT ?? 300), ttl: 60_000 }])],
   controllers: [HealthController, RulesController, AuthController, UsersController, AuditController, TenancyController,
     SyncController, NotificationsController, TeamsController,
     ImportController, ClientsController, VaultController, DocumentsController, RegistersController,
-    TasksController, ComplianceController],
+    TasksController, ComplianceController, BillingController],
   providers: [
     DbService, AuditService, TokenService, AuthService, TenancyService, UsersService, RulesService,
     RealtimeService, RealtimeGateway, JobQueueService, SyncService, NotificationsService,
     { provide: SYNC_TABLES_TOKEN, useValue: SYNC_TABLES },
     ClientsService, VisibilityService, ImportService, VaultService, DocumentsService, RegistersService, KeyService,
     RulePackService, CatalogueService, TasksService, AutoTaskService, ComplianceService,
+    BillingConfigService, InvoicesService, ReceiptsService, BillingAutoService, BillingReportsService, CollectionsService,
+    { provide: CLIENT_MESSENGER, useFactory: () => new MockMessenger() },
+    { provide: PAYMENT_PROVIDERS, useFactory: paymentProvidersFactory },
     { provide: KMS_PROVIDER, useFactory: () => new LocalKms() },
     { provide: STORAGE, useFactory: storageFactory },
     { provide: VIRUS_SCANNER, useClass: MockVirusScanner },

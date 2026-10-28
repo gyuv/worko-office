@@ -1633,6 +1633,561 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/billing/entities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Firm entities the firm bills from (billing:view). */
+        get: operations["listBillingEntities"];
+        put?: never;
+        /** @description Firm-wide settings:edit. */
+        post: operations["createBillingEntity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/entities/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description Firm-wide settings:edit. Prefix, state and GSTIN lock once the entity has issued documents (409 entity_locked). */
+        patch: operations["updateBillingEntity"];
+        trace?: never;
+    };
+    "/billing/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getBillingSettings"];
+        /** @description Firm-wide settings:edit. Ladder = follow-up steps (data). */
+        put: operations["putBillingSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/rates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listBillingRates"];
+        put?: never;
+        /** @description Firm-wide settings:edit. Client override > group override > default; latest effectiveFrom wins. */
+        post: operations["createBillingRate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/rates/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["updateBillingRate"];
+        trace?: never;
+    };
+    "/billing/tally/ledgers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listTallyLedgers"];
+        /** @description Upserts mappings; ledgerName null removes. Firm-wide settings:edit. */
+        put: operations["putTallyLedgers"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/tally/dry-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Firm-wide billing:export. Voucher XML + validation errors; nothing recorded. VERIFY AGAINST OFFICIAL DOCS (Tally XML). */
+        post: operations["tallyDryRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/tally/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Records exported vouchers (sync log); re-export skips them unless force. 400 tally_validation with issues. */
+        post: operations["tallyExport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/invoices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listInvoices"];
+        put?: never;
+        /** @description Draft. Taxes computed server-side; linked tasks become billed (409 task_not_billable / task_already_billed). */
+        post: operations["createInvoice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/invoices/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Invoice register (audited, formula-safe). */
+        get: operations["exportInvoices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/invoices/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getInvoice"];
+        put?: never;
+        post?: never;
+        /** @description Drafts only; its tasks become unbilled. */
+        delete: operations["deleteInvoice"];
+        options?: never;
+        head?: never;
+        /** @description Drafts only (409 invoice_immutable after issue). */
+        patch: operations["updateInvoice"];
+        trace?: never;
+    };
+    "/billing/invoices/{id}/issue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Assigns the next gap-free number of the entity × FY series and locks the content. */
+        post: operations["issueInvoice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/invoices/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description billing:approve. Only issued invoices with nothing settled (409 invoice_settled → use a credit note). */
+        post: operations["cancelInvoice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/invoices/{id}/notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description billing:approve. Credit (≤ balance) or debit note, issued immediately in its own series. */
+        post: operations["createInvoiceNote"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/invoices/{id}/follow-up": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Promise-to-pay date and/or pause; follow-ups stop while either applies. */
+        post: operations["setInvoiceFollowUp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/invoices/{id}/send": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Sends a signed link (never the document) by email/WhatsApp. */
+        post: operations["sendInvoice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/invoices/{id}/payment-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Link for the current balance (computed server-side). */
+        post: operations["createPaymentLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/invoices/{id}/pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["invoicePdf"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/auto/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Drafts per client from done-unbilled tasks (completed in the range) priced from the rate tables. */
+        post: operations["previewAutoBilling"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/auto/commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Idempotent (a task is on at most one live invoice). */
+        post: operations["commitAutoBilling"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/retainers/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["previewRetainers"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/retainers/commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description One draft per subscription × period (idempotent). */
+        post: operations["commitRetainers"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/receipts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listReceipts"];
+        put?: never;
+        /** @description receipts:create. Allocations omitted = FIFO (TDS first); [] = all advance. Online-only from mobile. */
+        post: operations["createReceipt"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/receipts/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["exportReceipts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/receipts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getReceipt"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/receipts/{id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Applies an advance (FIFO unless allocations given). */
+        post: operations["applyReceipt"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/receipts/{id}/pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["receiptPdf"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/ageing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Open balances by days past due (notDue, 0-30, 31-60, 61-90, 90+) per visible client; total = Σ client balances. */
+        get: operations["billingAgeing"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/unbilled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["unbilledTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/clients/{id}/outstanding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["clientOutstanding"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/follow-ups/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description settings:edit. Runs the ladder for asOf (the daily job does this at 10:00 IST). */
+        post: operations["runFollowUps"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/webhooks/{provider}/{tenantId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Public. HMAC-SHA256 of the raw body (x-razorpay-signature / x-worko-signature); idempotent per provider event id. */
+        post: operations["paymentWebhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/public/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Signed 30-day invoice link sent to clients (PDF). */
+        get: operations["publicInvoice"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2171,6 +2726,8 @@ export interface components {
             assigneeId?: string | null;
             billable: boolean;
             active: boolean;
+            sacCode?: string | null;
+            gstRate?: number | null;
             version?: number;
         };
         ServiceTypeIn: {
@@ -2193,6 +2750,10 @@ export interface components {
             assigneeId?: string | null;
             billable?: boolean;
             active?: boolean;
+            /** @description SAC (data; VERIFY AGAINST OFFICIAL DOCS) */
+            sacCode?: string | null;
+            /** @description GST % (null = firm default) */
+            gstRate?: number | null;
         };
         ClientService: {
             id: string;
@@ -2208,6 +2769,8 @@ export interface components {
             assigneeId?: string | null;
             active: boolean;
             notes?: string | null;
+            /** @enum {string|null} */
+            billingFrequency?: "monthly" | "quarterly" | "annual" | null;
             version?: number;
         };
         ClientServiceIn: {
@@ -2220,6 +2783,11 @@ export interface components {
             reviewerId?: string | null;
             assigneeId?: string | null;
             notes?: string | null;
+            /**
+             * @description Retainer billing from the rate table
+             * @enum {string|null}
+             */
+            billingFrequency?: "monthly" | "quarterly" | "annual" | null;
         };
         Task: {
             id: string;
@@ -2479,6 +3047,311 @@ export interface components {
             supported: boolean;
             table?: Record<string, never>;
             disclaimer: string;
+        };
+        BillingEntity: {
+            id: string;
+            name: string;
+            frn?: string | null;
+            pan?: string | null;
+            gstin?: string | null;
+            stateCode: string;
+            address?: string | null;
+            email?: string | null;
+            phone?: string | null;
+            bank?: Record<string, never>;
+            invoicePrefix: string;
+            logoDocId?: string | null;
+            active: boolean;
+            registered: boolean;
+        };
+        BillingEntityIn: {
+            name?: string;
+            frn?: string | null;
+            pan?: string | null;
+            gstin?: string | null;
+            stateCode?: string;
+            address?: string | null;
+            email?: string | null;
+            phone?: string | null;
+            bank?: {
+                name?: string;
+                accountNo?: string;
+                ifsc?: string;
+                branch?: string;
+                upiId?: string;
+            };
+            invoicePrefix?: string;
+            logoDocId?: string | null;
+            active?: boolean;
+        };
+        FollowupStep: {
+            step: number;
+            daysAfterDue: number;
+            channels: ("email" | "whatsapp")[];
+            escalate?: boolean;
+        };
+        BillingSettings: {
+            defaultEntityId?: string | null;
+            dueDays?: number;
+            defaultGstRate?: number;
+            defaultSac?: string;
+            ladder?: components["schemas"]["FollowupStep"][];
+            terms?: string | null;
+        };
+        BillingRate: {
+            id: string;
+            serviceTypeId: string;
+            serviceKey?: string;
+            clientId?: string | null;
+            groupId?: string | null;
+            amountPaise: number;
+            /** Format: date */
+            effectiveFrom: string;
+            effectiveTo?: string | null;
+            notes?: string | null;
+        };
+        BillingRateIn: {
+            serviceTypeId: string;
+            clientId?: string | null;
+            groupId?: string | null;
+            amountPaise: number;
+            /** Format: date */
+            effectiveFrom: string;
+            /** Format: date */
+            effectiveTo?: string | null;
+            notes?: string | null;
+        };
+        InvoiceLineIn: {
+            description: string;
+            sac?: string | null;
+            serviceTypeId?: string | null;
+            qty?: number;
+            ratePaise: number;
+            discountPaise?: number;
+            gstRate?: number | null;
+            reimbursement?: boolean;
+            taskIds?: string[];
+        };
+        InvoiceDraftIn: {
+            clientId: string;
+            entityId?: string | null;
+            notes?: string | null;
+            lines: components["schemas"]["InvoiceLineIn"][];
+        };
+        InvoiceNoteIn: {
+            /** @enum {string} */
+            kind: "credit_note" | "debit_note";
+            /** Format: date */
+            date: string;
+            reason: string;
+            lines: {
+                description: string;
+                taxablePaise: number;
+                gstRate?: number | null;
+                sac?: string | null;
+            }[];
+        };
+        Invoice: {
+            id: string;
+            /** @enum {string} */
+            kind: "invoice" | "credit_note" | "debit_note";
+            againstInvoiceId?: string | null;
+            entityId: string;
+            clientId: string;
+            clientName?: string;
+            /** @enum {string} */
+            status: "draft" | "issued" | "partially_paid" | "paid" | "cancelled";
+            number?: string | null;
+            fy?: number | null;
+            issueDate?: string | null;
+            dueDate?: string | null;
+            /** @enum {string} */
+            supplyType: "intra" | "inter" | "unregistered";
+            supplierState?: string;
+            placeOfSupply?: string | null;
+            supplierGstin?: string | null;
+            clientGstin?: string | null;
+            billTo?: Record<string, never>;
+            taxablePaise?: number;
+            cgstPaise?: number;
+            sgstPaise?: number;
+            igstPaise?: number;
+            reimbursementPaise?: number;
+            roundOffPaise?: number;
+            totalPaise: number;
+            allocatedPaise?: number;
+            tdsPaise?: number;
+            creditedPaise?: number;
+            balancePaise: number;
+            /** @enum {string} */
+            source: "manual" | "auto" | "retainer";
+            periodKey?: string | null;
+            notes?: string | null;
+            reason?: string | null;
+            promiseToPay?: string | null;
+            followupPaused?: boolean;
+            issuedAt?: string | null;
+            cancelledAt?: string | null;
+            cancelReason?: string | null;
+            version?: number;
+        };
+        InvoiceDetail: components["schemas"]["Invoice"] & {
+            lines?: {
+                id?: string;
+                description?: string;
+                sac?: string | null;
+                serviceTypeId?: string | null;
+                qty?: number;
+                ratePaise?: number;
+                discountPaise?: number;
+                gstRate?: number;
+                reimbursement?: boolean;
+                amountPaise?: number;
+                taxablePaise?: number;
+                cgstPaise?: number;
+                sgstPaise?: number;
+                igstPaise?: number;
+                totalPaise?: number;
+                taskIds?: string[];
+            }[];
+            allocations?: {
+                id?: string;
+                receiptId?: string;
+                receiptNumber?: string;
+                receivedOn?: string;
+                amountPaise?: number;
+                tdsPaise?: number;
+            }[];
+            notes?: components["schemas"]["Invoice"][];
+            messages?: {
+                kind?: string;
+                step?: number | null;
+                channel?: string;
+                status?: string;
+                detail?: string | null;
+                asOf?: string | null;
+                at?: string;
+            }[];
+            paymentLinks?: {
+                id?: string;
+                provider?: string;
+                url?: string;
+                amountPaise?: number;
+                status?: string;
+                createdAt?: string;
+            }[];
+        };
+        Allocation: {
+            invoiceId: string;
+            amountPaise: number;
+            tdsPaise?: number;
+        };
+        ReceiptIn: {
+            clientId: string;
+            entityId?: string | null;
+            /** Format: date */
+            receivedOn: string;
+            amountPaise: number;
+            tdsPaise?: number;
+            tdsSection?: string | null;
+            /** @enum {string} */
+            mode: "cash" | "bank" | "upi" | "cheque" | "online";
+            reference?: string | null;
+            notes?: string | null;
+            allocations?: components["schemas"]["Allocation"][];
+        };
+        Receipt: {
+            id: string;
+            entityId?: string;
+            clientId: string;
+            clientName?: string;
+            number: string;
+            fy?: number;
+            receivedOn: string;
+            amountPaise: number;
+            tdsPaise: number;
+            tdsSection?: string | null;
+            mode: string;
+            reference?: string | null;
+            notes?: string | null;
+            allocatedPaise: number;
+            unallocatedPaise: number;
+            source?: string;
+            version?: number;
+            allocations?: {
+                invoiceId?: string;
+                invoiceNumber?: string;
+                amountPaise?: number;
+                tdsPaise?: number;
+            }[];
+        };
+        AgeingBuckets: {
+            notDue?: number;
+            d0_30?: number;
+            d31_60?: number;
+            d61_90?: number;
+            d90plus?: number;
+        };
+        Ageing: {
+            asOf: string;
+            clients: {
+                clientId?: string;
+                clientName?: string;
+                buckets?: components["schemas"]["AgeingBuckets"];
+                totalPaise?: number;
+                advancePaise?: number;
+            }[];
+            totals: components["schemas"]["AgeingBuckets"] & {
+                totalPaise?: number;
+                advancePaise?: number;
+            };
+        };
+        UnbilledTask: {
+            taskId?: string;
+            clientId?: string;
+            clientName?: string;
+            title?: string;
+            periodKey?: string | null;
+            serviceTypeId?: string | null;
+            serviceKey?: string | null;
+            completedOn?: string | null;
+            suggestedPaise?: number | null;
+            retainer?: boolean;
+        };
+        AutoBillingIn: {
+            /** Format: date */
+            from?: string;
+            /** Format: date */
+            to: string;
+            clientIds?: string[];
+            entityId?: string | null;
+        };
+        TallyLedger: {
+            entityId?: string | null;
+            /** @description sales, output_cgst, output_sgst, output_igst, round_off, reimbursement, tds_receivable, bank, cash, sales:<SERVICEKEY>, party:<clientId> */
+            accountKey: string;
+            ledgerName?: string | null;
+        };
+        TallyExportIn: {
+            entityId: string;
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+            force?: boolean;
+        };
+        TallyResult: {
+            xml?: string;
+            count?: number;
+            invoices?: number;
+            receipts?: number;
+            batchId?: string;
+            errors?: {
+                voucherId?: string;
+                voucherNumber?: string;
+                code?: string;
+                account?: string;
+            }[];
         };
     };
     responses: {
@@ -5546,6 +6419,1038 @@ export interface operations {
                     "application/json": components["schemas"]["LateFee"];
                 };
             };
+        };
+    };
+    listBillingEntities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Entities */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BillingEntity"][];
+                };
+            };
+        };
+    };
+    createBillingEntity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BillingEntityIn"];
+            };
+        };
+        responses: {
+            201: components["responses"]["Created"];
+            400: components["responses"]["Error"];
+        };
+    };
+    updateBillingEntity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BillingEntityIn"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: components["responses"]["Error"];
+        };
+    };
+    getBillingSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BillingSettings"];
+                };
+            };
+        };
+    };
+    putBillingSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BillingSettings"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listBillingRates: {
+        parameters: {
+            query?: {
+                serviceTypeId?: string;
+                clientId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rates */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BillingRate"][];
+                };
+            };
+        };
+    };
+    createBillingRate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BillingRateIn"];
+            };
+        };
+        responses: {
+            201: components["responses"]["Created"];
+        };
+    };
+    updateBillingRate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    amountPaise?: number;
+                    /** Format: date */
+                    effectiveTo?: string | null;
+                    notes?: string | null;
+                    deleted?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listTallyLedgers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Mapping */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TallyLedger"][];
+                };
+            };
+        };
+    };
+    putTallyLedgers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TallyLedger"][];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tallyDryRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TallyExportIn"];
+            };
+        };
+        responses: {
+            /** @description Dry run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TallyResult"];
+                };
+            };
+        };
+    };
+    tallyExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TallyExportIn"];
+            };
+        };
+        responses: {
+            /** @description Exported */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TallyResult"];
+                };
+            };
+            400: components["responses"]["Error"];
+        };
+    };
+    listInvoices: {
+        parameters: {
+            query?: {
+                /** @description comma-separated */
+                status?: string;
+                kind?: "invoice" | "credit_note" | "debit_note";
+                clientId?: string;
+                from?: string;
+                to?: string;
+                overdueAsOf?: string;
+                q?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        total: number;
+                        items: components["schemas"]["Invoice"][];
+                    };
+                };
+            };
+        };
+    };
+    createInvoice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InvoiceDraftIn"];
+            };
+        };
+        responses: {
+            201: components["responses"]["Created"];
+            409: components["responses"]["Error"];
+        };
+    };
+    exportInvoices: {
+        parameters: {
+            query?: {
+                format?: "csv" | "xlsx";
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description File */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getInvoice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Invoice */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvoiceDetail"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteInvoice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: components["responses"]["Error"];
+        };
+    };
+    updateInvoice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    entityId?: string | null;
+                    notes?: string | null;
+                    lines?: components["schemas"]["InvoiceLineIn"][];
+                };
+            };
+        };
+        responses: {
+            /** @description Updated */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: components["responses"]["Error"];
+        };
+    };
+    issueInvoice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: date */
+                    issueDate: string;
+                    /** Format: date */
+                    dueDate?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Issued */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        number: string;
+                    };
+                };
+            };
+            409: components["responses"]["Error"];
+        };
+    };
+    cancelInvoice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Cancelled */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: components["responses"]["Error"];
+        };
+    };
+    createInvoiceNote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InvoiceNoteIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        number: string;
+                        totalPaise: number;
+                    };
+                };
+            };
+            409: components["responses"]["Error"];
+        };
+    };
+    setInvoiceFollowUp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: date */
+                    promiseToPay?: string | null;
+                    paused?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Saved */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sendInvoice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    channel: "email" | "whatsapp";
+                };
+            };
+        };
+        responses: {
+            /** @description Sent */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        status?: string;
+                    };
+                };
+            };
+        };
+    };
+    createPaymentLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Link */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        url: string;
+                        amountPaise: number;
+                        provider: string;
+                    };
+                };
+            };
+            409: components["responses"]["Error"];
+        };
+    };
+    invoicePdf: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description PDF */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    previewAutoBilling: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AutoBillingIn"];
+            };
+        };
+        responses: {
+            /** @description Plan */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        invoices?: number;
+                        tasks?: number;
+                        drafts?: Record<string, never>[];
+                        unpriced?: components["schemas"]["UnbilledTask"][];
+                    };
+                };
+            };
+        };
+    };
+    commitAutoBilling: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AutoBillingIn"];
+            };
+        };
+        responses: {
+            /** @description Result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        created: number;
+                        ids: string[];
+                        skipped: number;
+                        unpriced: number;
+                    };
+                };
+            };
+        };
+    };
+    previewRetainers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AutoTasksIn"];
+            };
+        };
+        responses: {
+            /** @description Plan */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        month?: string;
+                        toCreate?: number;
+                        items?: Record<string, never>[];
+                    };
+                };
+            };
+        };
+    };
+    commitRetainers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AutoTasksIn"];
+            };
+        };
+        responses: {
+            /** @description Result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        month?: string;
+                        created?: number;
+                        ids?: string[];
+                        skipped?: number;
+                    };
+                };
+            };
+        };
+    };
+    listReceipts: {
+        parameters: {
+            query?: {
+                clientId?: string;
+                from?: string;
+                to?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        total: number;
+                        items: components["schemas"]["Receipt"][];
+                    };
+                };
+            };
+        };
+    };
+    createReceipt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReceiptIn"];
+            };
+        };
+        responses: {
+            /** @description Recorded */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        number: string;
+                        allocations: components["schemas"]["Allocation"][];
+                    };
+                };
+            };
+        };
+    };
+    exportReceipts: {
+        parameters: {
+            query?: {
+                format?: "csv" | "xlsx";
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description File */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getReceipt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Receipt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Receipt"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    applyReceipt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    allocations?: components["schemas"]["Allocation"][];
+                };
+            };
+        };
+        responses: {
+            /** @description Applied */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        allocations?: components["schemas"]["Allocation"][];
+                    };
+                };
+            };
+        };
+    };
+    receiptPdf: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description PDF */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    billingAgeing: {
+        parameters: {
+            query?: {
+                asOf?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ageing */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ageing"];
+                };
+            };
+        };
+    };
+    unbilledTasks: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+                clientId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Done tasks with no outcome */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        count?: number;
+                        suggestedTotalPaise?: number;
+                        items?: components["schemas"]["UnbilledTask"][];
+                    };
+                };
+            };
+        };
+    };
+    clientOutstanding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Outstanding */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        clientId: string;
+                        items: Record<string, never>[];
+                        outstandingPaise: number;
+                        advancePaise: number;
+                        netPaise: number;
+                    };
+                };
+            };
+        };
+    };
+    runFollowUps: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: date */
+                    asOf: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        sent?: number;
+                        skipped?: number;
+                        escalated?: number;
+                    };
+                };
+            };
+        };
+    };
+    paymentWebhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: "mock" | "razorpay";
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Processed (or duplicate) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Error"];
+        };
+    };
+    publicInvoice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description PDF */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
         };
     };
 }

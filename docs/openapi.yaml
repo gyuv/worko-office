@@ -5,7 +5,7 @@ info:
   description: Contract for web, desktop, Android and the public API. Source of truth for @worko/api-client.
 servers: [{ url: /v1 }]
 security: [{ bearer: [] }]
-tags: [{ name: tasks }, { name: compliance }, { name: clients }, { name: vault }, { name: documents }, { name: registers }, { name: auth }, { name: tenancy }, { name: users }, { name: audit }, { name: rules }, { name: sync }, { name: notifications }, { name: system }]
+tags: [{ name: billing }, { name: tasks }, { name: compliance }, { name: clients }, { name: vault }, { name: documents }, { name: registers }, { name: auth }, { name: tenancy }, { name: users }, { name: audit }, { name: rules }, { name: sync }, { name: notifications }, { name: system }]
 paths:
   /health:
     get: { tags: [system], operationId: health, security: [], responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { status: { type: string }, product: { type: string } } } } } } } }
@@ -746,6 +746,93 @@ paths:
       description: INDICATIVE late fee + interest from unverified rate tables (data). Money in paise.
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [ruleId, dueDate, filedOn], properties: { ruleId: { type: string }, dueDate: { type: string, format: date }, filedOn: { type: string, format: date }, taxAmountPaise: { type: integer }, nilReturn: { type: boolean } } } } } }
       responses: { '200': { description: Indicative amounts, content: { application/json: { schema: { $ref: '#/components/schemas/LateFee' } } } } }
+  /billing/entities:
+    get: { tags: [billing], operationId: listBillingEntities, description: 'Firm entities the firm bills from (billing:view).', responses: { '200': { description: Entities, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/BillingEntity' } } } } } } }
+    post: { tags: [billing], operationId: createBillingEntity, description: 'Firm-wide settings:edit.', requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/BillingEntityIn' } } } }, responses: { '201': { $ref: '#/components/responses/Created' }, '400': { $ref: '#/components/responses/Error' } } }
+  /billing/entities/{id}:
+    patch: { tags: [billing], operationId: updateBillingEntity, description: 'Firm-wide settings:edit. Prefix, state and GSTIN lock once the entity has issued documents (409 entity_locked).', parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/BillingEntityIn' } } } }, responses: { '204': { description: Updated }, '409': { $ref: '#/components/responses/Error' } } }
+  /billing/settings:
+    get: { tags: [billing], operationId: getBillingSettings, responses: { '200': { description: Settings, content: { application/json: { schema: { $ref: '#/components/schemas/BillingSettings' } } } } } }
+    put: { tags: [billing], operationId: putBillingSettings, description: 'Firm-wide settings:edit. Ladder = follow-up steps (data).', requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/BillingSettings' } } } }, responses: { '204': { description: Saved } } }
+  /billing/rates:
+    get: { tags: [billing], operationId: listBillingRates, parameters: [{ name: serviceTypeId, in: query, schema: { type: string } }, { name: clientId, in: query, schema: { type: string } }], responses: { '200': { description: Rates, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/BillingRate' } } } } } } }
+    post: { tags: [billing], operationId: createBillingRate, description: 'Firm-wide settings:edit. Client override > group override > default; latest effectiveFrom wins.', requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/BillingRateIn' } } } }, responses: { '201': { $ref: '#/components/responses/Created' } } }
+  /billing/rates/{id}:
+    patch: { tags: [billing], operationId: updateBillingRate, parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { amountPaise: { type: integer }, effectiveTo: { type: [string, 'null'], format: date }, notes: { type: [string, 'null'] }, deleted: { type: boolean } } } } } }, responses: { '204': { description: Updated } } }
+  /billing/tally/ledgers:
+    get: { tags: [billing], operationId: listTallyLedgers, responses: { '200': { description: Mapping, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/TallyLedger' } } } } } } }
+    put: { tags: [billing], operationId: putTallyLedgers, description: 'Upserts mappings; ledgerName null removes. Firm-wide settings:edit.', requestBody: { required: true, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/TallyLedger' } } } } }, responses: { '204': { description: Saved } } }
+  /billing/tally/dry-run:
+    post: { tags: [billing], operationId: tallyDryRun, description: 'Firm-wide billing:export. Voucher XML + validation errors; nothing recorded. VERIFY AGAINST OFFICIAL DOCS (Tally XML).', requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TallyExportIn' } } } }, responses: { '200': { description: Dry run, content: { application/json: { schema: { $ref: '#/components/schemas/TallyResult' } } } } } }
+  /billing/tally/export:
+    post: { tags: [billing], operationId: tallyExport, description: 'Records exported vouchers (sync log); re-export skips them unless force. 400 tally_validation with issues.', requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TallyExportIn' } } } }, responses: { '200': { description: Exported, content: { application/json: { schema: { $ref: '#/components/schemas/TallyResult' } } } }, '400': { $ref: '#/components/responses/Error' } } }
+  /billing/invoices:
+    get:
+      tags: [billing]
+      operationId: listInvoices
+      parameters:
+        - { name: status, in: query, schema: { type: string }, description: comma-separated }
+        - { name: kind, in: query, schema: { type: string, enum: [invoice, credit_note, debit_note] } }
+        - { name: clientId, in: query, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: overdueAsOf, in: query, schema: { type: string, format: date } }
+        - { name: q, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer } }
+        - { name: offset, in: query, schema: { type: integer } }
+      responses: { '200': { description: Page, content: { application/json: { schema: { type: object, required: [total, items], properties: { total: { type: integer }, items: { type: array, items: { $ref: '#/components/schemas/Invoice' } } } } } } } }
+    post: { tags: [billing], operationId: createInvoice, description: 'Draft. Taxes computed server-side; linked tasks become billed (409 task_not_billable / task_already_billed).', requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/InvoiceDraftIn' } } } }, responses: { '201': { $ref: '#/components/responses/Created' }, '409': { $ref: '#/components/responses/Error' } } }
+  /billing/invoices/export:
+    get: { tags: [billing], operationId: exportInvoices, description: 'Invoice register (audited, formula-safe).', parameters: [{ name: format, in: query, schema: { type: string, enum: [csv, xlsx] } }, { name: from, in: query, schema: { type: string, format: date } }, { name: to, in: query, schema: { type: string, format: date } }], responses: { '200': { description: File } } }
+  /billing/invoices/{id}:
+    get: { tags: [billing], operationId: getInvoice, parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '200': { description: Invoice, content: { application/json: { schema: { $ref: '#/components/schemas/InvoiceDetail' } } } }, '404': { $ref: '#/components/responses/Error' } } }
+    patch: { tags: [billing], operationId: updateInvoice, description: 'Drafts only (409 invoice_immutable after issue).', parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { entityId: { type: [string, 'null'] }, notes: { type: [string, 'null'] }, lines: { type: array, items: { $ref: '#/components/schemas/InvoiceLineIn' } } } } } } }, responses: { '204': { description: Updated }, '409': { $ref: '#/components/responses/Error' } } }
+    delete: { tags: [billing], operationId: deleteInvoice, description: 'Drafts only; its tasks become unbilled.', parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '204': { description: Deleted }, '409': { $ref: '#/components/responses/Error' } } }
+  /billing/invoices/{id}/issue:
+    post: { tags: [billing], operationId: issueInvoice, description: 'Assigns the next gap-free number of the entity × FY series and locks the content.', parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [issueDate], properties: { issueDate: { type: string, format: date }, dueDate: { type: [string, 'null'], format: date } } } } } }, responses: { '200': { description: Issued, content: { application/json: { schema: { type: object, required: [number], properties: { number: { type: string } } } } } }, '409': { $ref: '#/components/responses/Error' } } }
+  /billing/invoices/{id}/cancel:
+    post: { tags: [billing], operationId: cancelInvoice, description: 'billing:approve. Only issued invoices with nothing settled (409 invoice_settled → use a credit note).', parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [reason], properties: { reason: { type: string } } } } } }, responses: { '204': { description: Cancelled }, '409': { $ref: '#/components/responses/Error' } } }
+  /billing/invoices/{id}/notes:
+    post: { tags: [billing], operationId: createInvoiceNote, description: 'billing:approve. Credit (≤ balance) or debit note, issued immediately in its own series.', parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/InvoiceNoteIn' } } } }, responses: { '201': { description: Created, content: { application/json: { schema: { type: object, required: [id, number, totalPaise], properties: { id: { type: string }, number: { type: string }, totalPaise: { type: integer } } } } } }, '409': { $ref: '#/components/responses/Error' } } }
+  /billing/invoices/{id}/follow-up:
+    post: { tags: [billing], operationId: setInvoiceFollowUp, description: 'Promise-to-pay date and/or pause; follow-ups stop while either applies.', parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { promiseToPay: { type: [string, 'null'], format: date }, paused: { type: boolean } } } } } }, responses: { '204': { description: Saved } } }
+  /billing/invoices/{id}/send:
+    post: { tags: [billing], operationId: sendInvoice, description: 'Sends a signed link (never the document) by email/WhatsApp.', parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [channel], properties: { channel: { type: string, enum: [email, whatsapp] } } } } } }, responses: { '200': { description: Sent, content: { application/json: { schema: { type: object, properties: { status: { type: string } } } } } } } }
+  /billing/invoices/{id}/payment-link:
+    post: { tags: [billing], operationId: createPaymentLink, description: 'Link for the current balance (computed server-side).', parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '201': { description: Link, content: { application/json: { schema: { type: object, required: [id, url, amountPaise, provider], properties: { id: { type: string }, url: { type: string }, amountPaise: { type: integer }, provider: { type: string } } } } } }, '409': { $ref: '#/components/responses/Error' } } }
+  /billing/invoices/{id}/pdf:
+    get: { tags: [billing], operationId: invoicePdf, parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '200': { description: PDF } } }
+  /billing/auto/preview:
+    post: { tags: [billing], operationId: previewAutoBilling, description: 'Drafts per client from done-unbilled tasks (completed in the range) priced from the rate tables.', requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AutoBillingIn' } } } }, responses: { '200': { description: Plan, content: { application/json: { schema: { type: object, properties: { invoices: { type: integer }, tasks: { type: integer }, drafts: { type: array, items: { type: object } }, unpriced: { type: array, items: { $ref: '#/components/schemas/UnbilledTask' } } } } } } } } }
+  /billing/auto/commit:
+    post: { tags: [billing], operationId: commitAutoBilling, description: Idempotent (a task is on at most one live invoice)., requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AutoBillingIn' } } } }, responses: { '200': { description: Result, content: { application/json: { schema: { type: object, required: [created, ids, skipped, unpriced], properties: { created: { type: integer }, ids: { type: array, items: { type: string } }, skipped: { type: integer }, unpriced: { type: integer } } } } } } } }
+  /billing/retainers/preview:
+    post: { tags: [billing], operationId: previewRetainers, requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AutoTasksIn' } } } }, responses: { '200': { description: Plan, content: { application/json: { schema: { type: object, properties: { month: { type: string }, toCreate: { type: integer }, items: { type: array, items: { type: object } } } } } } } } }
+  /billing/retainers/commit:
+    post: { tags: [billing], operationId: commitRetainers, description: One draft per subscription × period (idempotent)., requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AutoTasksIn' } } } }, responses: { '200': { description: Result, content: { application/json: { schema: { type: object, properties: { month: { type: string }, created: { type: integer }, ids: { type: array, items: { type: string } }, skipped: { type: integer } } } } } } } }
+  /billing/receipts:
+    get: { tags: [billing], operationId: listReceipts, parameters: [{ name: clientId, in: query, schema: { type: string } }, { name: from, in: query, schema: { type: string, format: date } }, { name: to, in: query, schema: { type: string, format: date } }, { name: limit, in: query, schema: { type: integer } }, { name: offset, in: query, schema: { type: integer } }], responses: { '200': { description: Page, content: { application/json: { schema: { type: object, required: [total, items], properties: { total: { type: integer }, items: { type: array, items: { $ref: '#/components/schemas/Receipt' } } } } } } } } }
+    post: { tags: [billing], operationId: createReceipt, description: 'receipts:create. Allocations omitted = FIFO (TDS first); [] = all advance. Online-only from mobile.', requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ReceiptIn' } } } }, responses: { '201': { description: Recorded, content: { application/json: { schema: { type: object, required: [id, number, allocations], properties: { id: { type: string }, number: { type: string }, allocations: { type: array, items: { $ref: '#/components/schemas/Allocation' } } } } } } } } }
+  /billing/receipts/export:
+    get: { tags: [billing], operationId: exportReceipts, parameters: [{ name: format, in: query, schema: { type: string, enum: [csv, xlsx] } }, { name: from, in: query, schema: { type: string, format: date } }, { name: to, in: query, schema: { type: string, format: date } }], responses: { '200': { description: File } } }
+  /billing/receipts/{id}:
+    get: { tags: [billing], operationId: getReceipt, parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '200': { description: Receipt, content: { application/json: { schema: { $ref: '#/components/schemas/Receipt' } } } }, '404': { $ref: '#/components/responses/Error' } } }
+  /billing/receipts/{id}/apply:
+    post: { tags: [billing], operationId: applyReceipt, description: Applies an advance (FIFO unless allocations given)., parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { allocations: { type: array, items: { $ref: '#/components/schemas/Allocation' } } } } } } }, responses: { '200': { description: Applied, content: { application/json: { schema: { type: object, properties: { allocations: { type: array, items: { $ref: '#/components/schemas/Allocation' } } } } } } } } }
+  /billing/receipts/{id}/pdf:
+    get: { tags: [billing], operationId: receiptPdf, parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '200': { description: PDF } } }
+  /billing/ageing:
+    get: { tags: [billing], operationId: billingAgeing, description: 'Open balances by days past due (notDue, 0-30, 31-60, 61-90, 90+) per visible client; total = Σ client balances.', parameters: [{ name: asOf, in: query, schema: { type: string, format: date } }], responses: { '200': { description: Ageing, content: { application/json: { schema: { $ref: '#/components/schemas/Ageing' } } } } } }
+  /billing/unbilled:
+    get: { tags: [billing], operationId: unbilledTasks, parameters: [{ name: from, in: query, schema: { type: string, format: date } }, { name: to, in: query, schema: { type: string, format: date } }, { name: clientId, in: query, schema: { type: string } }], responses: { '200': { description: Done tasks with no outcome, content: { application/json: { schema: { type: object, properties: { count: { type: integer }, suggestedTotalPaise: { type: integer }, items: { type: array, items: { $ref: '#/components/schemas/UnbilledTask' } } } } } } } } }
+  /billing/clients/{id}/outstanding:
+    get: { tags: [billing], operationId: clientOutstanding, parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '200': { description: Outstanding, content: { application/json: { schema: { type: object, required: [clientId, items, outstandingPaise, advancePaise, netPaise], properties: { clientId: { type: string }, items: { type: array, items: { type: object } }, outstandingPaise: { type: integer }, advancePaise: { type: integer }, netPaise: { type: integer } } } } } } } }
+  /billing/follow-ups/run:
+    post: { tags: [billing], operationId: runFollowUps, description: 'settings:edit. Runs the ladder for asOf (the daily job does this at 10:00 IST).', requestBody: { required: true, content: { application/json: { schema: { type: object, required: [asOf], properties: { asOf: { type: string, format: date } } } } } }, responses: { '200': { description: Result, content: { application/json: { schema: { type: object, properties: { sent: { type: integer }, skipped: { type: integer }, escalated: { type: integer } } } } } } } }
+  /billing/webhooks/{provider}/{tenantId}:
+    post: { tags: [billing], operationId: paymentWebhook, security: [], description: 'Public. HMAC-SHA256 of the raw body (x-razorpay-signature / x-worko-signature); idempotent per provider event id.', parameters: [{ name: provider, in: path, required: true, schema: { type: string, enum: [mock, razorpay] } }, { name: tenantId, in: path, required: true, schema: { type: string, format: uuid } }], requestBody: { required: true, content: { application/json: { schema: { type: object } } } }, responses: { '200': { description: Processed (or duplicate) }, '401': { $ref: '#/components/responses/Error' } } }
+  /billing/public/{token}:
+    get: { tags: [billing], operationId: publicInvoice, security: [], description: Signed 30-day invoice link sent to clients (PDF)., parameters: [{ name: token, in: path, required: true, schema: { type: string } }], responses: { '200': { description: PDF }, '404': { $ref: '#/components/responses/Error' } } }
 components:
   securitySchemes:
     bearer: { type: http, scheme: bearer, bearerFormat: JWT }
@@ -1054,6 +1141,8 @@ components:
         assigneeId: { type: [string, 'null'] }
         billable: { type: boolean }
         active: { type: boolean }
+        sacCode: { type: [string, 'null'] }
+        gstRate: { type: [number, 'null'] }
         version: { type: integer }
     ServiceTypeIn:
       type: object
@@ -1072,13 +1161,15 @@ components:
         assigneeId: { type: [string, 'null'] }
         billable: { type: boolean }
         active: { type: boolean }
+        sacCode: { type: [string, 'null'], pattern: '^\d{4,8}$', description: SAC (data; VERIFY AGAINST OFFICIAL DOCS) }
+        gstRate: { type: [number, 'null'], description: 'GST % (null = firm default)' }
     ClientService:
       type: object
       required: [id, clientId, serviceTypeId, active]
-      properties: { id: { type: string }, clientId: { type: string }, serviceTypeId: { type: string }, serviceKey: { type: string }, serviceName: { type: string }, startPeriod: { type: [string, 'null'] }, endPeriod: { type: [string, 'null'] }, leaderId: { type: [string, 'null'] }, managerId: { type: [string, 'null'] }, reviewerId: { type: [string, 'null'] }, assigneeId: { type: [string, 'null'] }, active: { type: boolean }, notes: { type: [string, 'null'] }, version: { type: integer } }
+      properties: { id: { type: string }, clientId: { type: string }, serviceTypeId: { type: string }, serviceKey: { type: string }, serviceName: { type: string }, startPeriod: { type: [string, 'null'] }, endPeriod: { type: [string, 'null'] }, leaderId: { type: [string, 'null'] }, managerId: { type: [string, 'null'] }, reviewerId: { type: [string, 'null'] }, assigneeId: { type: [string, 'null'] }, active: { type: boolean }, notes: { type: [string, 'null'] }, billingFrequency: { type: [string, 'null'], enum: [monthly, quarterly, annual, null] }, version: { type: integer } }
     ClientServiceIn:
       type: object
-      properties: { active: { type: boolean }, startPeriod: { type: [string, 'null'], description: YYYY-MM }, endPeriod: { type: [string, 'null'] }, leaderId: { type: [string, 'null'] }, managerId: { type: [string, 'null'] }, reviewerId: { type: [string, 'null'] }, assigneeId: { type: [string, 'null'] }, notes: { type: [string, 'null'] } }
+      properties: { active: { type: boolean }, startPeriod: { type: [string, 'null'], description: YYYY-MM }, endPeriod: { type: [string, 'null'] }, leaderId: { type: [string, 'null'] }, managerId: { type: [string, 'null'] }, reviewerId: { type: [string, 'null'] }, assigneeId: { type: [string, 'null'] }, notes: { type: [string, 'null'] }, billingFrequency: { type: [string, 'null'], enum: [monthly, quarterly, annual, null], description: Retainer billing from the rate table } }
     Task:
       type: object
       required: [id, title, status, priority, checks, source, version]
@@ -1206,3 +1297,129 @@ components:
       type: object
       required: [ruleId, daysLate, feePaise, interestPaise, totalPaise, lines, verified, indicative, supported, disclaimer]
       properties: { ruleId: { type: string }, form: { type: [string, 'null'] }, penaltyHint: { type: [string, 'null'] }, daysLate: { type: integer }, monthsLate: { type: integer }, feePaise: { type: integer }, interestPaise: { type: integer }, totalPaise: { type: integer }, lines: { type: array, items: { type: object, properties: { label: { type: string }, amountPaise: { type: integer } } } }, verified: { type: boolean }, indicative: { type: boolean }, supported: { type: boolean }, table: { type: object }, disclaimer: { type: string } }
+    BillingEntity:
+      type: object
+      required: [id, name, stateCode, invoicePrefix, active, registered]
+      properties: { id: { type: string }, name: { type: string }, frn: { type: [string, 'null'] }, pan: { type: [string, 'null'] }, gstin: { type: [string, 'null'] }, stateCode: { type: string }, address: { type: [string, 'null'] }, email: { type: [string, 'null'] }, phone: { type: [string, 'null'] }, bank: { type: object }, invoicePrefix: { type: string }, logoDocId: { type: [string, 'null'] }, active: { type: boolean }, registered: { type: boolean } }
+    BillingEntityIn:
+      type: object
+      properties: { name: { type: string }, frn: { type: [string, 'null'] }, pan: { type: [string, 'null'] }, gstin: { type: [string, 'null'] }, stateCode: { type: string, pattern: '^\d{2}$' }, address: { type: [string, 'null'] }, email: { type: [string, 'null'] }, phone: { type: [string, 'null'] }, bank: { type: object, properties: { name: { type: string }, accountNo: { type: string }, ifsc: { type: string }, branch: { type: string }, upiId: { type: string } } }, invoicePrefix: { type: string, pattern: '^[A-Z0-9]{1,4}$' }, logoDocId: { type: [string, 'null'] }, active: { type: boolean } }
+    FollowupStep:
+      type: object
+      required: [step, daysAfterDue, channels]
+      properties: { step: { type: integer }, daysAfterDue: { type: integer }, channels: { type: array, items: { type: string, enum: [email, whatsapp] } }, escalate: { type: boolean } }
+    BillingSettings:
+      type: object
+      properties: { defaultEntityId: { type: [string, 'null'] }, dueDays: { type: integer }, defaultGstRate: { type: number }, defaultSac: { type: string }, ladder: { type: array, items: { $ref: '#/components/schemas/FollowupStep' } }, terms: { type: [string, 'null'] } }
+    BillingRate:
+      type: object
+      required: [id, serviceTypeId, amountPaise, effectiveFrom]
+      properties: { id: { type: string }, serviceTypeId: { type: string }, serviceKey: { type: string }, clientId: { type: [string, 'null'] }, groupId: { type: [string, 'null'] }, amountPaise: { type: integer }, effectiveFrom: { type: string, format: date }, effectiveTo: { type: [string, 'null'] }, notes: { type: [string, 'null'] } }
+    BillingRateIn:
+      type: object
+      required: [serviceTypeId, amountPaise, effectiveFrom]
+      properties: { serviceTypeId: { type: string }, clientId: { type: [string, 'null'] }, groupId: { type: [string, 'null'] }, amountPaise: { type: integer }, effectiveFrom: { type: string, format: date }, effectiveTo: { type: [string, 'null'], format: date }, notes: { type: [string, 'null'] } }
+    InvoiceLineIn:
+      type: object
+      required: [description, ratePaise]
+      properties: { description: { type: string }, sac: { type: [string, 'null'] }, serviceTypeId: { type: [string, 'null'] }, qty: { type: number }, ratePaise: { type: integer }, discountPaise: { type: integer }, gstRate: { type: [number, 'null'] }, reimbursement: { type: boolean }, taskIds: { type: array, items: { type: string } } }
+    InvoiceDraftIn:
+      type: object
+      required: [clientId, lines]
+      properties: { clientId: { type: string }, entityId: { type: [string, 'null'] }, notes: { type: [string, 'null'] }, lines: { type: array, items: { $ref: '#/components/schemas/InvoiceLineIn' } } }
+    InvoiceNoteIn:
+      type: object
+      required: [kind, date, reason, lines]
+      properties: { kind: { type: string, enum: [credit_note, debit_note] }, date: { type: string, format: date }, reason: { type: string }, lines: { type: array, items: { type: object, required: [description, taxablePaise], properties: { description: { type: string }, taxablePaise: { type: integer }, gstRate: { type: [number, 'null'] }, sac: { type: [string, 'null'] } } } } }
+    Invoice:
+      type: object
+      required: [id, kind, entityId, clientId, status, supplyType, totalPaise, balancePaise, source]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [invoice, credit_note, debit_note] }
+        againstInvoiceId: { type: [string, 'null'] }
+        entityId: { type: string }
+        clientId: { type: string }
+        clientName: { type: string }
+        status: { type: string, enum: [draft, issued, partially_paid, paid, cancelled] }
+        number: { type: [string, 'null'] }
+        fy: { type: [integer, 'null'] }
+        issueDate: { type: [string, 'null'] }
+        dueDate: { type: [string, 'null'] }
+        supplyType: { type: string, enum: [intra, inter, unregistered] }
+        supplierState: { type: string }
+        placeOfSupply: { type: [string, 'null'] }
+        supplierGstin: { type: [string, 'null'] }
+        clientGstin: { type: [string, 'null'] }
+        billTo: { type: object }
+        taxablePaise: { type: integer }
+        cgstPaise: { type: integer }
+        sgstPaise: { type: integer }
+        igstPaise: { type: integer }
+        reimbursementPaise: { type: integer }
+        roundOffPaise: { type: integer }
+        totalPaise: { type: integer }
+        allocatedPaise: { type: integer }
+        tdsPaise: { type: integer }
+        creditedPaise: { type: integer }
+        balancePaise: { type: integer }
+        source: { type: string, enum: [manual, auto, retainer] }
+        periodKey: { type: [string, 'null'] }
+        notes: { type: [string, 'null'] }
+        reason: { type: [string, 'null'] }
+        promiseToPay: { type: [string, 'null'] }
+        followupPaused: { type: boolean }
+        issuedAt: { type: [string, 'null'] }
+        cancelledAt: { type: [string, 'null'] }
+        cancelReason: { type: [string, 'null'] }
+        version: { type: integer }
+    InvoiceDetail:
+      allOf:
+        - { $ref: '#/components/schemas/Invoice' }
+        - type: object
+          properties:
+            lines: { type: array, items: { type: object, properties: { id: { type: string }, description: { type: string }, sac: { type: [string, 'null'] }, serviceTypeId: { type: [string, 'null'] }, qty: { type: number }, ratePaise: { type: integer }, discountPaise: { type: integer }, gstRate: { type: number }, reimbursement: { type: boolean }, amountPaise: { type: integer }, taxablePaise: { type: integer }, cgstPaise: { type: integer }, sgstPaise: { type: integer }, igstPaise: { type: integer }, totalPaise: { type: integer }, taskIds: { type: array, items: { type: string } } } } }
+            allocations: { type: array, items: { type: object, properties: { id: { type: string }, receiptId: { type: string }, receiptNumber: { type: string }, receivedOn: { type: string }, amountPaise: { type: integer }, tdsPaise: { type: integer } } } }
+            notes: { type: array, items: { $ref: '#/components/schemas/Invoice' } }
+            messages: { type: array, items: { type: object, properties: { kind: { type: string }, step: { type: [integer, 'null'] }, channel: { type: string }, status: { type: string }, detail: { type: [string, 'null'] }, asOf: { type: [string, 'null'] }, at: { type: string } } } }
+            paymentLinks: { type: array, items: { type: object, properties: { id: { type: string }, provider: { type: string }, url: { type: string }, amountPaise: { type: integer }, status: { type: string }, createdAt: { type: string } } } }
+    Allocation:
+      type: object
+      required: [invoiceId, amountPaise]
+      properties: { invoiceId: { type: string }, amountPaise: { type: integer }, tdsPaise: { type: integer } }
+    ReceiptIn:
+      type: object
+      required: [clientId, receivedOn, amountPaise, mode]
+      properties: { clientId: { type: string }, entityId: { type: [string, 'null'] }, receivedOn: { type: string, format: date }, amountPaise: { type: integer }, tdsPaise: { type: integer }, tdsSection: { type: [string, 'null'] }, mode: { type: string, enum: [cash, bank, upi, cheque, online] }, reference: { type: [string, 'null'] }, notes: { type: [string, 'null'] }, allocations: { type: array, items: { $ref: '#/components/schemas/Allocation' } } }
+    Receipt:
+      type: object
+      required: [id, clientId, number, receivedOn, amountPaise, tdsPaise, mode, allocatedPaise, unallocatedPaise]
+      properties: { id: { type: string }, entityId: { type: string }, clientId: { type: string }, clientName: { type: string }, number: { type: string }, fy: { type: integer }, receivedOn: { type: string }, amountPaise: { type: integer }, tdsPaise: { type: integer }, tdsSection: { type: [string, 'null'] }, mode: { type: string }, reference: { type: [string, 'null'] }, notes: { type: [string, 'null'] }, allocatedPaise: { type: integer }, unallocatedPaise: { type: integer }, source: { type: string }, version: { type: integer }, allocations: { type: array, items: { type: object, properties: { invoiceId: { type: string }, invoiceNumber: { type: string }, amountPaise: { type: integer }, tdsPaise: { type: integer } } } } }
+    AgeingBuckets:
+      type: object
+      properties: { notDue: { type: integer }, d0_30: { type: integer }, d31_60: { type: integer }, d61_90: { type: integer }, d90plus: { type: integer } }
+    Ageing:
+      type: object
+      required: [asOf, clients, totals]
+      properties:
+        asOf: { type: string }
+        clients: { type: array, items: { type: object, properties: { clientId: { type: string }, clientName: { type: string }, buckets: { $ref: '#/components/schemas/AgeingBuckets' }, totalPaise: { type: integer }, advancePaise: { type: integer } } } }
+        totals: { allOf: [{ $ref: '#/components/schemas/AgeingBuckets' }, { type: object, properties: { totalPaise: { type: integer }, advancePaise: { type: integer } } }] }
+    UnbilledTask:
+      type: object
+      properties: { taskId: { type: string }, clientId: { type: string }, clientName: { type: string }, title: { type: string }, periodKey: { type: [string, 'null'] }, serviceTypeId: { type: [string, 'null'] }, serviceKey: { type: [string, 'null'] }, completedOn: { type: [string, 'null'] }, suggestedPaise: { type: [integer, 'null'] }, retainer: { type: boolean } }
+    AutoBillingIn:
+      type: object
+      required: [to]
+      properties: { from: { type: string, format: date }, to: { type: string, format: date }, clientIds: { type: array, items: { type: string } }, entityId: { type: [string, 'null'] } }
+    TallyLedger:
+      type: object
+      required: [accountKey]
+      properties: { entityId: { type: [string, 'null'] }, accountKey: { type: string, description: 'sales, output_cgst, output_sgst, output_igst, round_off, reimbursement, tds_receivable, bank, cash, sales:<SERVICEKEY>, party:<clientId>' }, ledgerName: { type: [string, 'null'] } }
+    TallyExportIn:
+      type: object
+      required: [entityId, from, to]
+      properties: { entityId: { type: string }, from: { type: string, format: date }, to: { type: string, format: date }, force: { type: boolean } }
+    TallyResult:
+      type: object
+      properties: { xml: { type: string }, count: { type: integer }, invoices: { type: integer }, receipts: { type: integer }, batchId: { type: string }, errors: { type: array, items: { type: object, properties: { voucherId: { type: string }, voucherNumber: { type: string }, code: { type: string }, account: { type: string } } } } }

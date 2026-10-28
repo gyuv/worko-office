@@ -286,6 +286,35 @@ export const SYNC_TABLES: Record<string, SyncTableDef> = {
     },
     audit: true,
   },
+  // Billing (D72): headers only, read-only on devices, client-scoped (clients:view AND billing/receipts:view). Money records are
+  // strict; every change is server-side (REST) and reaches devices through serverPatch. Lines/allocations stay server-side.
+  invoice: {
+    table: 'invoice',
+    columns: ['kind', 'against_invoice_id', 'entity_id', 'client_id', 'status', 'number', 'fy', 'issue_date', 'due_date', 'supply_type', 'supplier_state', 'place_of_supply',
+      'supplier_gstin', 'client_gstin', 'bill_to', 'taxable_paise', 'cgst_paise', 'sgst_paise', 'igst_paise', 'reimbursement_paise', 'round_off_paise', 'total_paise',
+      'allocated_paise', 'tds_paise', 'credited_paise', 'balance_paise', 'source', 'period_key', 'notes', 'reason', 'promise_to_pay', 'followup_paused', 'issued_at', 'cancelled_at', 'cancel_reason'],
+    json: ['bill_to'],
+    writable: {},
+    strict: true,
+    scope: (a, p) => `EXISTS (SELECT 1 FROM client c WHERE c.id = x.client_id AND ${clientScopeSql(a, 'clients', 'view', p)} AND ${clientScopeSql(a, 'billing', 'view', p)})`,
+    visible: (a) => !!a.superAdmin || ((effectiveScope(a, 'billing', 'view')?.scope ?? 'none') !== 'none' && !hiddenFieldsOf(a).includes('invoice.*')),
+    canInsert: () => false,
+    canUpdate: () => false,
+    canDelete: () => false,
+    audit: true,
+  },
+  receipt: {
+    table: 'receipt',
+    columns: ['entity_id', 'client_id', 'number', 'fy', 'received_on', 'amount_paise', 'tds_paise', 'tds_section', 'mode', 'reference', 'allocated_paise', 'unallocated_paise', 'source', 'created_at'],
+    writable: {},
+    strict: true,
+    scope: (a, p) => `EXISTS (SELECT 1 FROM client c WHERE c.id = x.client_id AND ${clientScopeSql(a, 'clients', 'view', p)} AND ${clientScopeSql(a, 'receipts', 'view', p)})`,
+    visible: (a) => !!a.superAdmin || ((effectiveScope(a, 'receipts', 'view')?.scope ?? 'none') !== 'none' && !hiddenFieldsOf(a).includes('invoice.*')),
+    canInsert: () => false,
+    canUpdate: () => false,
+    canDelete: () => false,
+    audit: true,
+  },
   // Personal to-dos: only ever synced to (and written by) their owner.
   todo: {
     table: 'todo',
@@ -309,6 +338,6 @@ export const SYNC_TABLES: Record<string, SyncTableDef> = {
 };
 
 /** Child tables whose visibility follows their client (used for revocations). */
-export const CLIENT_CHILD_TABLES = ['contact', 'client_registration', 'document', 'inward_entry', 'outward_entry', 'client_service', 'task'] as const;
+export const CLIENT_CHILD_TABLES = ['contact', 'client_registration', 'document', 'inward_entry', 'outward_entry', 'client_service', 'task', 'invoice', 'receipt'] as const;
 
 export const SYNC_TABLES_TOKEN = 'SYNC_TABLES';

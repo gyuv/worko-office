@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { can, canTask, clientCtx } from '@worko/domain';
+import { can, canTask, clientCtx, SEED_SAC_BY_CATEGORY } from '@worko/domain';
 import { AuditService } from '../audit/audit.service.js';
 import type { RequestActor } from '../auth/context.js';
 import { loadActors } from '../clients/actors.js';
@@ -14,29 +14,30 @@ import { defaultCatalogue } from './catalogue.js';
 export type ServiceTypeIn = {
   key?: string; name?: string; category?: string; description?: string | null; frequency?: string; ruleId?: string | null; slaDays?: number | null;
   defaultChecks?: Array<{ key: string; label: string; required: boolean }>; leaderId?: string | null; managerId?: string | null; reviewerId?: string | null;
-  assigneeId?: string | null; billable?: boolean; active?: boolean;
+  assigneeId?: string | null; billable?: boolean; active?: boolean; sacCode?: string | null; gstRate?: number | null;
 };
 export type ClientServiceIn = {
   active?: boolean; startPeriod?: string | null; endPeriod?: string | null; leaderId?: string | null; managerId?: string | null;
-  reviewerId?: string | null; assigneeId?: string | null; notes?: string | null;
+  reviewerId?: string | null; assigneeId?: string | null; notes?: string | null; billingFrequency?: 'monthly' | 'quarterly' | 'annual' | null;
 };
 const ST_COLS: Record<string, string> = {
   key: 'key', name: 'name', category: 'category', description: 'description', frequency: 'frequency', ruleId: 'rule_id', slaDays: 'sla_days',
   defaultChecks: 'default_checks', leaderId: 'leader_id', managerId: 'manager_id', reviewerId: 'reviewer_id', assigneeId: 'assignee_id', billable: 'billable', active: 'active',
+  sacCode: 'sac_code', gstRate: 'gst_rate',
 };
 const CS_COLS: Record<string, string> = {
-  active: 'active', startPeriod: 'start_period', endPeriod: 'end_period', leaderId: 'leader_id', managerId: 'manager_id', reviewerId: 'reviewer_id', assigneeId: 'assignee_id', notes: 'notes',
+  active: 'active', startPeriod: 'start_period', endPeriod: 'end_period', leaderId: 'leader_id', managerId: 'manager_id', reviewerId: 'reviewer_id', assigneeId: 'assignee_id', notes: 'notes', billingFrequency: 'billing_frequency',
 };
 const toRow = (cols: Record<string, string>, i: Record<string, unknown>) => Object.fromEntries(Object.entries(i).filter(([k, v]) => k in cols && v !== undefined).map(([k, v]) => [cols[k]!, v]));
 
 export const presentServiceType = (r: Record<string, unknown>) => ({
   id: r.id, key: r.key, name: r.name, category: r.category, description: r.description, frequency: r.frequency, ruleId: r.rule_id, slaDays: r.sla_days,
   defaultChecks: r.default_checks, leaderId: r.leader_id, managerId: r.manager_id, reviewerId: r.reviewer_id, assigneeId: r.assignee_id,
-  billable: r.billable, active: r.active, version: r.version,
+  billable: r.billable, active: r.active, sacCode: r.sac_code ?? null, gstRate: r.gst_rate == null ? null : Number(r.gst_rate), version: r.version,
 });
 const presentClientService = (r: Record<string, unknown>) => ({
   id: r.id, clientId: r.client_id, serviceTypeId: r.service_type_id, serviceKey: r.key, serviceName: r.name, startPeriod: r.start_period, endPeriod: r.end_period,
-  leaderId: r.leader_id, managerId: r.manager_id, reviewerId: r.reviewer_id, assigneeId: r.assignee_id, active: r.active, notes: r.notes, version: r.version,
+  leaderId: r.leader_id, managerId: r.manager_id, reviewerId: r.reviewer_id, assigneeId: r.assignee_id, active: r.active, notes: r.notes, billingFrequency: r.billing_frequency ?? null, version: r.version,
 });
 
 @Injectable()
@@ -106,7 +107,8 @@ export class CatalogueService {
     let created = 0; let skipped = 0; let cursor = 0;
     for (const s of defaultCatalogue(pack)) {
       if (have.has(s.key)) { skipped++; continue; }
-      const r = await this.insertType(tx, a, { key: s.key, name: s.name, category: s.category, frequency: s.frequency, ruleId: s.ruleId, slaDays: s.slaDays, defaultChecks: s.checks, billable: s.billable });
+      const r = await this.insertType(tx, a, { key: s.key, name: s.name, category: s.category, frequency: s.frequency, ruleId: s.ruleId, slaDays: s.slaDays, defaultChecks: s.checks, billable: s.billable,
+        sacCode: SEED_SAC_BY_CATEGORY[s.category] ?? null }); // seed SAC — VERIFY AGAINST OFFICIAL DOCS
       cursor = Math.max(cursor, r.cursor); created++;
     }
     return { created, skipped, cursor };
