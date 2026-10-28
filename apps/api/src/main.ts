@@ -6,7 +6,10 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { rawBody: true }); // raw body: payment webhook signatures
   app.setGlobalPrefix('v1');
   app.getHttpAdapter().getInstance().disable('x-powered-by');
-  app.getHttpAdapter().getInstance().set('trust proxy', 1);
+  // X-Forwarded-For is trusted only when TRUST_PROXY says how many proxy hops sit in front (e.g. 1 behind one load
+  // balancer); unset = use the socket address. Attendance IP allow-lists and rate limits depend on this (D88).
+  const hops = Number(process.env.TRUST_PROXY ?? 0);
+  app.getHttpAdapter().getInstance().set('trust proxy', Number.isInteger(hops) && hops > 0 ? hops : false);
   app.enableCors({ origin: (process.env.CORS_ORIGINS ?? 'http://localhost:5173').split(','), credentials: true });
   app.use((_req: unknown, res: { setHeader(k: string, v: string): void }, next: () => void) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');

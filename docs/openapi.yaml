@@ -1,11 +1,11 @@
 openapi: 3.1.0
 info:
   title: Worko API
-  version: 0.5.0
+  version: 0.6.0
   description: Contract for web, desktop, Android and the public API. Source of truth for @worko/api-client.
 servers: [{ url: /v1 }]
 security: [{ bearer: [] }]
-tags: [{ name: billing }, { name: tasks }, { name: compliance }, { name: clients }, { name: vault }, { name: documents }, { name: registers }, { name: auth }, { name: tenancy }, { name: users }, { name: audit }, { name: rules }, { name: sync }, { name: notifications }, { name: system }]
+tags: [{ name: time }, { name: hr }, { name: billing }, { name: tasks }, { name: compliance }, { name: clients }, { name: vault }, { name: documents }, { name: registers }, { name: auth }, { name: tenancy }, { name: users }, { name: audit }, { name: rules }, { name: sync }, { name: notifications }, { name: system }]
 paths:
   /health:
     get: { tags: [system], operationId: health, security: [], responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { status: { type: string }, product: { type: string } } } } } } } }
@@ -833,6 +833,113 @@ paths:
     post: { tags: [billing], operationId: paymentWebhook, security: [], description: 'Public. HMAC-SHA256 of the raw body (x-razorpay-signature / x-worko-signature); idempotent per provider event id.', parameters: [{ name: provider, in: path, required: true, schema: { type: string, enum: [mock, razorpay] } }, { name: tenantId, in: path, required: true, schema: { type: string, format: uuid } }], requestBody: { required: true, content: { application/json: { schema: { type: object } } } }, responses: { '200': { description: Processed (or duplicate) }, '401': { $ref: '#/components/responses/Error' } } }
   /billing/public/{token}:
     get: { tags: [billing], operationId: publicInvoice, security: [], description: Signed 30-day invoice link sent to clients (PDF)., parameters: [{ name: token, in: path, required: true, schema: { type: string } }], responses: { '200': { description: PDF }, '404': { $ref: '#/components/responses/Error' } } }
+  /time/entries:
+    get: { tags: [time], operationId: listTimeEntries, description: 'time:view. Own entries, plus people in scope (manager by reporting line, or time:view scope over the person) whose client — if any — the caller can see (D84).', parameters: [{ name: userId, in: query, schema: { type: string, format: uuid } }, { name: from, in: query, schema: { type: string, format: date } }, { name: to, in: query, schema: { type: string, format: date } }, { name: status, in: query, schema: { type: string, enum: [draft, submitted, approved, rejected] } }, { name: limit, in: query, schema: { type: integer } }, { name: offset, in: query, schema: { type: integer } }], responses: { '200': { description: Entries, content: { application/json: { schema: { type: object, required: [total, totalMinutes, items], properties: { total: { type: integer }, totalMinutes: { type: integer }, items: { type: array, items: { $ref: '#/components/schemas/TimeEntry' } } } } } } } } }
+    post: { tags: [time], operationId: createTimeEntry, description: 'time:edit (own). Client is taken from the task; no future dates; ≤ 24 h per day.', requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TimeEntryIn' } } } }, responses: { '201': { $ref: '#/components/responses/Created' }, '400': { $ref: '#/components/responses/Error' } } }
+  /time/entries/{id}:
+    get: { tags: [time], operationId: getTimeEntry, parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '200': { description: Entry, content: { application/json: { schema: { $ref: '#/components/schemas/TimeEntry' } } } }, '404': { $ref: '#/components/responses/Error' } } }
+    patch: { tags: [time], operationId: updateTimeEntry, description: Owner only; draft/rejected content, submit or withdraw. Approved entries are immutable (409)., parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TimeEntryPatch' } } } }, responses: { '204': { description: Updated }, '409': { $ref: '#/components/responses/Error' } } }
+    delete: { tags: [time], operationId: deleteTimeEntry, parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '204': { description: Deleted }, '409': { $ref: '#/components/responses/Error' } } }
+  /time/entries/decide:
+    post: { tags: [time], operationId: decideTimeEntries, description: 'Manager or time:approve over the person; never one''s own (skipped with reason self_approval).', requestBody: { required: true, content: { application/json: { schema: { type: object, required: [ids, approve], properties: { ids: { type: array, items: { type: string, format: uuid } }, approve: { type: boolean }, note: { type: [string, 'null'] } } } } } }, responses: { '200': { description: Results, content: { application/json: { schema: { type: object, properties: { approved: { type: integer }, rejected: { type: integer }, results: { type: array, items: { type: object, properties: { id: { type: string }, status: { type: string }, reason: { type: string } } } } } } } } } } }
+  /time/entries/{id}/reverse:
+    post: { tags: [time], operationId: reverseTimeEntry, description: Approver creates an approved negative entry (once) to correct an approved entry., parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [note], properties: { note: { type: string } } } } } }, responses: { '201': { $ref: '#/components/responses/Created' }, '409': { $ref: '#/components/responses/Error' } } }
+  /time/timesheets/submit:
+    post: { tags: [time], operationId: submitTimesheet, requestBody: { required: true, content: { application/json: { schema: { type: object, required: [weekStart], properties: { weekStart: { type: string, format: date } } } } } }, responses: { '200': { description: Submitted, content: { application/json: { schema: { type: object, properties: { weekStart: { type: string }, weekEnd: { type: string }, submitted: { type: integer } } } } } } } }
+  /time/timer:
+    get: { tags: [time], operationId: currentTimer, responses: { '200': { description: Running timer or null, content: { application/json: { schema: { type: [object, 'null'] } } } } } }
+  /time/timer/start:
+    post: { tags: [time], operationId: startTimer, description: One running timer per user (409 timer_running). Server time is authoritative., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { taskId: { type: [string, 'null'] }, clientId: { type: [string, 'null'] }, notes: { type: [string, 'null'] }, billable: { type: boolean }, deviceAt: { type: [string, 'null'], format: date-time } } } } } }, responses: { '201': { $ref: '#/components/responses/Created' }, '409': { $ref: '#/components/responses/Error' } } }
+  /time/timer/stop:
+    post: { tags: [time], operationId: stopTimer, description: Creates a draft entry from server timestamps, capped at the firm's timer cap (flagged)., requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { notes: { type: [string, 'null'] } } } } } }, responses: { '200': { description: Stopped, content: { application/json: { schema: { type: object, properties: { entryId: { type: string }, minutes: { type: integer }, capped: { type: boolean } } } } } }, '404': { $ref: '#/components/responses/Error' } } }
+  /activity/live:
+    get: { tags: [time], operationId: liveActivity, description: 'Running timers; task/client named only when visible to the caller, else "Busy".', responses: { '200': { description: Activity, content: { application/json: { schema: { type: object, properties: { asOf: { type: string }, items: { type: array, items: { type: object, properties: { userId: { type: string }, userName: { type: string }, startedAt: { type: string }, minutes: { type: integer }, label: { type: string }, task: { type: [object, 'null'] }, client: { type: [object, 'null'] }, inScope: { type: boolean } } } } } } } } } } }
+  /reports/job-pnl:
+    get: { tags: [time], operationId: jobPnl, description: 'reports:view on visible clients. Revenue (task-linked invoice lines net of credit notes), cost (approved minutes × cost rate; null without cost visibility), margin, WIP.', parameters: [{ name: from, in: query, required: true, schema: { type: string, format: date } }, { name: to, in: query, required: true, schema: { type: string, format: date } }, { name: groupBy, in: query, schema: { type: string, enum: [task, client, service] } }], responses: { '200': { description: P&L, content: { application/json: { schema: { $ref: '#/components/schemas/JobPnl' } } } } } }
+  /reports/capacity:
+    get: { tags: [time], operationId: capacityReport, parameters: [{ name: weeks, in: query, schema: { type: integer, minimum: 1, maximum: 26 } }, { name: from, in: query, schema: { type: string, format: date } }], responses: { '200': { description: Heat map, content: { application/json: { schema: { type: object, properties: { from: { type: string }, to: { type: string }, weeks: { type: array, items: { type: string } }, users: { type: array, items: { type: object } } } } } } } } }
+  /hr/settings:
+    get: { tags: [hr], operationId: hrSettings, responses: { '200': { description: Settings, content: { application/json: { schema: { type: object } } } } } }
+    put: { tags: [hr], operationId: putHrSettings, description: Firm-wide hr:edit., requestBody: { required: true, content: { application/json: { schema: { type: object } } } }, responses: { '200': { description: Saved, content: { application/json: { schema: { type: object } } } } } }
+  /hr/holidays:
+    get: { tags: [hr], operationId: listHolidays, parameters: [{ name: from, in: query, schema: { type: string, format: date } }, { name: to, in: query, schema: { type: string, format: date } }], responses: { '200': { description: Holidays, content: { application/json: { schema: { type: array, items: { type: object } } } } } } }
+    post: { tags: [hr], operationId: addHoliday, requestBody: { required: true, content: { application/json: { schema: { type: object, required: [date, name], properties: { date: { type: string, format: date }, name: { type: string }, branchId: { type: [string, 'null'] }, optional: { type: boolean } } } } } }, responses: { '201': { $ref: '#/components/responses/Created' }, '409': { $ref: '#/components/responses/Error' } } }
+  /hr/holidays/{id}:
+    delete: { tags: [hr], operationId: deleteHoliday, parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '204': { description: Deleted } } }
+  /hr/office-locations:
+    get: { tags: [hr], operationId: listOfficeLocations, responses: { '200': { description: Locations, content: { application/json: { schema: { type: array, items: { type: object } } } } } } }
+    post: { tags: [hr], operationId: addOfficeLocation, requestBody: { required: true, content: { application/json: { schema: { type: object, required: [name, lat, lng, radiusM], properties: { branchId: { type: [string, 'null'] }, name: { type: string }, lat: { type: number }, lng: { type: number }, radiusM: { type: integer }, active: { type: boolean } } } } } }, responses: { '201': { $ref: '#/components/responses/Created' } } }
+  /hr/office-locations/{id}:
+    patch: { tags: [hr], operationId: updateOfficeLocation, parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object } } } }, responses: { '200': { description: Saved } } }
+  /hr/leave-types:
+    get: { tags: [hr], operationId: listLeaveTypes, responses: { '200': { description: Types, content: { application/json: { schema: { type: array, items: { type: object } } } } } } }
+    post: { tags: [hr], operationId: addLeaveType, requestBody: { required: true, content: { application/json: { schema: { type: object, required: [key, name] } } } }, responses: { '201': { $ref: '#/components/responses/Created' } } }
+  /hr/leave-types/{id}:
+    patch: { tags: [hr], operationId: updateLeaveType, parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object } } } }, responses: { '200': { description: Saved } } }
+  /hr/expense-categories:
+    get: { tags: [hr], operationId: listExpenseCategories, responses: { '200': { description: Categories, content: { application/json: { schema: { type: array, items: { type: object } } } } } } }
+    put: { tags: [hr], operationId: saveExpenseCategory, requestBody: { required: true, content: { application/json: { schema: { type: object, required: [key, name], properties: { key: { type: string }, name: { type: string }, limitPaise: { type: [integer, 'null'] }, limitMode: { type: string, enum: [warn, block] }, active: { type: boolean } } } } } }, responses: { '200': { description: Saved } } }
+  /hr/capacity/{userId}:
+    put: { tags: [hr], operationId: setCapacity, parameters: [{ name: userId, in: path, required: true, schema: { type: string, format: uuid } }], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [weeklyMinutes], properties: { weeklyMinutes: { type: integer } } } } } }, responses: { '204': { description: Saved } } }
+  /hr/cost-rates:
+    get: { tags: [hr], operationId: listCostRates, description: 'Sensitive (D87): firm-wide settings:view or hr:approve and not hidden by cost.*.', parameters: [{ name: userId, in: query, schema: { type: string, format: uuid } }], responses: { '200': { description: Rates, content: { application/json: { schema: { type: array, items: { type: object } } } } }, '403': { $ref: '#/components/responses/Error' } } }
+    post: { tags: [hr], operationId: addCostRate, requestBody: { required: true, content: { application/json: { schema: { type: object, required: [userId, hourlyPaise, effectiveFrom], properties: { userId: { type: string }, hourlyPaise: { type: integer }, effectiveFrom: { type: string, format: date }, notes: { type: [string, 'null'] } } } } } }, responses: { '201': { $ref: '#/components/responses/Created' } } }
+  /hr/cost-rates/{id}:
+    delete: { tags: [hr], operationId: deleteCostRate, parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '204': { description: Deleted } } }
+  /hr/attendance/check-in:
+    post: { tags: [hr], operationId: checkIn, description: 'Geofence (server-side haversine) and/or request-IP allow-list; outside → flagged or needs approval per firm setting; coordinates rounded (D88).', requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { lat: { type: [number, 'null'] }, lng: { type: [number, 'null'] }, deviceAt: { type: [string, 'null'], format: date-time }, notes: { type: [string, 'null'] } } } } } }, responses: { '201': { description: Checked in, content: { application/json: { schema: { type: object, properties: { id: { type: string }, date: { type: string }, status: { type: string }, flags: { type: array, items: { type: string } }, inFence: { type: [boolean, 'null'] }, distanceM: { type: [integer, 'null'] }, ipOk: { type: [boolean, 'null'] } } } } } }, '409': { $ref: '#/components/responses/Error' } } }
+  /hr/attendance/check-out:
+    post: { tags: [hr], operationId: checkOut, requestBody: { required: true, content: { application/json: { schema: { type: object } } } }, responses: { '200': { description: Checked out, content: { application/json: { schema: { type: object, properties: { id: { type: string }, minutes: { type: integer } } } } } } } }
+  /hr/attendance:
+    get: { tags: [hr], operationId: listAttendance, parameters: [{ name: userId, in: query, schema: { type: string } }, { name: from, in: query, schema: { type: string, format: date } }, { name: to, in: query, schema: { type: string, format: date } }, { name: status, in: query, schema: { type: string } }], responses: { '200': { description: Attendance, content: { application/json: { schema: { type: array, items: { type: object } } } } } } }
+  /hr/attendance/{id}/decide:
+    post: { tags: [hr], operationId: decideAttendance, parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Decision' } } } }, responses: { '204': { description: Decided } } }
+  /hr/attendance/report:
+    get: { tags: [hr], operationId: attendanceReport, parameters: [{ name: month, in: query, required: true, schema: { type: string } }], responses: { '200': { description: Monthly report, content: { application/json: { schema: { type: object } } } } } }
+  /hr/attendance/regularisations:
+    get: { tags: [hr], operationId: listRegularisations, parameters: [{ name: status, in: query, schema: { type: string } }], responses: { '200': { description: Requests, content: { application/json: { schema: { type: array, items: { type: object } } } } } } }
+    post: { tags: [hr], operationId: requestRegularisation, requestBody: { required: true, content: { application/json: { schema: { type: object, required: [date, checkIn, reason], properties: { date: { type: string, format: date }, checkIn: { type: string, description: 'HH:MM IST' }, checkOut: { type: [string, 'null'] }, reason: { type: string } } } } } }, responses: { '201': { $ref: '#/components/responses/Created' } } }
+  /hr/attendance/regularisations/{id}/decide:
+    post: { tags: [hr], operationId: decideRegularisation, parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Decision' } } } }, responses: { '204': { description: Decided } } }
+  /hr/leave/balances:
+    get: { tags: [hr], operationId: leaveBalances, parameters: [{ name: userId, in: query, schema: { type: string } }], responses: { '200': { description: Balances from the ledger, content: { application/json: { schema: { type: object } } } } } }
+  /hr/leave/ledger:
+    get: { tags: [hr], operationId: leaveLedger, parameters: [{ name: userId, in: query, schema: { type: string } }], responses: { '200': { description: Ledger, content: { application/json: { schema: { type: array, items: { type: object } } } } } } }
+    post: { tags: [hr], operationId: adjustLeave, description: Firm-wide hr:approve; never one's own balance., requestBody: { required: true, content: { application/json: { schema: { type: object, required: [userId, leaveTypeId, delta, reason, note] } } } }, responses: { '204': { description: Recorded } } }
+  /hr/leave/accrue:
+    post: { tags: [hr], operationId: accrueLeave, requestBody: { required: true, content: { application/json: { schema: { type: object, required: [month], properties: { month: { type: string } } } } } }, responses: { '200': { description: Result, content: { application/json: { schema: { type: object } } } } } }
+  /hr/leave/comp-off/run:
+    post: { tags: [hr], operationId: runCompOff, description: Idempotent comp-off grant for a date range (the daily job runs yesterday)., requestBody: { required: true, content: { application/json: { schema: { type: object, required: [from, to], properties: { from: { type: string, format: date }, to: { type: string, format: date } } } } } }, responses: { '200': { description: Result, content: { application/json: { schema: { type: object, properties: { granted: { type: integer }, days: { type: number } } } } } } } }
+  /hr/leave/requests:
+    get: { tags: [hr], operationId: listLeaveRequests, parameters: [{ name: userId, in: query, schema: { type: string } }, { name: status, in: query, schema: { type: string } }, { name: from, in: query, schema: { type: string, format: date } }, { name: to, in: query, schema: { type: string, format: date } }], responses: { '200': { description: Requests, content: { application/json: { schema: { type: array, items: { type: object } } } } } } }
+    post: { tags: [hr], operationId: applyLeave, requestBody: { required: true, content: { application/json: { schema: { type: object, required: [leaveTypeId, from, to], properties: { leaveTypeId: { type: string }, from: { type: string, format: date }, to: { type: string, format: date }, startHalf: { type: boolean }, endHalf: { type: boolean }, reason: { type: [string, 'null'] } } } } } }, responses: { '201': { description: Applied, content: { application/json: { schema: { type: object, properties: { id: { type: string }, days: { type: number } } } } } }, '409': { $ref: '#/components/responses/Error' } } }
+  /hr/leave/requests/{id}/decide:
+    post: { tags: [hr], operationId: decideLeave, description: 'Manager or hr:approve; never self. approvedFrom/approvedTo within the request → partial approval.', parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [approve] } } } }, responses: { '200': { description: Decided, content: { application/json: { schema: { type: object, properties: { status: { type: string }, approvedDays: { type: number } } } } } } } }
+  /hr/leave/requests/{id}/cancel:
+    post: { tags: [hr], operationId: cancelLeave, parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '204': { description: Cancelled }, '409': { $ref: '#/components/responses/Error' } } }
+  /hr/expenses/claims:
+    get: { tags: [hr], operationId: listExpenseClaims, parameters: [{ name: userId, in: query, schema: { type: string } }, { name: status, in: query, schema: { type: string } }], responses: { '200': { description: Claims, content: { application/json: { schema: { type: array, items: { type: object } } } } } } }
+    post: { tags: [hr], operationId: createExpenseClaim, requestBody: { required: true, content: { application/json: { schema: { type: object, required: [title, lines] } } } }, responses: { '201': { description: Created, content: { application/json: { schema: { type: object, properties: { id: { type: string }, warnings: { type: array, items: { type: string } } } } } } } } }
+  /hr/expenses/claims/{id}:
+    get: { tags: [hr], operationId: getExpenseClaim, parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '200': { description: Claim with lines, content: { application/json: { schema: { type: object } } } } } }
+    patch: { tags: [hr], operationId: updateExpenseClaim, parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object } } } }, responses: { '200': { description: Updated } } }
+  /hr/expenses/claims/{id}/submit:
+    post: { tags: [hr], operationId: submitExpenseClaim, parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '204': { description: Submitted } } }
+  /hr/expenses/claims/{id}/decide:
+    post: { tags: [hr], operationId: decideExpenseClaim, description: Per-line partial approval (approved ≤ claimed)., parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [approve] } } } }, responses: { '200': { description: Decided, content: { application/json: { schema: { type: object, properties: { status: { type: string }, approvedPaise: { type: integer } } } } } } } }
+  /hr/expenses/claims/{id}/pay:
+    post: { tags: [hr], operationId: payExpenseClaim, description: Settles open advances first (FIFO), pays the rest., parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [reference], properties: { reference: { type: string } } } } } }, responses: { '200': { description: Paid, content: { application/json: { schema: { type: object, properties: { advanceSettledPaise: { type: integer }, paidPaise: { type: integer } } } } } } } }
+  /hr/expenses/advances:
+    get: { tags: [hr], operationId: listAdvances, parameters: [{ name: userId, in: query, schema: { type: string } }], responses: { '200': { description: Advances, content: { application/json: { schema: { type: object } } } } } }
+    post: { tags: [hr], operationId: requestAdvance, requestBody: { required: true, content: { application/json: { schema: { type: object, required: [purpose, amountPaise], properties: { purpose: { type: string }, amountPaise: { type: integer } } } } } }, responses: { '201': { $ref: '#/components/responses/Created' } } }
+  /hr/expenses/advances/{id}/decide:
+    post: { tags: [hr], operationId: decideAdvance, parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [approve], properties: { approve: { type: boolean }, approvedPaise: { type: integer }, note: { type: [string, 'null'] } } } } } }, responses: { '200': { description: Decided, content: { application/json: { schema: { type: object } } } } } }
+  /hr/expenses/advances/{id}/pay:
+    post: { tags: [hr], operationId: payAdvance, parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [reference], properties: { reference: { type: string } } } } } }, responses: { '204': { description: Paid } } }
+  /hr/expenses/reimbursable:
+    get: { tags: [hr], operationId: reimbursableExpenses, description: 'billing:view. Approved billable expense lines not yet on a live invoice, with a suggested reimbursement line.', parameters: [{ name: clientId, in: query, schema: { type: string } }], responses: { '200': { description: Lines, content: { application/json: { schema: { type: object, properties: { totalPaise: { type: integer }, items: { type: array, items: { type: object } } } } } } } } }
+  /hr/expenses/lines/{id}/link:
+    post: { tags: [hr], operationId: linkExpenseToInvoice, description: 'billing:edit. Links once to an equal-amount reimbursement line of the client''s live invoice.', parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [invoiceLineId], properties: { invoiceLineId: { type: string, format: uuid } } } } } }, responses: { '204': { description: Linked }, '409': { $ref: '#/components/responses/Error' } } }
 components:
   securitySchemes:
     bearer: { type: http, scheme: bearer, bearerFormat: JWT }
@@ -844,6 +951,24 @@ components:
     Tokens: { description: Tokens, content: { application/json: { schema: { $ref: '#/components/schemas/TokenPair' } } } }
     Created: { description: Created, content: { application/json: { schema: { type: object, required: [id], properties: { id: { type: string } } } } } }
   schemas:
+    TimeEntry:
+      type: object
+      required: [id, userId, workDate, minutes, billable, source, status]
+      properties: { id: { type: string }, userId: { type: string }, userName: { type: [string, 'null'] }, taskId: { type: [string, 'null'] }, taskTitle: { type: [string, 'null'] }, clientId: { type: [string, 'null'] }, clientName: { type: [string, 'null'] }, workDate: { type: string, format: date }, minutes: { type: integer }, billable: { type: boolean }, notes: { type: [string, 'null'] }, source: { type: string, enum: [timer, manual, reversal] }, status: { type: string, enum: [draft, submitted, approved, rejected] }, startedAt: { type: [string, 'null'] }, endedAt: { type: [string, 'null'] }, capped: { type: boolean }, reversesId: { type: [string, 'null'] }, submittedAt: { type: [string, 'null'] }, decidedBy: { type: [string, 'null'] }, decidedAt: { type: [string, 'null'] }, decisionNote: { type: [string, 'null'] }, version: { type: integer } }
+    TimeEntryIn:
+      type: object
+      required: [workDate, minutes]
+      properties: { taskId: { type: [string, 'null'] }, clientId: { type: [string, 'null'] }, workDate: { type: string, format: date }, minutes: { type: integer, minimum: 1, maximum: 1440 }, billable: { type: boolean }, notes: { type: [string, 'null'] }, submit: { type: boolean } }
+    TimeEntryPatch:
+      type: object
+      properties: { taskId: { type: [string, 'null'] }, clientId: { type: [string, 'null'] }, workDate: { type: string, format: date }, minutes: { type: integer }, billable: { type: boolean }, notes: { type: [string, 'null'] }, status: { type: string, enum: [draft, submitted] } }
+    JobPnl:
+      type: object
+      properties: { from: { type: string }, to: { type: string }, groupBy: { type: string }, costVisible: { type: boolean }, creditNotesPaise: { type: integer }, lossMaking: { type: integer }, totals: { type: object }, items: { type: array, items: { type: object, properties: { key: { type: string }, label: { type: string }, revenuePaise: { type: integer }, costPaise: { type: [integer, 'null'] }, marginPaise: { type: [integer, 'null'] }, marginPct: { type: [number, 'null'] }, wipPaise: { type: integer }, minutes: { type: integer }, loss: { type: boolean } } } } }
+    Decision:
+      type: object
+      required: [approve]
+      properties: { approve: { type: boolean }, note: { type: [string, 'null'] } }
     Error:
       type: object
       required: [statusCode, message]
@@ -1198,6 +1323,7 @@ components:
         closedAt: { type: [string, 'null'] }
         completedAt: { type: [string, 'null'] }
         source: { type: string, enum: [auto, manual] }
+        estimateMinutes: { type: [integer, 'null'] }
         ruleId: { type: [string, 'null'] }
         extensionId: { type: [string, 'null'] }
         version: { type: integer }
@@ -1207,6 +1333,7 @@ components:
       type: object
       description: snake_case like device sync; client_id/service_type_id/period_key only on create.
       properties:
+        estimate_minutes: { type: [integer, 'null'], minimum: 0, maximum: 100000 }
         client_id: { type: [string, 'null'] }
         service_type_id: { type: [string, 'null'] }
         period_key: { type: [string, 'null'] }

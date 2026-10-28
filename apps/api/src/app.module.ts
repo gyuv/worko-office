@@ -57,13 +57,21 @@ import { CLIENT_MESSENGER, MockMessenger, PAYMENT_PROVIDERS, paymentProvidersFac
 import { ReceiptsService } from './billing/receipts.service.js';
 import { Clock } from './common/clock.js';
 import { BillingReportsService } from './billing/reports.service.js';
+import { TimeController } from './time/time.controller.js';
+import { TimeService } from './time/time.service.js';
+import { TimeReportsService } from './time/reports.service.js';
+import { HrController } from './hr/hr.controller.js';
+import { HrConfigService } from './hr/config.service.js';
+import { AttendanceService } from './hr/attendance.service.js';
+import { LeaveService } from './hr/leave.service.js';
+import { ExpensesService } from './hr/expenses.service.js';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ limit: Number(process.env.RATE_LIMIT ?? 300), ttl: 60_000 }])],
   controllers: [HealthController, RulesController, AuthController, UsersController, AuditController, TenancyController,
     SyncController, NotificationsController, TeamsController,
     ImportController, ClientsController, VaultController, DocumentsController, RegistersController,
-    TasksController, ComplianceController, BillingController],
+    TasksController, ComplianceController, BillingController, TimeController, HrController],
   providers: [
     DbService, AuditService, TokenService, AuthService, TenancyService, UsersService, RulesService,
     RealtimeService, RealtimeGateway, JobQueueService, SyncService, NotificationsService,
@@ -72,6 +80,7 @@ import { BillingReportsService } from './billing/reports.service.js';
     RulePackService, CatalogueService, TasksService, AutoTaskService, ComplianceService,
     { provide: Clock, useFactory: () => new Clock() },
     BillingConfigService, InvoicesService, ReceiptsService, BillingAutoService, BillingReportsService, CollectionsService,
+    TimeService, TimeReportsService, HrConfigService, AttendanceService, LeaveService, ExpensesService,
     { provide: CLIENT_MESSENGER, useFactory: () => new MockMessenger() },
     { provide: PAYMENT_PROVIDERS, useFactory: paymentProvidersFactory },
     { provide: KMS_PROVIDER, useFactory: () => new LocalKms() },

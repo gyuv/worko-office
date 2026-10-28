@@ -1,9 +1,11 @@
-import { can, clientCtx, effectiveScope, ENTITY_TYPES, hiddenFieldsOf, isValidPan, isValidTan, TASK_PRIORITIES, TASK_STATUSES, taskChangeError, type TaskCheck } from '@worko/domain';
+import { can, canOwn, clientCtx, effectiveScope, ENTITY_TYPES, hiddenFieldsOf, isValidPan, isValidTan, TASK_PRIORITIES, TASK_STATUSES, taskChangeError, type TaskCheck } from '@worko/domain';
 import { prefsSchema } from '@worko/notify';
 import { z, type ZodTypeAny } from 'zod';
 import type { RequestActor } from '../auth/context.js';
 import { clientScopeSql, visibilityOf, type Params } from '../clients/scope.js';
 import type { Tx } from '../db/db.service.js';
+import { evaluateCheckIn } from '../hr/common.js';
+import { taskForEntry, timeEntryError } from '../time/rules.js';
 import { actorChangeError, canTaskRow, checkPeopleAndRevoke, clientOfTask, PEOPLE_COLS, stampChecks, stateOf, taskScopeSql } from '../tasks/scope.js';
 
 /**
@@ -92,6 +94,7 @@ export const taskWritable = {
   description: z.string().max(5000).nullable(), status: z.enum(TASK_STATUSES), priority: z.enum(TASK_PRIORITIES),
   statutory_due: date, act_by: date, leader_id: uuid.nullable(), manager_id: uuid.nullable(), assignee_id: uuid.nullable(), reviewer_id: uuid.nullable(),
   checks: z.array(checkSchema).max(50), pending_issue: z.string().max(2000).nullable(),
+  estimate_minutes: z.number().int().min(0).max(100_000).nullable(),
 };
 
 const items = z.array(z.object({ description: z.string().max(300), qty: z.number().int().min(1).max(10_000).default(1), original: z.boolean().default(false) })).max(100);
@@ -252,7 +255,7 @@ export const SYNC_TABLES: Record<string, SyncTableDef> = {
     table: 'task',
     columns: ['client_id', 'service_type_id', 'period_key', 'period_label', 'title', 'description', 'status', 'priority', 'statutory_due', 'act_by',
       'leader_id', 'manager_id', 'assignee_id', 'reviewer_id', 'checks', 'pending_issue', 'outcome', 'closed_at', 'completed_at', 'source', 'rule_id',
-      'extension_id', 'created_by', 'created_at'],
+      'extension_id', 'created_by', 'created_at', 'estimate_minutes'],
     json: ['checks'],
     writable: taskWritable,
     immutable: ['client_id', 'service_type_id', 'period_key'],
@@ -333,6 +336,102 @@ export const SYNC_TABLES: Record<string, SyncTableDef> = {
       const t = (await tx.query('SELECT * FROM task WHERE id = $1 AND deleted_at IS NULL', [next.task_id])).rows[0];
       return t && (await canTaskRow(a, 'view', t, tx)) ? null : 'invalid:task_id';
     },
+    audit: false,
+  },
+
+  // ---------- Phase 6 (D89): personal rows sync only to their owner; firm calendars to everyone with a role ----------
+  time_entry: {
+    table: 'time_entry',
+    columns: ['user_id', 'task_id', 'client_id', 'work_date', 'minutes', 'billable', 'notes', 'source', 'status', 'started_at', 'ended_at', 'capped',
+      'reverses_id', 'submitted_at', 'decided_by', 'decided_at', 'decision_note', 'created_at'],
+    writable: { task_id: uuid.nullable(), client_id: uuid.nullable(), work_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), minutes: z.number().int().min(1).max(1440),
+      billable: z.boolean(), notes: z.string().max(2000).nullable(), status: z.enum(['draft', 'submitted']) },
+    scope: (a, p) => `x.user_id = ${p.add(a.userId)}::uuid`,
+    visible: (a) => canOwn(a, 'time'),
+    canInsert: (a) => canOwn(a, 'time'),
+    beforeInsert: async (a, row, tx) => {
+      const t = row.task_id ? await taskForEntry(a, tx, row.task_id) : undefined;
+      return { user_id: a.userId, source: 'manual', status: row.status ?? 'draft', ...(t && row.client_id === undefined ? { client_id: t.client_id ?? null } : {}) };
+    },
+    canUpdate: (a, row) => row.user_id === a.userId && row.status !== 'approved',
+    canDelete: (a, row) => row.user_id === a.userId && ['draft', 'rejected'].includes(String(row.status)),
+    validate: (a, cur, next, tx) => timeEntryError(a, cur, next, tx),
+    derive: (_a, cur, patch) => ('status' in patch && patch.status !== cur?.status ? { submitted_at: patch.status === 'submitted' ? new Date().toISOString() : null } : {}),
+    audit: true,
+  },
+  // Read-only on devices: timers start/stop through REST so the server clock is authoritative.
+  time_timer: {
+    table: 'time_timer',
+    columns: ['user_id', 'task_id', 'client_id', 'notes', 'billable', 'started_at', 'device_started_at', 'stopped_at', 'entry_id'],
+    writable: {},
+    scope: (a, p) => `x.user_id = ${p.add(a.userId)}::uuid`,
+    visible: (a) => canOwn(a, 'time'),
+    canInsert: () => false, canUpdate: () => false, canDelete: () => false,
+    audit: true,
+  },
+  // Devices may check in (insert) and check out (update) offline; the server stamps its own times, fence, IP and skew.
+  attendance: {
+    table: 'attendance',
+    columns: ['user_id', 'work_date', 'check_in_at', 'check_out_at', 'device_check_in_at', 'device_check_out_at', 'in_lat', 'in_lng', 'out_lat', 'out_lng',
+      'location_id', 'distance_m', 'in_fence', 'ip_ok', 'method', 'flags', 'status', 'minutes', 'notes'],
+    writable: { device_check_in_at: iso, in_lat: z.number().min(-90).max(90).nullable(), in_lng: z.number().min(-180).max(180).nullable(),
+      device_check_out_at: iso, out_lat: z.number().min(-90).max(90).nullable(), out_lng: z.number().min(-180).max(180).nullable(), notes: z.string().max(500).nullable() },
+    immutable: ['device_check_in_at', 'in_lat', 'in_lng'],
+    scope: (a, p) => `x.user_id = ${p.add(a.userId)}::uuid`,
+    visible: (a) => canOwn(a, 'hr'),
+    canInsert: (a) => canOwn(a, 'hr'),
+    beforeInsert: async (a, row, tx) => {
+      const ev = await evaluateCheckIn(tx, { lat: row.in_lat as number | null, lng: row.in_lng as number | null, deviceAt: row.device_check_in_at ? new Date(String(row.device_check_in_at)) : null,
+        ip: null, serverAt: new Date(), branchId: a.branchId, method: 'offline' });
+      return { ...ev, user_id: a.userId, device_check_out_at: null, out_lat: null, out_lng: null };
+    },
+    canUpdate: (a, row) => row.user_id === a.userId && !row.check_out_at,
+    validate: (_a, cur, next) => (cur && next.device_check_out_at == null && (next.out_lat != null || next.out_lng != null) ? 'invalid:device_check_out_at' : null),
+    derive: (_a, cur, patch) => {
+      if (!cur || !('device_check_out_at' in patch) || !patch.device_check_out_at) return {};
+      const out = new Date();
+      const lat = typeof patch.out_lat === 'number' ? Math.round(patch.out_lat * 1e4) / 1e4 : null;
+      const lng = typeof patch.out_lng === 'number' ? Math.round(patch.out_lng * 1e4) / 1e4 : null;
+      return { check_out_at: out.toISOString(), out_lat: lat, out_lng: lng, minutes: Math.max(0, Math.round((out.getTime() - new Date(cur.check_in_at as string).getTime()) / 60_000)) };
+    },
+    audit: true,
+  },
+  holiday: {
+    table: 'holiday',
+    columns: ['on_date', 'name', 'branch_id', 'optional'],
+    writable: {},
+    scope: (a, p) => `(x.branch_id IS NULL OR x.branch_id IS NOT DISTINCT FROM ${p.add(a.branchId)}::uuid)`,
+    visible: (a) => !!a.roles.length || !!a.superAdmin,
+    canUpdate: () => false,
+    audit: true,
+  },
+  leave_type: {
+    table: 'leave_type',
+    columns: ['key', 'name', 'paid', 'tracked', 'applies_to_roles', 'accrual', 'carry_forward_cap', 'allow_half_day', 'max_days_per_request', 'comp_off', 'active', 'sort', 'notes'],
+    json: ['accrual'],
+    writable: {},
+    scope: () => 'TRUE',
+    visible: (a) => !!a.roles.length || !!a.superAdmin,
+    canUpdate: () => false,
+    audit: true,
+  },
+  leave_request: {
+    table: 'leave_request',
+    columns: ['user_id', 'leave_type_id', 'from_date', 'to_date', 'start_half', 'end_half', 'days', 'reason', 'status', 'approved_from', 'approved_to',
+      'approved_start_half', 'approved_end_half', 'approved_days', 'decided_by', 'decided_at', 'decision_note', 'cancelled_at', 'created_at'],
+    writable: {},
+    scope: (a, p) => `x.user_id = ${p.add(a.userId)}::uuid`,
+    visible: (a) => canOwn(a, 'hr'),
+    canUpdate: () => false,
+    audit: true,
+  },
+  leave_ledger: {
+    table: 'leave_ledger',
+    columns: ['user_id', 'leave_type_id', 'delta', 'reason', 'ref_key', 'request_id', 'on_date', 'expires_on', 'note', 'created_at'],
+    writable: {},
+    scope: (a, p) => `x.user_id = ${p.add(a.userId)}::uuid`,
+    visible: (a) => canOwn(a, 'hr'),
+    canUpdate: () => false,
     audit: false,
   },
 };

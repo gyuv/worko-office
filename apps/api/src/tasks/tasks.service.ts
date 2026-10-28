@@ -23,7 +23,7 @@ export function presentTask(r: Record<string, unknown>) {
     periodKey: r.period_key, periodLabel: r.period_label, title: r.title, description: r.description, status: r.status, priority: r.priority,
     statutoryDue: ymd(r.statutory_due), actBy: ymd(r.act_by), leaderId: r.leader_id, managerId: r.manager_id, assigneeId: r.assignee_id, reviewerId: r.reviewer_id,
     checks: r.checks, pendingIssue: r.pending_issue, outcome: r.outcome, outcomeNote: r.outcome_note, closedAt: r.closed_at, completedAt: r.completed_at,
-    source: r.source, ruleId: r.rule_id, extensionId: r.extension_id, version: r.version, createdAt: r.created_at, updatedAt: r.updated_at,
+    source: r.source, estimateMinutes: r.estimate_minutes ?? null, ruleId: r.rule_id, extensionId: r.extension_id, version: r.version, createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
 
