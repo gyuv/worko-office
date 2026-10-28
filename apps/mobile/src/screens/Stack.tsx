@@ -4,6 +4,7 @@ import { isTablet } from '../logic/layout';
 import type { RegisterKind } from '../logic/registers';
 import type { Theme } from '../theme';
 import { t, ui } from '../ui';
+import { ClientOutstanding, Collections, InvoiceDetail, InvoiceList, RecordReceipt } from './Billing';
 import { ClientDetail, ClientList } from './Clients';
 import { DocUpload } from './DocUpload';
 import { EntryDetail, RegisterForm, RegisterList } from './Registers';
@@ -12,7 +13,8 @@ import { Compliance, TaskDetail, TaskList, Todos } from './Tasks';
 export type Route =
   | { name: 'clients' } | { name: 'client'; id: string } | { name: 'upload'; clientId: string }
   | { name: 'registers'; clientId?: string } | { name: 'regForm'; kind: RegisterKind; clientId?: string } | { name: 'entry'; kind: RegisterKind; id: string }
-  | { name: 'tasks' } | { name: 'task'; id: string } | { name: 'todos' } | { name: 'compliance' };
+  | { name: 'tasks' } | { name: 'task'; id: string } | { name: 'todos' } | { name: 'compliance' }
+  | { name: 'collections' } | { name: 'invoices' } | { name: 'invoice'; id: string } | { name: 'outstanding'; clientId: string } | { name: 'receipt'; clientId: string };
 export type Nav = { push(r: Route): void; pop(): void; replace(r: Route): void; reset(r?: Route): void };
 
 /** A tiny stack (no navigation library). On tablets the root list stays on the left and the top route shows on the right. */
@@ -57,5 +59,10 @@ function render(r: Route, nav: Nav, theme: Theme, isRoot: boolean, placeholder =
     case 'task': return scroll(<TaskDetail key={r.id} theme={theme} id={r.id} onBack={back} />);
     case 'todos': return <Todos theme={theme} onBack={back} />;
     case 'compliance': return <Compliance theme={theme} nav={nav} onBack={back} />;
+    case 'collections': return <Collections theme={theme} nav={nav} onBack={back} />;
+    case 'invoices': return <InvoiceList theme={theme} nav={nav} onBack={back} />;
+    case 'invoice': return scroll(<InvoiceDetail key={r.id} theme={theme} nav={nav} id={r.id} onBack={back} />);
+    case 'outstanding': return <ClientOutstanding key={r.clientId} theme={theme} nav={nav} clientId={r.clientId} onBack={back} />;
+    case 'receipt': return scroll(<RecordReceipt key={r.clientId} theme={theme} clientId={r.clientId} onBack={back} />);
   }
 }

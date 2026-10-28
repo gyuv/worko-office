@@ -7,6 +7,7 @@ import { openDocument } from '../net';
 import { useSync } from '../sync';
 import type { Theme } from '../theme';
 import { t, ui, useTable } from '../ui';
+import { useBillingPerms } from './Billing';
 import { Header } from './Header';
 import type { Nav } from './Stack';
 import type { MessageKey } from '@worko/i18n';
@@ -77,6 +78,7 @@ type Addr = { kind?: string; line1?: string; line2?: string; city?: string; stat
 export function ClientDetail({ theme, nav, id, onBack }: { theme: Theme; nav: Nav; id: string; onBack?: () => void }) {
   const s = ui(theme);
   const online = useSync((x) => x.online);
+  const billing = useBillingPerms().view;
   const client = useTable('client').find((r) => r.id === id);
   const regs = useTable('client_registration').filter((r) => r.fields.client_id === id);
   const contacts = useTable('contact').filter((r) => r.fields.client_id === id)
@@ -108,6 +110,8 @@ export function ClientDetail({ theme, nav, id, onBack }: { theme: Theme; nav: Na
             <Feather name="log-out" size={16} color={theme.primary} /><Text style={s.ghostText}>{t('m.client.newOutward')}</Text></Pressable>
           <Pressable style={s.ghost} onPress={() => nav.push({ name: 'registers', clientId: id })} accessibilityRole="button">
             <Feather name="book" size={16} color={theme.primary} /><Text style={s.ghostText}>{t('m.client.registers')}</Text></Pressable>
+          {billing && <Pressable style={s.ghost} onPress={() => nav.push({ name: 'outstanding', clientId: id })} accessibilityRole="button">
+            <Feather name="credit-card" size={16} color={theme.primary} /><Text style={s.ghostText}>{t('m.bill.outstanding')}</Text></Pressable>}
         </View>
 
         <Text style={s.h2}>{t('m.client.contacts')}</Text>

@@ -16,7 +16,9 @@ import { ClientsRoute } from '../screens/clients/ClientsScreen';
 import { DocumentsScreen } from '../screens/documents/DocumentsScreen';
 import { RegistersScreen } from '../screens/registers/RegistersScreen';
 import { ComplianceScreen } from '../screens/compliance/ComplianceScreen';
-import { ServicesSettings } from '../screens/settings/ServicesSettings';
+import { BillingRoute } from '../screens/billing/BillingScreen';
+import { SettingsRoute } from '../screens/billing/BillingSettings';
+import { ReceiptsScreen } from '../screens/billing/ReceiptsScreen';
 import { TasksScreen } from '../screens/tasks/TasksScreen';
 import { TodosScreen } from '../screens/todos/TodosScreen';
 import { ToastHost } from '../components/Toast';
@@ -36,7 +38,9 @@ function Routes() {
     case 'tasks': return <TasksScreen />;
     case 'compliance': return <ComplianceScreen />;
     case 'todos': return <TodosScreen />;
-    case 'settings': return <ServicesSettings />;
+    case 'settings': return <SettingsRoute />;
+    case 'billing': return <BillingRoute />;
+    case 'receipts': return <ReceiptsScreen />;
     default: {
       const n = NAV.find((x) => x.route === route)!;
       return <ComingSoon module={t(n.label)} phase={n.phase ?? 0} />;

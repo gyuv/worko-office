@@ -1,3 +1,4 @@
+import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { Linking } from 'react-native';
 import { parseQueue, processQueue, enqueue, type PendingSig, type UploadOutcome } from './logic/sigQueue';
@@ -91,4 +92,41 @@ export async function flushSignatures(): Promise<PendingSig[]> {
     if (uploaded.length) void syncNow();
     return merged;
   } finally { running = false; }
+}
+
+// ---- billing (D72: money records are REST-only; the phone just reads synced headers) ----
+
+/** Downloads the invoice PDF with the bearer token into the cache and hands it to a PDF viewer via a content:// URI. */
+export async function openInvoicePdf(id: string, name: string): Promise<void> {
+  const target = `${FileSystem.cacheDirectory ?? ''}${name.replace(/[^\w.-]+/g, '_') || 'invoice'}.pdf`;
+  const url = apiBase.replace(/\/$/, '') + `/billing/invoices/${id}/pdf`;
+  const get = () => FileSystem.downloadAsync(url, target, { headers: { Authorization: 'Bearer ' + (useSession.getState().tokens?.accessToken ?? '') } });
+  let res = await get();
+  if (res.status === 401) { await api.GET('/me').catch(() => undefined); res = await get(); }
+  if (res.status !== 200) throw new Error(`HTTP ${res.status}`);
+  await Linking.openURL(await FileSystem.getContentUriAsync(res.uri));
+}
+
+export type PaymentLinkInfo = { url: string; amountPaise: number; status?: string };
+
+/** The latest live payment link of an invoice, if any (from the invoice detail). */
+export async function latestPaymentLink(id: string): Promise<PaymentLinkInfo | null> {
+  const d = await unwrap(api.GET('/billing/invoices/{id}', { params: { path: { id } } }));
+  const links = (d.paymentLinks ?? []).filter((l) => l.status === 'created' && l.url);
+  const l = links[links.length - 1];
+  return l ? { url: l.url!, amountPaise: Number(l.amountPaise ?? 0), status: l.status } : null;
+}
+
+export async function createPaymentLink(id: string): Promise<PaymentLinkInfo> {
+  const r = await unwrap(api.POST('/billing/invoices/{id}/payment-link', { params: { path: { id } } }));
+  return { url: r.url, amountPaise: r.amountPaise };
+}
+
+export type ReceiptBody = { clientId: string; receivedOn: string; amountPaise: number; tdsPaise: number; tdsSection: string | null; mode: 'cash' | 'bank' | 'upi' | 'cheque' | 'online'; reference: string | null };
+
+/** Allocations omitted ⇒ the server allocates FIFO (TDS first) and returns what it did. */
+export async function recordReceipt(body: ReceiptBody) {
+  const r = await unwrap(api.POST('/billing/receipts', { body }));
+  void syncNow();
+  return r;
 }

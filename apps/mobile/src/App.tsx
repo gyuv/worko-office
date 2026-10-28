@@ -12,6 +12,7 @@ import { getEngine, getStore, startSync, stopSync, syncNow, toReminder, useSync 
 import { setupNotifications } from './notifications';
 import { themeFor, type Theme } from './theme';
 import { flushSignatures } from './net';
+import { useBillingPerms } from './screens/Billing';
 import { Stack } from './screens/Stack';
 
 const t = createTranslator('en-IN', { product: PRODUCT.name });
@@ -86,18 +87,18 @@ function Tabs({ theme }: { theme: Theme }) {
   const s = styles(theme);
   const [tab, setTab] = useState<Tab>('home');
   const current = TABS.find((x) => x.key === tab)!;
-  const [registers, setRegisters] = useState(false);
+  const [sub, setSub] = useState<'registers' | 'collections' | null>(null);
   useSignatureRetry();
   return (
     <View style={{ flex: 1 }}>
       <StatusStrip theme={theme} />
       <View style={{ flex: 1, padding: 16 }}>
         {tab === 'home' ? <Home theme={theme} /> : tab === 'tasks' ? <Stack theme={theme} root={{ name: 'tasks' }} /> : tab === 'clients' ? <Stack theme={theme} root={{ name: 'clients' }} />
-          : tab === 'more' ? (registers ? <View style={{ flex: 1 }}>
-            <Pressable onPress={() => setRegisters(false)} accessibilityRole="button" style={{ minHeight: 48, justifyContent: 'center' }}>
+          : tab === 'more' ? (sub ? <View style={{ flex: 1 }}>
+            <Pressable onPress={() => setSub(null)} accessibilityRole="button" style={{ minHeight: 48, justifyContent: 'center' }}>
               <Text style={{ color: theme.primary, fontWeight: '600' }}>{t('nav.more')}</Text></Pressable>
-            <Stack theme={theme} root={{ name: 'registers' }} /></View>
-            : <More theme={theme} onRegisters={() => setRegisters(true)} />) : tab === 'inbox' ? <Inbox theme={theme} />
+            <Stack key={sub} theme={theme} root={{ name: sub }} /></View>
+            : <More theme={theme} onRegisters={() => setSub('registers')} onCollections={() => setSub('collections')} />) : tab === 'inbox' ? <Inbox theme={theme} />
           : <Text style={s.muted}>{t('home.comingSoon', { module: t(current.label), phase: current.phase ?? 0 })}</Text>}
       </View>
       <View style={s.tabbar} accessibilityRole="tablist">
@@ -195,7 +196,7 @@ function Home({ theme }: { theme: Theme }) {
   );
 }
 
-function More({ theme, onRegisters }: { theme: Theme; onRegisters(): void }) {
+function More({ theme, onRegisters, onCollections }: { theme: Theme; onRegisters(): void; onCollections(): void }) {
   const s = styles(theme);
   const qcl = useQueryClient();
   const setTokens = useSession((x) => x.setTokens);
@@ -205,8 +206,14 @@ function More({ theme, onRegisters }: { theme: Theme; onRegisters(): void }) {
     onSuccess: () => qcl.invalidateQueries({ queryKey: ['sessions'] }),
   });
   const active = useMemo(() => (sessions.data ?? []).filter((x) => !x.revokedAt), [sessions.data]);
+  const billing = useBillingPerms().view;
   return (
     <View style={{ flex: 1 }}>
+      {billing && <Pressable style={[s.row, { minHeight: 48 }]} onPress={onCollections} accessibilityRole="button">
+        <Feather name="credit-card" size={18} color={theme.primary} style={{ marginRight: 10 }} />
+        <Text style={[s.text, { flex: 1 }]}>{t('m.bill.collections')}</Text>
+        <Feather name="chevron-right" size={18} color={theme.textMuted} />
+      </Pressable>}
       <Pressable style={[s.row, { minHeight: 48 }]} onPress={onRegisters} accessibilityRole="button">
         <Feather name="book" size={18} color={theme.primary} style={{ marginRight: 10 }} />
         <Text style={[s.text, { flex: 1 }]}>{t('m.reg.title')}</Text>
