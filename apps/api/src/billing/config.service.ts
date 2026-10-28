@@ -6,7 +6,8 @@ import { DbService } from '../db/db.service.js';
 import { uuidv7 } from '../db/ids.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { requireFirmWide } from '../tasks/system-actor.js';
-import { d, loadSettings, n } from './common.js';
+import { Params } from '../clients/scope.js';
+import { d, loadSettings, n, scopeSql } from './common.js';
 
 export type EntityIn = {
   name?: string; frn?: string | null; pan?: string | null; gstin?: string | null; stateCode?: string; address?: string | null; email?: string | null; phone?: string | null;
@@ -88,9 +89,12 @@ export class BillingConfigService {
   }
 
   rates(a: RequestActor, q: { serviceTypeId?: string; clientId?: string }) {
+    // Client-specific rates only for clients the caller may see for billing (D83); firm/group rates are firm price lists.
+    const p = new Params([q.serviceTypeId ?? null, q.clientId ?? null]);
     return this.db.tenantTx(a.tenantId, async (tx) => (await tx.query(`SELECT r.*, s.key AS service_key FROM billing_rate r JOIN service_type s ON s.id = r.service_type_id
       WHERE r.deleted_at IS NULL AND ($1::uuid IS NULL OR r.service_type_id = $1) AND ($2::uuid IS NULL OR r.client_id = $2)
-      ORDER BY s.key, r.client_id NULLS FIRST, r.group_id NULLS FIRST, r.effective_from DESC`, [q.serviceTypeId ?? null, q.clientId ?? null])).rows.map(presentRate));
+        AND (r.client_id IS NULL OR EXISTS (SELECT 1 FROM client c WHERE c.id = r.client_id AND c.deleted_at IS NULL AND ${scopeSql(a, 'billing', 'view', p)}))
+      ORDER BY s.key, r.client_id NULLS FIRST, r.group_id NULLS FIRST, r.effective_from DESC`, p.values)).rows.map(presentRate));
   }
 
   async createRate(a: RequestActor, i: RateIn) {
@@ -126,7 +130,11 @@ export class BillingConfigService {
   }
 
   ledgers(a: RequestActor) {
-    return this.db.tenantTx(a.tenantId, async (tx) => (await tx.query('SELECT entity_id, account_key, ledger_name FROM tally_ledger_map ORDER BY entity_id NULLS FIRST, account_key')).rows
+    // Party mappings name clients: only those the caller may see (D83).
+    const p = new Params();
+    return this.db.tenantTx(a.tenantId, async (tx) => (await tx.query(`SELECT m.entity_id, m.account_key, m.ledger_name FROM tally_ledger_map m
+      WHERE m.account_key NOT LIKE 'party:%' OR EXISTS (SELECT 1 FROM client c WHERE c.id::text = split_part(m.account_key, ':', 2) AND c.deleted_at IS NULL AND ${scopeSql(a, 'billing', 'view', p)})
+      ORDER BY m.entity_id NULLS FIRST, m.account_key`, p.values)).rows
       .map((r) => ({ entityId: r.entity_id, accountKey: r.account_key, ledgerName: r.ledger_name })));
   }
 

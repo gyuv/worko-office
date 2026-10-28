@@ -7,7 +7,7 @@ import { tabular } from '../common/export.js';
 import { DbService, type Tx } from '../db/db.service.js';
 import { uuidv7 } from '../db/ids.js';
 import { requireFirmWide } from '../tasks/system-actor.js';
-import { clientFor, d, n, scopeSql } from './common.js';
+import { canClient, clientFor, d, n, scopeSql } from './common.js';
 
 type Buckets = Record<AgeingBucket, number>;
 const zero = (): Buckets => Object.fromEntries(AGEING_BUCKETS.map((b) => [b, 0])) as Buckets;
@@ -23,33 +23,41 @@ export class BillingReportsService {
       const p = new Params();
       const rows = (await tx.query(`SELECT i.client_id, c.name, i.due_date, i.balance_paise FROM invoice i JOIN client c ON c.id = i.client_id
         WHERE ${OPEN} AND c.deleted_at IS NULL AND ${scopeSql(a, 'billing', 'view', p)} ORDER BY lower(c.name), c.id`, p.values)).rows;
+      // Advances are receipt data: only for clients the caller may see receipts of (D83). Credit-note credit is billing data.
       const p2 = new Params();
       const adv = (await tx.query(`SELECT r.client_id, sum(r.unallocated_paise) AS s FROM receipt r JOIN client c ON c.id = r.client_id
-        WHERE r.deleted_at IS NULL AND r.unallocated_paise > 0 AND c.deleted_at IS NULL AND ${scopeSql(a, 'billing', 'view', p2)} GROUP BY r.client_id`, p2.values)).rows;
+        WHERE r.deleted_at IS NULL AND r.unallocated_paise > 0 AND c.deleted_at IS NULL AND ${scopeSql(a, 'billing', 'view', p2)} AND ${scopeSql(a, 'receipts', 'view', p2)} GROUP BY r.client_id`, p2.values)).rows;
       const advance = new Map(adv.map((r) => [r.client_id as string, n(r.s)]));
-      const by = new Map<string, { clientId: string; clientName: string; buckets: Buckets; totalPaise: number; advancePaise: number }>();
+      const p3 = new Params();
+      const crs = (await tx.query(`SELECT i.client_id, sum(i.balance_paise) AS s FROM invoice i JOIN client c ON c.id = i.client_id WHERE i.kind = 'credit_note' AND i.balance_paise > 0
+        AND i.deleted_at IS NULL AND c.deleted_at IS NULL AND ${scopeSql(a, 'billing', 'view', p3)} GROUP BY i.client_id`, p3.values)).rows;
+      const credit = new Map(crs.map((r) => [r.client_id as string, n(r.s)]));
+      const by = new Map<string, { clientId: string; clientName: string; buckets: Buckets; totalPaise: number; advancePaise: number; creditPaise: number }>();
       const totals = zero(); let total = 0;
       for (const r of rows) {
         const b = ageingBucket(daysBetween(d(r.due_date)!, asOf));
-        const g = by.get(r.client_id) ?? { clientId: r.client_id, clientName: r.name, buckets: zero(), totalPaise: 0, advancePaise: advance.get(r.client_id) ?? 0 };
+        const g = by.get(r.client_id) ?? { clientId: r.client_id, clientName: r.name, buckets: zero(), totalPaise: 0, advancePaise: advance.get(r.client_id) ?? 0, creditPaise: credit.get(r.client_id) ?? 0 };
         g.buckets[b] += n(r.balance_paise); g.totalPaise += n(r.balance_paise);
         totals[b] += n(r.balance_paise); total += n(r.balance_paise);
         by.set(r.client_id, g);
       }
-      return { asOf, clients: [...by.values()], totals: { ...totals, totalPaise: total, advancePaise: [...advance.values()].reduce((s, x) => s + x, 0) } };
+      return { asOf, clients: [...by.values()], totals: { ...totals, totalPaise: total, advancePaise: [...advance.values()].reduce((s, x) => s + x, 0), creditPaise: [...credit.values()].reduce((s, x) => s + x, 0) } };
     });
   }
 
   /** A client's open receivables, unapplied advances and balance (mobile "client outstanding"). */
   outstanding(a: RequestActor, clientId: string) {
     return this.db.tenantTx(a.tenantId, async (tx) => {
-      await clientFor(tx, a, clientId, 'billing', 'view');
+      const client = await clientFor(tx, a, clientId, 'billing', 'view');
       const items = (await tx.query(`SELECT i.id, i.kind, i.number, i.issue_date, i.due_date, i.total_paise, i.balance_paise, i.status FROM invoice i
         WHERE i.client_id = $1 AND ${OPEN} ORDER BY i.due_date, i.number`, [clientId])).rows
         .map((r) => ({ id: r.id, kind: r.kind, number: r.number, issueDate: d(r.issue_date), dueDate: d(r.due_date), totalPaise: n(r.total_paise), balancePaise: n(r.balance_paise), status: r.status }));
-      const adv = n((await tx.query('SELECT COALESCE(sum(unallocated_paise),0) AS s FROM receipt WHERE client_id = $1 AND deleted_at IS NULL', [clientId])).rows[0].s);
+      // Advances are receipt data (receipts:view); without it they are reported as null and not netted.
+      const adv = canClient(a, 'receipts', 'view', client)
+        ? n((await tx.query('SELECT COALESCE(sum(unallocated_paise),0) AS s FROM receipt WHERE client_id = $1 AND deleted_at IS NULL', [clientId])).rows[0].s) : null;
+      const credit = n((await tx.query(`SELECT COALESCE(sum(balance_paise),0) AS s FROM invoice WHERE client_id = $1 AND kind = 'credit_note' AND deleted_at IS NULL`, [clientId])).rows[0].s);
       const due = items.reduce((s, x) => s + x.balancePaise, 0);
-      return { clientId, items, outstandingPaise: due, advancePaise: adv, netPaise: due - adv };
+      return { clientId, items, outstandingPaise: due, advancePaise: adv, creditPaise: credit, netPaise: due - (adv ?? 0) - credit };
     });
   }
 

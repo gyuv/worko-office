@@ -6,6 +6,7 @@ import type { RequestActor } from '../auth/context.js';
 import { Params } from '../clients/scope.js';
 import { DbService, type Tx } from '../db/db.service.js';
 import { uuidv7 } from '../db/ids.js';
+import { Clock } from '../common/clock.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { SyncService } from '../sync/sync.service.js';
 import {
@@ -17,7 +18,7 @@ export type LineIn = {
   gstRate?: number | null; reimbursement?: boolean; taskIds?: string[];
 };
 export type DraftIn = { clientId: string; entityId?: string | null; notes?: string | null; lines: LineIn[] };
-export type NoteIn = { kind: 'credit_note' | 'debit_note'; date: string; reason: string; lines: Array<{ description: string; taxablePaise: number; gstRate?: number | null; sac?: string | null }> };
+export type NoteIn = { kind: 'credit_note' | 'debit_note'; date: string; reason: string; lines: Array<{ description: string; taxablePaise: number; gstRate?: number | null; sac?: string | null; reimbursement?: boolean }> };
 export type ListQ = { status?: string[]; kind?: string; clientId?: string; from?: string; to?: string; overdueAsOf?: string; q?: string; limit: number; offset: number };
 
 /** Highest cursor written in a transaction, published after commit. */
@@ -27,7 +28,7 @@ const sqlErr = (e: unknown) => (e as { code?: string }).code;
 
 @Injectable()
 export class InvoicesService {
-  constructor(private db: DbService, private audit: AuditService, private sync: SyncService, private realtime: RealtimeService) {}
+  constructor(private db: DbService, private audit: AuditService, private sync: SyncService, private realtime: RealtimeService, private clock: Clock) {}
 
   publish(a: { tenantId: string }, c: Cursor) { if (c.v) this.realtime.publish({ type: 'changed', tenantId: a.tenantId, cursor: c.v }); }
 
@@ -63,7 +64,8 @@ export class InvoicesService {
       const { inv, client } = await this.rowFor(tx, a, id, 'view');
       const lines = (await tx.query(`SELECT l.*, ARRAY(SELECT t.task_id FROM invoice_task t WHERE t.line_id = l.id AND t.live) AS task_ids
         FROM invoice_line l WHERE l.invoice_id = $1 ORDER BY l.sort, l.id`, [id])).rows;
-      const allocations = (await tx.query(`SELECT a.id, a.receipt_id AS "receiptId", r.number AS "receiptNumber", r.received_on, a.amount_paise, a.tds_paise
+      const seesReceipts = canClient(a, 'receipts', 'view', client);
+      const allocations = !seesReceipts ? [] : (await tx.query(`SELECT a.id, a.receipt_id AS "receiptId", r.number AS "receiptNumber", r.received_on, a.amount_paise, a.tds_paise
         FROM receipt_allocation a JOIN receipt r ON r.id = a.receipt_id WHERE a.invoice_id = $1 ORDER BY a.created_at`, [id])).rows
         .map((x) => ({ id: x.id, receiptId: x.receiptId, receiptNumber: x.receiptNumber, receivedOn: d(x.received_on), amountPaise: n(x.amount_paise), tdsPaise: n(x.tds_paise) }));
       const notes = (await tx.query(`SELECT * FROM invoice WHERE against_invoice_id = $1 AND deleted_at IS NULL ORDER BY created_at`, [id])).rows.map(presentInvoice);
@@ -221,11 +223,13 @@ export class InvoicesService {
       // Refresh the recipient snapshot and taxes one last time, then lock (DB trigger keeps it immutable).
       const pos = await placeOfSupply(tx, client);
       const entity = (await tx.query('SELECT * FROM firm_entity WHERE id = $1', [inv.entity_id])).rows[0];
+      if (!entity.active || entity.deleted_at) throw new ConflictException({ message: 'Billing entity is inactive', code: 'entity_inactive' });
       cur.bump((await this.sync.serverPatch(tx, a, 'invoice', id, { bill_to: billTo(client), client_gstin: pos.gstin, place_of_supply: pos.state ?? entity.state_code,
         supply_type: supplyTypeOf(entity.gstin, entity.state_code, pos.state) }))?.cursor);
       await this.recalc(tx, a, id, cur);
       const fy = fyStart(i.issueDate);
       const num = await nextDocNumber(tx, a.tenantId, entity, 'invoice', fy);
+      await this.checkDocDate(tx, entity.id, 'invoice', fy, i.issueDate);
       cur.bump((await this.sync.serverPatch(tx, a, 'invoice', id, { number: num, fy, issue_date: i.issueDate, due_date: due, status: 'issued', issued_at: new Date().toISOString(), issued_by: a.userId }))?.cursor);
       await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'invoice.issued', entity: 'invoice', entityId: id, diff: { number: num, issueDate: i.issueDate, dueDate: due } });
       return num;
@@ -265,23 +269,38 @@ export class InvoicesService {
       }
       if (i.date < d(inv.issue_date)!) throw new BadRequestException({ message: 'Note dated before the invoice', code: 'note_before_invoice' });
       const s = await loadSettings(tx);
-      const firstRate = (await tx.query('SELECT gst_rate FROM invoice_line WHERE invoice_id = $1 AND NOT reimbursement ORDER BY sort LIMIT 1', [invoiceId])).rows[0]?.gst_rate;
-      const lines = i.lines.map((l) => ({ ...l, gst: l.gstRate ?? (firstRate != null ? Number(firstRate) : s.defaultGstRate) }));
-      const t = computeInvoice(lines.map((l) => ({ qty: 1, ratePaise: l.taxablePaise, gstRate: l.gst })), inv.supply_type as 'intra', { roundToRupee: false });
-      if (i.kind === 'credit_note' && t.totalPaise > n(inv.balance_paise)) {
-        throw new ConflictException({ message: 'Credit exceeds the outstanding balance', code: 'credit_exceeds_balance' });
+      // GST rate of each note line must be one the invoice charged (D77); reimbursement lines carry no tax.
+      const rates = [...new Set((await tx.query('SELECT gst_rate FROM invoice_line WHERE invoice_id = $1 AND NOT reimbursement', [invoiceId])).rows.map((r) => Number(r.gst_rate)))];
+      const lines = i.lines.map((l) => {
+        if (l.reimbursement) return { ...l, gst: 0, reimbursement: true };
+        const gst = l.gstRate ?? (rates.length === 1 ? rates[0]! : null);
+        if (gst === null) throw new BadRequestException({ message: 'Say which GST rate of the invoice this line corrects', code: 'gst_rate_required' });
+        if (!rates.includes(gst)) throw new BadRequestException({ message: 'GST rate not on the invoice', code: 'gst_rate_not_on_invoice' });
+        return { ...l, gst, reimbursement: false };
+      });
+      const t = computeInvoice(lines.map((l) => ({ qty: 1, ratePaise: l.taxablePaise, gstRate: l.gst, reimbursement: l.reimbursement })), inv.supply_type as 'intra', { roundToRupee: false });
+      if (i.kind === 'credit_note') {
+        // Cumulative credits can't exceed what the invoice charged — per taxable value, per tax head, per reimbursement.
+        const prior = (await tx.query(`SELECT COALESCE(sum(taxable_paise),0) AS tx, COALESCE(sum(cgst_paise),0) AS c, COALESCE(sum(sgst_paise),0) AS sg,
+            COALESCE(sum(igst_paise),0) AS ig, COALESCE(sum(reimbursement_paise),0) AS re FROM invoice
+          WHERE against_invoice_id = $1 AND kind = 'credit_note' AND status <> 'cancelled' AND deleted_at IS NULL`, [invoiceId])).rows[0];
+        const over = n(prior.tx) + t.taxablePaise > n(inv.taxable_paise) || n(prior.c) + t.cgstPaise > n(inv.cgst_paise) || n(prior.sg) + t.sgstPaise > n(inv.sgst_paise)
+          || n(prior.ig) + t.igstPaise > n(inv.igst_paise) || n(prior.re) + t.reimbursementPaise > n(inv.reimbursement_paise);
+        if (over) throw new ConflictException({ message: 'Credit exceeds what the invoice charged', code: 'credit_exceeds_invoice' });
       }
       const entity = (await tx.query('SELECT * FROM firm_entity WHERE id = $1', [inv.entity_id])).rows[0];
       const id = uuidv7(); const fy = fyStart(i.date);
+      if (!entity.active || entity.deleted_at) throw new ConflictException({ message: 'Billing entity is inactive', code: 'entity_inactive' });
       const num = await nextDocNumber(tx, a.tenantId, entity, i.kind, fy);
+      await this.checkDocDate(tx, entity.id, i.kind, fy, i.date);
       const debit = i.kind === 'debit_note';
       const res = await tx.query(`INSERT INTO invoice (id, tenant_id, kind, against_invoice_id, entity_id, client_id, status, number, fy, issue_date, due_date, supply_type, supplier_state,
           place_of_supply, supplier_gstin, client_gstin, bill_to, taxable_paise, cgst_paise, sgst_paise, igst_paise, total_paise, balance_paise, reason, issued_at, issued_by,
-          created_by, updated_by, device_id)
-        VALUES ($1,$2,$3,$4,$5,$6,'issued',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23, now(), $24, $24, $24, $25) RETURNING sync_cursor`,
+          created_by, updated_by, device_id, reimbursement_paise)
+        VALUES ($1,$2,$3,$4,$5,$6,'issued',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23, now(), $24, $24, $24, $25, $26) RETURNING sync_cursor`,
         [id, a.tenantId, i.kind, invoiceId, inv.entity_id, inv.client_id, num, fy, i.date, debit ? addDays(i.date, s.dueDays) : null, inv.supply_type, inv.supplier_state,
           inv.place_of_supply, inv.supplier_gstin, inv.client_gstin, JSON.stringify(inv.bill_to), t.taxablePaise, t.cgstPaise, t.sgstPaise, t.igstPaise, t.totalPaise,
-          debit ? t.totalPaise : 0, i.reason, a.userId, a.deviceId]);
+          debit ? t.totalPaise : 0, i.reason, a.userId, a.deviceId, t.reimbursementPaise]);
       cur.bump(res.rows[0].sync_cursor);
       await this.insertNoteLines(tx, a.tenantId, id, lines, t.lines);
       if (!debit) await this.recompute(tx, a, invoiceId, cur);
@@ -293,31 +312,48 @@ export class InvoicesService {
     return r;
   }
 
-  private async insertNoteLines(tx: Tx, tenantId: string, noteId: string, lines: Array<{ description: string; sac?: string | null; gst: number; taxablePaise: number }>,
+  private async insertNoteLines(tx: Tx, tenantId: string, noteId: string, lines: Array<{ description: string; sac?: string | null; gst: number; taxablePaise: number; reimbursement: boolean }>,
     taxes: Array<{ amountPaise: number; taxablePaise: number; cgstPaise: number; sgstPaise: number; igstPaise: number; totalPaise: number }>) {
     // The line trigger allows inserts under a non-draft header only while this transaction-local flag names the note.
     await tx.query("SELECT set_config('worko.note_lines', $1, true)", [noteId]);
     for (const [k, l] of lines.entries()) {
       const x = taxes[k]!;
       await tx.query(`INSERT INTO invoice_line (id, tenant_id, invoice_id, sort, description, sac, qty, rate_paise, discount_paise, gst_rate, reimbursement,
-          amount_paise, taxable_paise, cgst_paise, sgst_paise, igst_paise, total_paise) VALUES ($1,$2,$3,$4,$5,$6,1,$7,0,$8,false,$9,$10,$11,$12,$13,$14)`,
-        [uuidv7(), tenantId, noteId, k, l.description, l.sac ?? null, l.taxablePaise, l.gst, x.amountPaise, x.taxablePaise, x.cgstPaise, x.sgstPaise, x.igstPaise, x.totalPaise]);
+          amount_paise, taxable_paise, cgst_paise, sgst_paise, igst_paise, total_paise) VALUES ($1,$2,$3,$4,$5,$6,1,$7,0,$8,$15,$9,$10,$11,$12,$13,$14)`,
+        [uuidv7(), tenantId, noteId, k, l.description, l.reimbursement ? null : l.sac ?? null, l.taxablePaise, l.gst, x.amountPaise, x.taxablePaise, x.cgstPaise, x.sgstPaise, x.igstPaise, x.totalPaise, l.reimbursement]);
     }
     await tx.query("SELECT set_config('worko.note_lines', '', true)");
   }
 
+  /** Issue/note date: not in the future (IST, injected clock) and not before the last issued document of the series × FY (D78). */
+  private async checkDocDate(tx: Tx, entityId: string, kind: string, fy: number, date: string) {
+    if (date > this.clock.todayIst()) throw new BadRequestException({ message: 'Date is in the future', code: 'date_in_future' });
+    const last = (await tx.query(`SELECT max(issue_date)::text AS d FROM invoice WHERE entity_id = $1 AND kind = $2 AND fy = $3 AND number IS NOT NULL`, [entityId, kind, fy])).rows[0]?.d as string | null;
+    if (last && date < last) throw new BadRequestException({ message: `Date is before the last issued document (${last})`, code: 'date_before_last_issued' });
+  }
+
   /**
-   * Settlement of a receivable from its allocations and credit notes: balance = total − allocations − TDS − credits.
-   * Status follows (issued → partially_paid → paid). Runs in the caller's transaction after any allocation/note change.
+   * Settlement of a receivable: balance = total − allocations − TDS − applied credit (D77). Credit notes beyond what is still
+   * owed (e.g. on a paid invoice) are not lost: the excess stays on the credit notes' own `balance_paise` as client credit
+   * (latest notes first), shown with advances. Status follows (issued → partially_paid → paid).
    */
   async recompute(tx: Tx, a: RequestActor, id: string, cur: Cursor) {
     const inv = (await tx.query('SELECT * FROM invoice WHERE id = $1 FOR UPDATE', [id])).rows[0];
     if (!inv || inv.status === 'draft' || inv.status === 'cancelled' || inv.kind === 'credit_note') return;
     const s = (await tx.query(`SELECT COALESCE(sum(amount_paise),0) AS amt, COALESCE(sum(tds_paise),0) AS tds FROM receipt_allocation WHERE invoice_id = $1`, [id])).rows[0];
-    const cr = (await tx.query(`SELECT COALESCE(sum(total_paise),0) AS c FROM invoice WHERE against_invoice_id = $1 AND kind = 'credit_note' AND status <> 'cancelled' AND deleted_at IS NULL`, [id])).rows[0];
-    const total = n(inv.total_paise); const alloc = n(s.amt); const tds = n(s.tds); const credited = n(cr.c);
-    const balance = total - alloc - tds - credited;
-    if (balance < 0) throw new ConflictException({ message: 'Settlement exceeds the invoice total', code: 'over_settled' });
+    const cns = (await tx.query(`SELECT id, total_paise, balance_paise FROM invoice WHERE against_invoice_id = $1 AND kind = 'credit_note' AND status <> 'cancelled' AND deleted_at IS NULL
+      ORDER BY created_at DESC, id DESC FOR UPDATE`, [id])).rows;
+    const total = n(inv.total_paise); const alloc = n(s.amt); const tds = n(s.tds);
+    const room = total - alloc - tds;
+    if (room < 0) throw new ConflictException({ message: 'Settlement exceeds the invoice total', code: 'over_settled' });
+    const cnSum = cns.reduce((x, c) => x + n(c.total_paise), 0);
+    const credited = Math.min(cnSum, room);
+    let excess = cnSum - credited;
+    for (const c of cns) {
+      const left = Math.min(n(c.total_paise), excess); excess -= left;
+      if (n(c.balance_paise) !== left) cur.bump((await this.sync.serverPatch(tx, a, 'invoice', c.id, { balance_paise: left }))?.cursor);
+    }
+    const balance = room - credited;
     const status = balance === 0 ? 'paid' : alloc + tds > 0 || credited > 0 ? 'partially_paid' : 'issued';
     if (n(inv.allocated_paise) === alloc && n(inv.tds_paise) === tds && n(inv.credited_paise) === credited && n(inv.balance_paise) === balance && inv.status === status) return;
     cur.bump((await this.sync.serverPatch(tx, a, 'invoice', id, { allocated_paise: alloc, tds_paise: tds, credited_paise: credited, balance_paise: balance, status }))?.cursor);
@@ -342,7 +378,8 @@ export class InvoicesService {
   async pdf(a: RequestActor | null, tenantId: string, id: string): Promise<{ name: string; pdf: Buffer }> {
     return this.db.tenantTx(tenantId, async (tx) => {
       const inv = a ? (await this.rowFor(tx, a, id, 'print')).inv : (await tx.query('SELECT * FROM invoice WHERE id = $1 AND deleted_at IS NULL', [id])).rows[0];
-      if (!inv || inv.status === 'draft' && !a) throw new NotFoundException();
+      // Public links never serve drafts or cancelled invoices (links can't be revoked otherwise — D80).
+      if (!inv || (!a && (inv.status === 'draft' || inv.status === 'cancelled'))) throw new NotFoundException();
       const e = (await tx.query('SELECT * FROM firm_entity WHERE id = $1', [inv.entity_id])).rows[0];
       const lines = (await tx.query('SELECT * FROM invoice_line WHERE invoice_id = $1 ORDER BY sort, id', [id])).rows;
       const against = inv.against_invoice_id ? (await tx.query('SELECT number, issue_date FROM invoice WHERE id = $1', [inv.against_invoice_id])).rows[0] : null;

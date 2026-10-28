@@ -55,6 +55,7 @@ import { BillingConfigService } from './billing/config.service.js';
 import { InvoicesService } from './billing/invoices.service.js';
 import { CLIENT_MESSENGER, MockMessenger, PAYMENT_PROVIDERS, paymentProvidersFactory } from './billing/providers.js';
 import { ReceiptsService } from './billing/receipts.service.js';
+import { Clock } from './common/clock.js';
 import { BillingReportsService } from './billing/reports.service.js';
 
 @Module({
@@ -69,6 +70,7 @@ import { BillingReportsService } from './billing/reports.service.js';
     { provide: SYNC_TABLES_TOKEN, useValue: SYNC_TABLES },
     ClientsService, VisibilityService, ImportService, VaultService, DocumentsService, RegistersService, KeyService,
     RulePackService, CatalogueService, TasksService, AutoTaskService, ComplianceService,
+    { provide: Clock, useFactory: () => new Clock() },
     BillingConfigService, InvoicesService, ReceiptsService, BillingAutoService, BillingReportsService, CollectionsService,
     { provide: CLIENT_MESSENGER, useFactory: () => new MockMessenger() },
     { provide: PAYMENT_PROVIDERS, useFactory: paymentProvidersFactory },

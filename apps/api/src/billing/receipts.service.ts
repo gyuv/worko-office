@@ -70,7 +70,7 @@ export class ReceiptsService {
     if (i.amountPaise + (i.tdsPaise ?? 0) <= 0) throw new BadRequestException('Nothing received');
     if ((i.tdsPaise ?? 0) > 0 && !i.tdsSection) throw new BadRequestException({ message: 'TDS section required', code: 'tds_section_required' });
     const client = await clientFor(tx, a, i.clientId, 'receipts', 'create');
-    const entity = await entityFor(tx, i.entityId);
+    const entity = await entityFor(tx, i.entityId ?? (await this.inferEntity(tx, client.id as string)));
     const id = uuidv7(); const fy = fyStart(i.receivedOn);
     const number = await nextDocNumber(tx, a.tenantId, entity, 'receipt', fy);
     const ins = await tx.query(`INSERT INTO receipt (id, tenant_id, entity_id, client_id, number, fy, received_on, amount_paise, tds_paise, tds_section, mode, reference, notes,
@@ -83,6 +83,14 @@ export class ReceiptsService {
     await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'receipt.created', entity: 'receipt', entityId: id,
       diff: { number, clientId: i.clientId, amountPaise: i.amountPaise, tdsPaise: i.tdsPaise ?? 0, tdsSection: i.tdsSection ?? null, mode: i.mode, allocations: allocs, gateway: gateway?.provider } });
     return { id, number, allocations: allocs };
+  }
+
+  /** Entity of the client's open receivables; ambiguous (open items in several entities) → the caller must say (D82). */
+  private async inferEntity(tx: Tx, clientId: string): Promise<string | null> {
+    const ents = (await tx.query(`SELECT DISTINCT entity_id FROM invoice WHERE client_id = $1 AND deleted_at IS NULL AND status IN ('issued','partially_paid')
+      AND kind IN ('invoice','debit_note') AND balance_paise > 0`, [clientId])).rows.map((r) => r.entity_id as string);
+    if (ents.length > 1) throw new BadRequestException({ message: 'Client owes more than one billing entity; choose entityId', code: 'entity_required' });
+    return ents[0] ?? null;
   }
 
   /** Applies a receipt's unallocated amount (an advance) — FIFO by default or as given. */

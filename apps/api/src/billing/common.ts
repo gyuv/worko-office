@@ -94,5 +94,5 @@ export const presentLine = (l: Record<string, unknown>) => ({
 export const presentReceipt = (r: Record<string, unknown>) => ({
   id: r.id, entityId: r.entity_id, clientId: r.client_id, clientName: r.client_name, number: r.number, fy: r.fy, receivedOn: d(r.received_on),
   amountPaise: n(r.amount_paise), tdsPaise: n(r.tds_paise), tdsSection: r.tds_section, mode: r.mode, reference: r.reference, notes: r.notes,
-  allocatedPaise: n(r.allocated_paise), unallocatedPaise: n(r.unallocated_paise), source: r.source, version: r.version,
+  allocatedPaise: n(r.allocated_paise), unallocatedPaise: n(r.unallocated_paise), source: r.source, needsReview: !!r.needs_review, reviewNote: r.review_note ?? null, version: r.version,
 });

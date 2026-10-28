@@ -2146,7 +2146,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description settings:edit. Runs the ladder for asOf (the daily job does this at 10:00 IST). */
+        /** @description Firm-wide settings:edit. Runs the ladder for asOf (≤ today IST; the daily job does this at 10:00 IST). */
         post: operations["runFollowUps"];
         delete?: never;
         options?: never;
@@ -3146,9 +3146,12 @@ export interface components {
             reason: string;
             lines: {
                 description: string;
+                /** @description Amount for reimbursement lines */
                 taxablePaise: number;
+                /** @description Must be a rate on the invoice */
                 gstRate?: number | null;
                 sac?: string | null;
+                reimbursement?: boolean;
             }[];
         };
         Invoice: {
@@ -3277,6 +3280,8 @@ export interface components {
             allocatedPaise: number;
             unallocatedPaise: number;
             source?: string;
+            needsReview?: boolean;
+            reviewNote?: string | null;
             version?: number;
             allocations?: {
                 invoiceId?: string;
@@ -3300,10 +3305,12 @@ export interface components {
                 buckets?: components["schemas"]["AgeingBuckets"];
                 totalPaise?: number;
                 advancePaise?: number;
+                creditPaise?: number;
             }[];
             totals: components["schemas"]["AgeingBuckets"] & {
                 totalPaise?: number;
                 advancePaise?: number;
+                creditPaise?: number;
             };
         };
         UnbilledTask: {
@@ -7368,7 +7375,10 @@ export interface operations {
                         clientId: string;
                         items: Record<string, never>[];
                         outstandingPaise: number;
-                        advancePaise: number;
+                        /** @description null without receipts:view */
+                        advancePaise: number | null;
+                        /** @description Unapplied credit-note credit */
+                        creditPaise?: number;
                         netPaise: number;
                     };
                 };

@@ -220,6 +220,10 @@ describe('demo seed', () => {
     expect((await http().get('/v1/billing/invoices').set(bearer(tok.accountant!)).expect(200)).body.total).toBe(inv.length);
     await http().get('/v1/billing/invoices').set(bearer(tok.article!)).expect(403);
     const e1 = (await http().get('/v1/billing/entities').set(P)).body.find((e: { invoicePrefix: string }) => e.invoicePrefix === 'SMA').id;
+    const sma = (await http().get('/v1/billing/invoices?kind=invoice&limit=1000').set(P)).body.items.filter((i: { number: string | null }) => i.number?.startsWith('SMA/'))
+      .sort((x: { number: string }, y: { number: string }) => x.number.localeCompare(y.number)).map((i: { issueDate: string }) => i.issueDate);
+    expect(sma).toEqual([...sma].sort()); // numbers follow date order
+    expect(all.items.some((x: { periodKey: string; status: string }) => x.periodKey === '2026-09' && x.status === 'done')).toBe(true); // recent done work exists
     expect((await http().post('/v1/billing/tally/dry-run').set(P).send({ entityId: e1, from: '2026-04-01', to: '2027-03-31' }).expect(200)).body.errors).toEqual([]);
   });
 });

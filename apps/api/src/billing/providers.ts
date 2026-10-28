@@ -15,7 +15,10 @@ export const CLIENT_MESSENGER = 'CLIENT_MESSENGER';
 export class MockMessenger implements ClientMessenger {
   private log = new Logger('Messenger');
   readonly outbox: ClientMessage[] = [];
+  /** Test hook: recipients whose sends fail (simulates a provider outage for one client). */
+  readonly failTo = new Set<string>();
   async send(m: ClientMessage) {
+    if (this.failTo.has(m.to)) return { status: 'failed' as const, error: 'mock failure' };
     this.outbox.push(m);
     if (process.env.NODE_ENV !== 'test') this.log.log(`${m.channel} to ${m.to.replace(/.(?=.{4})/g, '•')}: ${m.subject}`);
     return { status: 'sent' as const, ref: `mock-${this.outbox.length}` };
@@ -29,6 +32,8 @@ export type PaymentEvent = { eventId: string; type: string; paid: boolean; linkI
 export interface PaymentProvider {
   readonly name: string;
   createLink(r: LinkRequest): Promise<{ linkId: string; url: string }>;
+  /** Cancels a link at the provider so it can no longer be paid (called when superseding). */
+  cancelLink(linkId: string): Promise<void>;
   /** Signature over the exact raw request body. */
   verify(raw: Buffer, headers: Record<string, string | string[] | undefined>): boolean;
   parse(raw: Buffer, headers: Record<string, string | string[] | undefined>): PaymentEvent | null;
@@ -46,7 +51,10 @@ function safeEq(a: string | undefined, b: string) {
 /** Local/dev provider: links point at a fake checkout; webhooks are signed with PAYMENT_WEBHOOK_SECRET (header `x-worko-signature`). */
 export class MockPaymentProvider implements PaymentProvider {
   readonly name = 'mock';
-  private secret = () => process.env.PAYMENT_WEBHOOK_SECRET ?? 'worko-dev-webhook-secret';
+  readonly cancelled: string[] = [];
+  // `||` not `??`: an empty env var must not become an empty (forgeable) HMAC key.
+  private secret = () => process.env.PAYMENT_WEBHOOK_SECRET || DEV_WEBHOOK_SECRET;
+  async cancelLink(linkId: string) { this.cancelled.push(linkId); }
   async createLink(r: LinkRequest) {
     const linkId = `plink_${createHash('sha256').update(`${r.tenantId}:${r.invoiceId}:${r.amountPaise}:${Date.now()}`).digest('hex').slice(0, 14)}`;
     return { linkId, url: `https://pay.example.invalid/${linkId}` };
@@ -80,8 +88,17 @@ export class RazorpayProvider implements PaymentProvider {
     const j = await res.json() as { id: string; short_url: string };
     return { linkId: j.id, url: j.short_url };
   }
+  /** // VERIFY AGAINST OFFICIAL DOCS: `POST /v1/payment_links/{id}/cancel`. */
+  async cancelLink(linkId: string) {
+    const id = process.env.RAZORPAY_KEY_ID; const secret = process.env.RAZORPAY_KEY_SECRET;
+    if (!id || !secret) throw new Error('Razorpay is not configured');
+    const res = await fetch(`https://api.razorpay.com/v1/payment_links/${encodeURIComponent(linkId)}/cancel`, {
+      method: 'POST', headers: { Authorization: `Basic ${Buffer.from(`${id}:${secret}`).toString('base64')}` },
+    });
+    if (!res.ok) throw new Error(`Razorpay cancel ${res.status}`);
+  }
   verify(raw: Buffer, headers: Record<string, string | string[] | undefined>) {
-    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET || '';
     return !!secret && safeEq(h(headers, 'x-razorpay-signature'), hmacHex(secret, raw));
   }
   parse(raw: Buffer, headers: Record<string, string | string[] | undefined>): PaymentEvent | null {
@@ -94,7 +111,20 @@ export class RazorpayProvider implements PaymentProvider {
 }
 
 export const paymentProvidersFactory = (): Record<string, PaymentProvider> => ({ mock: new MockPaymentProvider(), razorpay: new RazorpayProvider() });
-export const defaultPaymentProvider = () => process.env.PAYMENT_PROVIDER ?? 'mock';
+export const defaultPaymentProvider = () => process.env.PAYMENT_PROVIDER || 'mock';
+export const DEV_WEBHOOK_SECRET = 'worko-dev-webhook-secret';
+/** The mock webhook route exists only when the mock provider is selected and we are not in production (D75). */
+export const mockPaymentsAllowed = () => defaultPaymentProvider() === 'mock' && process.env.NODE_ENV !== 'production';
+
+/** Boot-time guard: production needs a real provider with a non-empty, non-default webhook secret. */
+export function assertPaymentConfig() {
+  if (process.env.NODE_ENV !== 'production') return;
+  const p = defaultPaymentProvider();
+  if (p === 'mock') throw new Error('PAYMENT_PROVIDER=mock is not allowed in production');
+  if (p === 'razorpay' && (!process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_WEBHOOK_SECRET === DEV_WEBHOOK_SECRET)) {
+    throw new Error('RAZORPAY_WEBHOOK_SECRET is required in production');
+  }
+}
 
 // ---------------- Signed invoice links (sent to clients instead of attachments) ----------------
 

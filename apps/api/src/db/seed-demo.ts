@@ -25,6 +25,7 @@ import { dates } from '@worko/rules';
 import { SEED_LADDER } from '@worko/domain';
 import { BillingAutoService } from '../billing/auto.service.js';
 import { InvoicesService } from '../billing/invoices.service.js';
+import { Clock } from '../common/clock.js';
 import { ReceiptsService } from '../billing/receipts.service.js';
 
 export const DEMO = { firm: 'demo', password: 'Demo@12345', users: [
@@ -228,7 +229,7 @@ const DEMO_FEES: Record<string, number> = { GSTR3B: 1500, GSTR1: 1000, TDS_DEPOS
 async function seedBilling(db: DbService, tenantId: string, today: string) {
   const audit = new AuditService(); const realtime = new RealtimeService();
   const sync = new SyncService(db, audit, realtime, SYNC_TABLES);
-  const invoices = new InvoicesService(db, audit, sync, realtime);
+  const invoices = new InvoicesService(db, audit, sync, realtime, new Clock(new Date(`${today}T18:00:00+05:30`)));
   const receipts = new ReceiptsService(db, audit, invoices, sync);
   const auto = new BillingAutoService(db, invoices, audit, new JobQueueService(db));
   const sys = systemActor(tenantId);
@@ -264,13 +265,11 @@ async function seedBilling(db: DbService, tenantId: string, today: string) {
   await auto.commitRetainers(sys, ym(-1));
   // Issue all but two drafts; issue dates walk back so balances land in every ageing bucket.
   const offsets = [5, 12, 20, 40, 50, 70, 80, 100, 120, 150];
-  const issued: string[] = [];
-  for (const [i, id] of ids.entries()) {
-    if (i >= ids.length - 2) break;
-    const issueDate = dates.addDays(today, -offsets[i % offsets.length]!);
-    await invoices.issue(sys, id, { issueDate });
-    issued.push(id);
-  }
+  // Numbers must follow date order within a series (D78): issue oldest first.
+  const plan = ids.slice(0, Math.max(0, ids.length - 2)).map((id, i) => ({ id, issueDate: dates.addDays(today, -offsets[i % offsets.length]!) }))
+    .sort((x, y) => (x.issueDate < y.issueDate ? -1 : x.issueDate > y.issueDate ? 1 : 0));
+  for (const x of plan) await invoices.issue(sys, x.id, { issueDate: x.issueDate });
+  const issued = plan.map((x) => x.id).reverse(); // newest first, as before
   const inv = async (id: string) => invoices.get(sys, id);
   if (issued.length >= 5) {
     const full = await inv(issued[3]!);

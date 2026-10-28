@@ -4,11 +4,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { BillingAutoService } from '../src/billing/auto.service.js';
 import { CollectionsService } from '../src/billing/collections.service.js';
 import { JobQueueService } from '../src/jobs/job-queue.service.js';
+import { Clock } from '../src/common/clock.js';
+import { assertPaymentConfig, type MockPaymentProvider, PAYMENT_PROVIDERS } from '../src/billing/providers.js';
 import { CLIENT_MESSENGER, type MockMessenger } from '../src/billing/providers.js';
 import { bearer, bootApp, type Session } from './helpers.js';
 
 let t: Awaited<ReturnType<typeof bootApp>>;
-beforeAll(async () => { t = await bootApp(); }, 60_000);
+beforeAll(async () => { t = await bootApp(); t.app.get(Clock).set(new Date('2027-06-30T12:00:00+05:30')); }, 60_000);
 afterAll(() => t?.close());
 
 const H = (s: Session) => bearer(s.accessToken);
@@ -109,7 +111,7 @@ describe('credit/debit notes and cancellation', () => {
     expect(cn).toMatchObject({ number: 'SMACN/2627/0001', totalPaise: 11_800 });
     expect(await get(f.p, id)).toMatchObject({ creditedPaise: 11_800, balancePaise: 106_200, status: 'partially_paid' });
     expect(await get(f.p, cn.id)).toMatchObject({ kind: 'credit_note', againstInvoiceId: id, cgstPaise: 900, sgstPaise: 900, balancePaise: 0 });
-    expect((await t.http().post(`/v1/billing/invoices/${id}/notes`).set(H(f.p)).send({ kind: 'credit_note', date: '2026-10-05', reason: 'Too much', lines: [{ description: 'x', taxablePaise: 100_000 }] }).expect(409)).body.code).toBe('credit_exceeds_balance');
+    expect((await t.http().post(`/v1/billing/invoices/${id}/notes`).set(H(f.p)).send({ kind: 'credit_note', date: '2026-10-05', reason: 'Too much', lines: [{ description: 'x', taxablePaise: 100_000 }] }).expect(409)).body.code).toBe('credit_exceeds_invoice');
     expect((await t.http().post(`/v1/billing/invoices/${id}/cancel`).set(H(f.p)).send({ reason: 'Wrong client' }).expect(409)).body.code).toBe('invoice_settled');
     const dn = (await t.http().post(`/v1/billing/invoices/${id}/notes`).set(H(f.p)).send({ kind: 'debit_note', date: '2026-10-06', reason: 'Additional work', lines: [{ description: 'Extra', taxablePaise: 5_000 }] }).expect(201)).body;
     expect(await get(f.p, dn.id)).toMatchObject({ number: 'SMADN/2627/0001', balancePaise: 5_900, status: 'issued', dueDate: '2026-10-21' });
@@ -161,7 +163,8 @@ describe('receipts, ageing and reconciliation', () => {
     // Every invoice satisfies balance = total − allocations − TDS − credits (DB check).
     const bad = await t.sql(`SELECT id FROM invoice i WHERE kind <> 'credit_note' AND status NOT IN ('draft','cancelled') AND balance_paise <> total_paise
       - (SELECT COALESCE(sum(amount_paise + tds_paise),0) FROM receipt_allocation a WHERE a.invoice_id = i.id)
-      - (SELECT COALESCE(sum(total_paise),0) FROM invoice n WHERE n.against_invoice_id = i.id AND n.kind = 'credit_note')`);
+      - credited_paise OR credited_paise + (SELECT COALESCE(sum(balance_paise),0) FROM invoice n WHERE n.against_invoice_id = i.id AND n.kind = 'credit_note')
+        <> (SELECT COALESCE(sum(total_paise),0) FROM invoice n WHERE n.against_invoice_id = i.id AND n.kind = 'credit_note')`);
     expect(bad).toEqual([]);
     expect((await t.http().get(`/v1/billing/receipts/${r1.id}/pdf`).set(H(f.p)).expect(200)).headers['content-type']).toBe('application/pdf');
   });
@@ -371,5 +374,148 @@ describe('billing jobs', () => {
     const ret = (await t.http().get(`/v1/billing/invoices?clientId=${c}&kind=invoice`).set(H(f.p)).expect(200)).body.items.filter((x: { source: string }) => x.source === 'retainer');
     expect(ret).toHaveLength(1);
     expect(ret[0].periodKey).toBe('2026-09');
+  });
+});
+
+describe('phase 5 review fixes', () => {
+  const sign = (body: string, secret = 'worko-dev-webhook-secret') => createHmac('sha256', secret).update(body).digest('hex');
+  const hook = (tenantId: string, body: string, sig: string, provider = 'mock') =>
+    t.http().post(`/v1/billing/webhooks/${provider}/${tenantId}`).set('Content-Type', 'application/json').set('x-worko-signature', sig).send(body);
+
+  it('webhook: bad signature or unknown tenant writes nothing; mock route off unless PAYMENT_PROVIDER=mock outside production; prod refuses weak config', async () => {
+    const f = await firm('rv1');
+    const body = JSON.stringify({ id: 'evt_x', type: 'payment.captured', linkId: 'plink_nope', paymentId: 'pay_x', amountPaise: 100 });
+    await hook(f.p.tenantId, body, 'bad').expect(401);
+    await hook('00000000-0000-0000-0000-000000000000', body, sign(body)).expect(404);
+    await hook('not-a-uuid', body, sign(body)).expect(404);
+    expect(await t.sql('SELECT 1 FROM payment_event WHERE tenant_id = $1', [f.p.tenantId])).toEqual([]);
+    const env = { ...process.env };
+    try {
+      process.env.PAYMENT_PROVIDER = 'razorpay';
+      await hook(f.p.tenantId, body, sign(body)).expect(404);
+      process.env.PAYMENT_PROVIDER = 'mock'; process.env.PAYMENT_WEBHOOK_SECRET = ''; // empty ⇒ dev default, never an empty key
+      await hook(f.p.tenantId, body, sign(body, '')).expect(401);
+      process.env.NODE_ENV = 'production';
+      await hook(f.p.tenantId, body, sign(body)).expect(404);
+      expect(() => assertPaymentConfig()).toThrow(/mock/);
+      process.env.PAYMENT_PROVIDER = 'razorpay'; process.env.RAZORPAY_WEBHOOK_SECRET = '';
+      expect(() => assertPaymentConfig()).toThrow(/RAZORPAY_WEBHOOK_SECRET/);
+      process.env.RAZORPAY_WEBHOOK_SECRET = 'a-real-secret';
+      expect(() => assertPaymentConfig()).not.toThrow();
+    } finally { for (const k of ['PAYMENT_PROVIDER', 'PAYMENT_WEBHOOK_SECRET', 'NODE_ENV', 'RAZORPAY_WEBHOOK_SECRET']) { if (env[k] === undefined) delete process.env[k]; else process.env[k] = env[k]; } }
+  });
+
+  it('follow-ups: a failed send is retried (bounded) without re-sending the ones that went out', async () => {
+    const f = await firm('rv2');
+    const m = t.app.get<MockMessenger>(CLIENT_MESSENGER);
+    const col = t.app.get(CollectionsService);
+    const ids = [];
+    for (const n of ['Alpha', 'Bravo', 'Charlie']) {
+      const c = await client(f.p, `${n} Ltd`);
+      const id = await draft(f.p, c, [line(10_000)]); await issue(f.p, id, '2026-09-30', '2026-10-15').expect(200); ids.push(id);
+    }
+    m.failTo.add('bravo@client.in');
+    expect(await col.runFollowups(f.p.tenantId, '2026-10-15')).toMatchObject({ sent: 2, failed: 1 });
+    expect(await col.runFollowups(f.p.tenantId, '2026-10-15')).toMatchObject({ sent: 0, failed: 1 }); // retry #2, others untouched
+    m.failTo.delete('bravo@client.in');
+    expect(await col.runFollowups(f.p.tenantId, '2026-10-15')).toMatchObject({ sent: 1, failed: 0 });
+    expect(await col.runFollowups(f.p.tenantId, '2026-10-15')).toMatchObject({ sent: 0, failed: 0 });
+    for (const id of ids) expect(m.outbox.filter((x) => x.invoiceId === id)).toHaveLength(1);
+    const [row] = await t.sql<{ attempts: number; status: string }>('SELECT attempts, status FROM billing_message WHERE invoice_id = $1', [ids[1]]);
+    expect(row).toMatchObject({ attempts: 3, status: 'sent' });
+    // Bounded: after 3 failed attempts the slot is not claimed again.
+    m.failTo.add('alpha@client.in');
+    expect(await col.runFollowups(f.p.tenantId, '2026-10-22')).toMatchObject({ failed: 1 });
+    await col.runFollowups(f.p.tenantId, '2026-10-22'); await col.runFollowups(f.p.tenantId, '2026-10-22');
+    expect(await col.runFollowups(f.p.tenantId, '2026-10-22')).toMatchObject({ failed: 0 });
+    m.failTo.delete('alpha@client.in');
+    await t.http().post('/v1/billing/follow-ups/run').set(H(f.p)).send({ asOf: '2027-07-01' }).expect(400); // after "today" (pinned 2027-06-30)
+  });
+
+  it('notes: GST rate must be on the invoice, caps per tax head, reimbursements untaxed, credit on a paid invoice becomes client credit', async () => {
+    const f = await firm('rv3');
+    const c = await client(f.p, 'Paid Ltd');
+    const id = await draft(f.p, c, [line(100_000), { description: 'Stamp paper', ratePaise: 5_000, reimbursement: true }]);
+    await issue(f.p, id).expect(200); // 118000 + 5000 = 123000
+    const note = (lines: unknown[], kind = 'credit_note') => t.http().post(`/v1/billing/invoices/${id}/notes`).set(H(f.p)).send({ kind, date: '2026-10-05', reason: 'Correction', lines });
+    expect((await note([{ description: 'x', taxablePaise: 1_000, gstRate: 12 }]).expect(400)).body.code).toBe('gst_rate_not_on_invoice');
+    expect((await note([{ description: 'x', taxablePaise: 1_000, gstRate: 12 }], 'debit_note').expect(400)).body.code).toBe('gst_rate_not_on_invoice');
+    expect((await note([{ description: 'r', taxablePaise: 6_000, reimbursement: true }]).expect(409)).body.code).toBe('credit_exceeds_invoice');
+    await t.http().post('/v1/billing/receipts').set(H(f.p)).send({ clientId: c, receivedOn: '2026-10-01', amountPaise: 123_000, mode: 'bank' }).expect(201);
+    expect(await get(f.p, id)).toMatchObject({ status: 'paid', balancePaise: 0 });
+    const cn = (await note([{ description: 'Fee cut', taxablePaise: 10_000 }, { description: 'Stamp refund', taxablePaise: 5_000, reimbursement: true }]).expect(201)).body;
+    expect(await get(f.p, cn.id)).toMatchObject({ totalPaise: 16_800, cgstPaise: 900, reimbursementPaise: 5_000, balancePaise: 16_800 });
+    expect((await get(f.p, cn.id)).lines[1]).toMatchObject({ reimbursement: true, cgstPaise: 0, sac: null });
+    expect(await get(f.p, id)).toMatchObject({ status: 'paid', creditedPaise: 0, balancePaise: 0 });
+    expect((await t.http().get(`/v1/billing/clients/${c}/outstanding`).set(H(f.p)).expect(200)).body).toMatchObject({ outstandingPaise: 0, creditPaise: 16_800, netPaise: -16_800 });
+    expect((await note([{ description: 'more', taxablePaise: 95_000 }]).expect(409)).body.code).toBe('credit_exceeds_invoice'); // taxable cap 100000
+  });
+
+  it('superseding a payment link cancels it at the provider; money on it is recorded for review', async () => {
+    const f = await firm('rv4');
+    const c = await client(f.p, 'Link Ltd', { partnerId: f.p.userId });
+    const id = await draft(f.p, c, [line(100_000)]); await issue(f.p, id).expect(200);
+    const l1 = (await t.http().post(`/v1/billing/invoices/${id}/payment-link`).set(H(f.p)).expect(201)).body;
+    await t.http().post(`/v1/billing/invoices/${id}/payment-link`).set(H(f.p)).expect(201);
+    const old = l1.url.split('/').pop();
+    expect((t.app.get<Record<string, MockPaymentProvider>>(PAYMENT_PROVIDERS).mock).cancelled).toContain(old);
+    const body = JSON.stringify({ id: 'evt_old', type: 'payment.captured', linkId: old, paymentId: 'pay_old', amountPaise: 118_000 });
+    expect((await hook(f.p.tenantId, body, sign(body)).expect(200)).body.status).toBe('receipt_needs_review');
+    const rec = (await t.http().get(`/v1/billing/receipts?clientId=${c}`).set(H(f.p)).expect(200)).body.items[0];
+    expect(rec).toMatchObject({ needsReview: true, unallocatedPaise: 118_000 });
+    expect(await get(f.p, id)).toMatchObject({ balancePaise: 118_000 });
+    expect(JSON.stringify((await t.http().get('/v1/notifications').set(H(f.p)).expect(200)).body)).toContain(`Review payment ${rec.number}`);
+  });
+
+  it('scoped users: client rates, party ledgers and receipt data follow visibility', async () => {
+    const f = await firm('rv5');
+    const mgr = await t.addUser(f.p, 'rv5', 'Mohan', 'manager');
+    const mine = await client(f.p, 'Mine Ltd', { managerId: mgr.userId });
+    const other = await client(f.p, 'Hidden Ltd');
+    for (const c of [mine, other]) await t.http().post('/v1/billing/rates').set(H(f.p)).send({ serviceTypeId: f.g3b, clientId: c, amountPaise: 999, effectiveFrom: '2026-04-01' }).expect(201);
+    await t.http().put('/v1/billing/tally/ledgers').set(H(f.p)).send([{ accountKey: `party:${mine}`, ledgerName: 'Mine' }, { accountKey: `party:${other}`, ledgerName: 'Hidden' }, { accountKey: 'sales', ledgerName: 'Fees' }]).expect(204);
+    const rates = (await t.http().get('/v1/billing/rates').set(H(mgr)).expect(200)).body;
+    expect(rates.map((r: { clientId: string | null }) => r.clientId).filter(Boolean)).toEqual([mine]);
+    expect(rates.some((r: { clientId: string | null }) => r.clientId === null)).toBe(true);
+    expect((await t.http().get('/v1/billing/tally/ledgers').set(H(mgr)).expect(200)).body.map((x: { ledgerName: string }) => x.ledgerName).sort()).toEqual(['Fees', 'Mine']);
+    const id = await draft(f.p, mine, [line(10_000)]); await issue(f.p, id).expect(200);
+    await t.http().post('/v1/billing/receipts').set(H(f.p)).send({ clientId: mine, receivedOn: '2026-10-01', amountPaise: 20_000, mode: 'bank' }).expect(201);
+    expect((await get(mgr, id)).allocations).toHaveLength(1);
+    // Billing without receipts: no allocations, advance unknown, no advances in ageing.
+    await t.sql(`UPDATE role SET grants = (SELECT jsonb_agg(g) FROM jsonb_array_elements(grants) g WHERE g->>'module' <> 'receipts') WHERE key = 'manager' AND tenant_id = $1`, [f.p.tenantId]);
+    expect((await get(mgr, id)).allocations).toEqual([]);
+    expect((await t.http().get(`/v1/billing/clients/${mine}/outstanding`).set(H(mgr)).expect(200)).body.advancePaise).toBeNull();
+    expect((await t.http().get('/v1/billing/ageing?asOf=2026-10-01').set(H(mgr)).expect(200)).body.totals.advancePaise).toBe(0);
+    expect((await t.http().get('/v1/billing/ageing?asOf=2026-10-01').set(H(f.p)).expect(200)).body.totals.advancePaise).toBe(8_200);
+  });
+
+  it('issue date: not in the future, not before the last in the series; entity active; receipt entity inferred or required; cancelled links 404', async () => {
+    const f = await firm('rv6');
+    const c = await client(f.p, 'Dates Ltd');
+    const a = await draft(f.p, c, [line(10_000)]);
+    expect((await issue(f.p, a, '2027-07-01').expect(400)).body.code).toBe('date_in_future');
+    await issue(f.p, a, '2026-10-10').expect(200);
+    const b = await draft(f.p, c, [line(10_000)]);
+    expect((await issue(f.p, b, '2026-10-09').expect(400)).body.code).toBe('date_before_last_issued');
+    expect((await issue(f.p, b, '2026-10-10').expect(200)).body.number).toBe('SMA/2627/0002'); // failed attempt left no gap
+    const e2draft = await draft(f.p, c, [line(10_000)], { entityId: f.e2 });
+    await issue(f.p, e2draft, '2026-10-01').expect(200); // other series: independent
+    // Receipt entity: open items in two entities → must choose; then inferred when unambiguous.
+    expect((await t.http().post('/v1/billing/receipts').set(H(f.p)).send({ clientId: c, receivedOn: '2026-10-11', amountPaise: 100, mode: 'cash' }).expect(400)).body.code).toBe('entity_required');
+    await t.http().post('/v1/billing/receipts').set(H(f.p)).send({ clientId: c, entityId: f.e2, receivedOn: '2026-10-11', amountPaise: 11_800, mode: 'cash' }).expect(201);
+    const r = (await t.http().post('/v1/billing/receipts').set(H(f.p)).send({ clientId: c, receivedOn: '2026-10-11', amountPaise: 100, mode: 'cash' }).expect(201)).body;
+    expect(r.number).toMatch(/^SMAR\//);
+    // Inactive entity can't issue.
+    const d3 = await draft(f.p, c, [line(10_000)], { entityId: f.e2 });
+    await t.http().patch(`/v1/billing/entities/${f.e2}`).set(H(f.p)).send({ active: false }).expect(204);
+    expect((await issue(f.p, d3, '2026-10-12').expect(409)).body.code).toBe('entity_inactive');
+    // Public link of a cancelled invoice is dead.
+    const x = await draft(f.p, c, [line(10_000)]); await issue(f.p, x, '2026-10-12').expect(200);
+    await t.http().post(`/v1/billing/invoices/${x}/send`).set(H(f.p)).send({ channel: 'email' }).expect(200);
+    const out = t.app.get<MockMessenger>(CLIENT_MESSENGER).outbox.filter((m) => m.invoiceId === x);
+    const token = /\/billing\/public\/(\S+)$/.exec(out[0]!.text)![1]!;
+    await t.http().get(`/v1/billing/public/${token}`).expect(200);
+    await t.http().post(`/v1/billing/invoices/${x}/cancel`).set(H(f.p)).send({ reason: 'Raised in error' }).expect(204);
+    await t.http().get(`/v1/billing/public/${token}`).expect(404);
   });
 });

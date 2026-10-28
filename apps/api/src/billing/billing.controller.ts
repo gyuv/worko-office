@@ -1,10 +1,11 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query, Req, Res } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query, Req, Res } from '@nestjs/common';
 import { gstinSchema, INVOICE_KINDS, INVOICE_PREFIX_REGEX, INVOICE_STATUSES, panSchema, RECEIPT_MODES, TALLY_ACCOUNTS } from '@worko/domain';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { CurrentActor, Perm, Public, type RequestActor } from '../auth/context.js';
 import { ZodPipe } from '../common/zod.pipe.js';
-import { todayIst } from '../compliance/facts.js';
+import { Clock } from '../common/clock.js';
+import { requireFirmWide } from '../tasks/system-actor.js';
 import { BillingAutoService } from './auto.service.js';
 import { CollectionsService } from './collections.service.js';
 import { BillingConfigService } from './config.service.js';
@@ -45,7 +46,7 @@ const issueB = z.object({ issueDate: date, dueDate: date.nullable().optional() }
 const cancelB = z.object({ reason: z.string().trim().min(3).max(500) }).strict();
 const noteB = z.object({
   kind: z.enum(['credit_note', 'debit_note']), date, reason: z.string().trim().min(3).max(500),
-  lines: z.array(z.object({ description: z.string().trim().min(1).max(500), taxablePaise: paise.refine((x) => x > 0), gstRate: z.number().min(0).max(28).nullable().optional(), sac: z.string().regex(/^\d{4,8}$/).nullable().optional() }).strict()).min(1).max(50),
+  lines: z.array(z.object({ description: z.string().trim().min(1).max(500), taxablePaise: paise.refine((x) => x > 0), gstRate: z.number().min(0).max(28).nullable().optional(), sac: z.string().regex(/^\d{4,8}$/).nullable().optional(), reimbursement: z.boolean().optional() }).strict()).min(1).max(50),
 }).strict();
 const followB = z.object({ promiseToPay: date.nullable().optional(), paused: z.boolean().optional() }).strict();
 const sendB = z.object({ channel: z.enum(['email', 'whatsapp']) }).strict();
@@ -86,7 +87,7 @@ const sendPdf = (res: Response, f: { name: string; pdf: Buffer }) => {
 export class BillingController {
   constructor(
     private config: BillingConfigService, private invoices: InvoicesService, private receipts: ReceiptsService, private auto: BillingAutoService,
-    private reports: BillingReportsService, private collections: CollectionsService,
+    private reports: BillingReportsService, private collections: CollectionsService, private clock: Clock,
   ) {}
 
   // ---------- Firm configuration ----------
@@ -198,7 +199,7 @@ export class BillingController {
 
   // ---------- Reports ----------
   @Get('ageing') @Perm('billing', 'view')
-  ageing(@CurrentActor() a: RequestActor, @Query(new ZodPipe(z.object({ asOf: date.optional() }))) q: { asOf?: string }) { return this.reports.ageing(a, q.asOf ?? todayIst()); }
+  ageing(@CurrentActor() a: RequestActor, @Query(new ZodPipe(z.object({ asOf: date.optional() }))) q: { asOf?: string }) { return this.reports.ageing(a, q.asOf ?? this.clock.todayIst()); }
 
   @Get('unbilled') @Perm('billing', 'view')
   unbilled(@CurrentActor() a: RequestActor, @Query(new ZodPipe(z.object({ from: date.optional(), to: date.optional(), clientId: z.string().uuid().optional() }))) q: { from?: string; to?: string; clientId?: string }) {
@@ -210,7 +211,11 @@ export class BillingController {
 
   // ---------- Follow-ups, Tally ----------
   @Post('follow-ups/run') @HttpCode(200) @Perm('settings', 'edit')
-  runFollowups(@CurrentActor() a: RequestActor, @Body(new ZodPipe(followRunB)) b: z.infer<typeof followRunB>) { return this.collections.runFollowups(a.tenantId, b.asOf); }
+  runFollowups(@CurrentActor() a: RequestActor, @Body(new ZodPipe(followRunB)) b: z.infer<typeof followRunB>) {
+    requireFirmWide(a, 'settings', 'edit');
+    if (b.asOf > this.clock.todayIst()) throw new BadRequestException({ message: 'asOf cannot be in the future', code: 'date_in_future' });
+    return this.collections.runFollowups(a.tenantId, b.asOf);
+  }
 
   @Post('tally/dry-run') @HttpCode(200) @Perm('billing', 'export')
   async tallyDryRun(@CurrentActor() a: RequestActor, @Body(new ZodPipe(tallyB)) b: z.infer<typeof tallyB>) {
@@ -224,7 +229,7 @@ export class BillingController {
   // ---------- Public ----------
   /** Payment provider webhook: signature over the raw body, idempotent per provider event id. */
   @Post('webhooks/:provider/:tenantId') @HttpCode(200) @Public()
-  webhook(@Param('provider', new ZodPipe(z.enum(['mock', 'razorpay']))) provider: string, @Param('tenantId', ParseUUIDPipe) tenantId: string, @Req() req: Request & { rawBody?: Buffer }) {
+  webhook(@Param('provider', new ZodPipe(z.enum(['mock', 'razorpay']))) provider: string, @Param('tenantId') tenantId: string, @Req() req: Request & { rawBody?: Buffer }) {
     return this.collections.webhook(provider, tenantId, req.rawBody, req.headers);
   }
 
