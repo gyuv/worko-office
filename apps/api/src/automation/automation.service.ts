@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import {
-  agentTemplate, AGENT_TEMPLATES, automationSettingsSchema, effectiveScope, nextRunAt, ruleDefinitionSchema, scopeErrors,
-  type RuleDefinition, type RuleScope,
+  ACTION_PERMS, agentTemplate, AGENT_TEMPLATES, automationSettingsSchema, effectiveScope, nextRunAt, ruleDefinitionSchema, scopeErrors,
+  type Action, type Module, type RuleDefinition, type RuleScope,
 } from '@worko/domain';
 import { AuditService } from '../audit/audit.service.js';
 import type { RequestActor } from '../auth/context.js';
@@ -39,6 +39,15 @@ export class AutomationService {
   private requireManage(a: RequestActor, r: { scope: string; owner_id: string }) {
     if (r.scope === 'firm' ? this.firmManager(a) : r.owner_id === a.userId && !!effectiveScope(a, 'automation', 'edit')) return;
     throw new ForbiddenException({ message: r.scope === 'firm' ? 'Needs firm-wide automation:edit' : 'Only the owner manages a personal rule', code: 'forbidden' });
+  }
+  /**
+   * A non-owner who edits the definition, enables, resumes or retries a rule must personally hold every module×action its
+   * actions need (D153) — nobody can launch work on the strength of someone else's permissions.
+   */
+  private requireActionPerms(a: RequestActor, def: RuleDefinition) {
+    if (a.superAdmin) return;
+    const missing = [...def.actions, ...(def.ladder?.escalate ?? [])].flatMap((x) => ACTION_PERMS[x.type]).filter(([m, act]) => (effectiveScope(a, m as Module, act as Action)?.scope ?? 'none') === 'none');
+    if (missing.length) throw new ForbiddenException({ message: `Needs ${[...new Set(missing.map(([m, x]) => `${m}:${x}`))].join(', ')}`, code: 'missing_action_permission' });
   }
   private visibleSql(a: RequestActor, p: Params, r = 'r') {
     if (this.firmViewer(a)) return 'TRUE';
@@ -102,16 +111,19 @@ export class AutomationService {
       const r = await this.load(tx, a, id, true);
       this.requireManage(a, r);
       const d = b.definition !== undefined ? this.parse(b.definition, r.scope) : null;
+      // Changing what a rule does makes the editor its owner: it then runs with the editor's permissions, never the previous owner's (D153).
+      if (d) this.requireActionPerms(a, d);
+      const newOwner = d ? a.userId : r.owner_id;
       const c = d ? this.columns(d) : null;
       const ver = d ? r.rule_version + 1 : r.rule_version;
       const row = (await tx.query(`UPDATE automation_rule SET name = COALESCE($2, name), description = CASE WHEN $3 THEN $4 ELSE description END, definition = COALESCE($5, definition),
           trigger_kind = COALESCE($6, trigger_kind), trigger_event = COALESCE($7, trigger_event), listen_events = COALESCE($8, listen_events), next_run_at = CASE WHEN $5::jsonb IS NULL THEN next_run_at ELSE $9 END,
-          rule_version = $10, version = version + 1, updated_by = $11, device_id = $12 WHERE id = $1 RETURNING *`,
-      [id, b.name ?? null, b.description !== undefined, b.description ?? null, d ? JSON.stringify(d) : null, c?.trigger_kind ?? null, c?.trigger_event ?? null, c?.listen ?? null, c?.next ?? null, ver, a.userId, a.deviceId])).rows[0];
-      if (d) await tx.query(`INSERT INTO automation_rule_version (id, tenant_id, rule_id, rule_version, name, definition, changed_by, changed_at, note) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [uuidv7(), a.tenantId, id, ver, row.name, JSON.stringify(d), a.userId, now, b.note ?? null]);
+          rule_version = $10, version = version + 1, updated_by = $11, device_id = $12, owner_id = $13, consecutive_failures = CASE WHEN $5::jsonb IS NULL THEN consecutive_failures ELSE 0 END WHERE id = $1 RETURNING *`,
+      [id, b.name ?? null, b.description !== undefined, b.description ?? null, d ? JSON.stringify(d) : null, c?.trigger_kind ?? null, c?.trigger_event ?? null, c?.listen ?? null, c?.next ?? null, ver, a.userId, a.deviceId, newOwner])).rows[0];
+      if (d) await tx.query(`INSERT INTO automation_rule_version (id, tenant_id, rule_id, rule_version, name, definition, changed_by, changed_at, note, owner_id, previous_owner_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [uuidv7(), a.tenantId, id, ver, row.name, JSON.stringify(d), a.userId, now, b.note ?? null, newOwner, r.owner_id !== newOwner ? r.owner_id : null]);
       await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'automation.rule_updated', entity: 'automation_rule', entityId: id,
-        diff: { name: b.name, description: b.description !== undefined, version: ver, definitionChanged: !!d, actions: d?.actions.map((x) => x.type) } });
+        diff: { name: b.name, description: b.description !== undefined, version: ver, definitionChanged: !!d, actions: d?.actions.map((x) => x.type), ownerId: newOwner, previousOwnerId: r.owner_id !== newOwner ? r.owner_id : null } });
       return row;
     });
     this.publish(a.tenantId, out.sync_cursor);
@@ -124,6 +136,7 @@ export class AutomationService {
     const out = await this.db.tenantTx(a.tenantId, async (tx) => {
       const r = await this.load(tx, a, id, true);
       this.requireManage(a, r);
+      if ((op === 'enable' || op === 'resume') && r.owner_id !== a.userId) this.requireActionPerms(a, ruleDefinitionSchema.parse(r.definition));
       if (op === 'resume' && r.status !== 'paused') throw new ConflictException({ message: 'Rule is not paused', code: 'not_paused' });
       const sql = {
         enable: `enabled = true`, disable: `enabled = false`, delete: `deleted_at = $2::timestamptz, enabled = false`,
@@ -142,21 +155,23 @@ export class AutomationService {
   versions(a: RequestActor, id: string) {
     return this.db.tenantTx(a.tenantId, async (tx) => {
       await this.load(tx, a, id);
-      return { items: (await tx.query(`SELECT rule_version AS version, name, definition, changed_by AS "changedBy", changed_at AS "changedAt", note FROM automation_rule_version WHERE rule_id = $1 ORDER BY rule_version DESC`, [id])).rows };
+      return { items: (await tx.query(`SELECT rule_version AS version, name, definition, changed_by AS "changedBy", changed_at AS "changedAt", note, owner_id AS "ownerId", previous_owner_id AS "previousOwnerId" FROM automation_rule_version WHERE rule_id = $1 ORDER BY rule_version DESC`, [id])).rows };
     });
   }
 
   // ---------- Dry-run ----------
   async dryRunRule(a: RequestActor, id: string, o: { limit: number; entityType?: string; entityId?: string; definition?: unknown }) {
     const r = await this.db.tenantTx(a.tenantId, (tx) => this.load(tx, a, id));
+    // Trying a different definition against this rule's owner is an edit in disguise: manage rights required (D154).
+    if (o.definition !== undefined) this.requireManage(a, r);
     const d = o.definition !== undefined ? this.parse(o.definition, r.scope) : ruleDefinitionSchema.parse(r.definition);
-    return this.engine.dryRun(a.tenantId, { id: r.id, tenant_id: a.tenantId, name: r.name, owner_id: r.owner_id, scope: r.scope }, d, o, this.clock.now());
+    return this.engine.dryRun(a.tenantId, { id: r.id, tenant_id: a.tenantId, name: r.name, owner_id: r.owner_id, scope: r.scope }, d, o, this.clock.now(), a);
   }
   /** Draft rule (not saved): evaluated as if the caller owned it. */
   async dryRunDraft(a: RequestActor, b: { scope: RuleScope; definition?: unknown; limit: number; entityType?: string; entityId?: string }) {
     if (b.scope === 'firm' ? !this.firmManager(a) : !effectiveScope(a, 'automation', 'create')) throw new ForbiddenException({ message: 'Not allowed', code: 'forbidden' });
     const d = this.parse(b.definition, b.scope);
-    return this.engine.dryRun(a.tenantId, { id: '00000000-0000-0000-0000-000000000000', tenant_id: a.tenantId, name: 'Draft', owner_id: a.userId, scope: b.scope }, d, b, this.clock.now());
+    return this.engine.dryRun(a.tenantId, { id: '00000000-0000-0000-0000-000000000000', tenant_id: a.tenantId, name: 'Draft', owner_id: a.userId, scope: b.scope }, d, b, this.clock.now(), a);
   }
 
   // ---------- Agents ----------
@@ -211,6 +226,7 @@ export class AutomationService {
       if (!run) throw new NotFoundException();
       const r = await this.load(tx, a, run.rule_id);
       this.requireManage(a, r);
+      if (r.owner_id !== a.userId) this.requireActionPerms(a, ruleDefinitionSchema.parse(r.definition));
       await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'automation.run_retried', entity: 'automation_run', entityId: id, diff: { ruleId: r.id } });
     });
     const res = await this.engine.retry(a.tenantId, id, this.clock.now());

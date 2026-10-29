@@ -41,6 +41,8 @@ import { esignPublicToken } from '../screens/practice/logic';
 import { LeadsRoute } from '../screens/leads/LeadsScreen';
 import { PublicProposal } from '../screens/leads/PublicProposal';
 import { proposalPublicToken } from '../screens/leads/logic';
+import { AutomationScreen } from '../screens/automation/AutomationScreen';
+import { SuggestionsScreen } from '../screens/ai/SuggestionsScreen';
 import { PortalRoot } from '../portal/PortalApp';
 import { parsePortalHash } from '../portal/logic';
 
@@ -77,6 +79,8 @@ function Routes() {
     case 'licences': return <LicencesScreen />;
     case 'esign': return <EsignScreen />;
     case 'leads': return <LeadsRoute />;
+    case 'automation': return <AutomationScreen />;
+    case 'suggestions': return <SuggestionsScreen />;
     default: {
       const n = NAV.find((x) => x.route === route)!;
       return <ComingSoon module={t(n.label)} phase={n.phase ?? 0} />;

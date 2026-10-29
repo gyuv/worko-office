@@ -5553,6 +5553,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ai/availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description ai:view. Effective per-feature gate (ok | no_ai_mode | ai_disabled | feature_disabled) and whether the firm/user budget is used up — no settings detail, cap values or rates. For showing AI buttons. */
+        get: operations["getAiAvailability"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ai/usage": {
         parameters: {
             query?: never;
@@ -17942,6 +17959,27 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+        };
+    };
+    getAiAvailability: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
             403: components["responses"]["Error"];
         };
     };

@@ -1294,6 +1294,8 @@ paths:
   /ai/settings:
     get: { tags: [ai], operationId: getAiSettings, description: 'settings:view. Opt-in (off by default), per-feature toggles, no-AI mode, caps, retention; provider/model in use.', responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '403': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } } }
     put: { tags: [ai], operationId: putAiSettings, description: 'Firm-wide settings:edit.', requestBody: { required: true, content: { application/json: { schema: { type: object } } } }, responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '400': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' } } }
+  /ai/availability:
+    get: { tags: [ai], operationId: getAiAvailability, description: 'ai:view. Effective per-feature gate (ok | no_ai_mode | ai_disabled | feature_disabled) and whether the firm/user budget is used up — no settings detail, cap values or rates. For showing AI buttons.', responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '403': { $ref: '#/components/responses/Error' } } }
   /ai/usage:
     get: { tags: [ai], operationId: getAiUsage, description: 'settings:view. Tokens and cost (paise) per feature/user/rule for a month.', parameters: [{ name: month, in: query, schema: { type: string } }], responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '403': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } } }
   /ai/draft-reply:

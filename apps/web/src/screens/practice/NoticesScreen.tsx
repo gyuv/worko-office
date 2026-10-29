@@ -1,3 +1,4 @@
+import { DraftReplyButton, SummariseButton } from '../ai/AiParts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { NOTICE_AUTHORITY_KEYS, NOTICE_OUTCOMES, NOTICE_STATUSES, type NoticeOutcome, type NoticeStatus } from '@worko/domain';
 import { formatDate, formatDateTime } from '@worko/i18n';
@@ -299,7 +300,9 @@ function NoticeView({ id }: { id: string }) {
             <PersonSelect label={t('p8.f.assignee')} value={n.assigneeId} onChange={(v) => patch.mutate({ assigneeId: v })} />
             <PersonSelect label={t('p8.f.reviewer')} value={n.reviewerId} onChange={(v) => patch.mutate({ reviewerId: v })} />
           </div> : <p className="text-sm">{t('p8.f.assignee')}: {name(n.assigneeId)} · {t('p8.f.reviewer')}: {name(n.reviewerId)}</p>}
-          {n.taskId && <button className="btn" onClick={() => setTask(n.taskId)}>{t('p8.n.openTask')}</button>}
+          <div className="flex flex-wrap gap-2">{n.taskId && <button className="btn" onClick={() => setTask(n.taskId)}>{t('p8.n.openTask')}</button>}
+            <DraftReplyButton clientId={n.clientId} clientName={n.clientName ?? ''} noticeId={n.id} />
+            <SummariseButton clientId={n.clientId} clientName={n.clientName ?? ''} noticeId={n.id} /></div>
           {n.appealOf && <a className="block text-sm underline" href={`#/notices/${n.appealOf}`}>{t('p8.n.appealOf')}</a>}
         </section>
         <NoticeDocuments n={n} editable={editable} onReExtract={() => setReExtract(true)} />

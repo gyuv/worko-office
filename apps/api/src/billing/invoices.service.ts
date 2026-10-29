@@ -7,6 +7,7 @@ import type { RequestActor } from '../auth/context.js';
 import { Params } from '../clients/scope.js';
 import { DbService, type Tx } from '../db/db.service.js';
 import { uuidv7 } from '../db/ids.js';
+import { once } from '../common/idempotency.js';
 import { Clock } from '../common/clock.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { SyncService } from '../sync/sync.service.js';
@@ -80,11 +81,17 @@ export class InvoicesService {
 
   // ---------- Drafts ----------
 
-  async create(a: RequestActor, i: DraftIn) {
-    const cur = new Cursor();
-    const id = await this.db.tenantTx(a.tenantId, (tx) => this.createDraftTx(tx, a, i, 'manual', cur));
-    this.publish(a, cur);
-    return { id };
+  async create(a: RequestActor, i: DraftIn, opts: { idempotencyKey?: string | null } = {}) {
+    return once(this.db, a.tenantId, 'invoice', opts.idempotencyKey, (r) => ({ id: r.id as string }), async () => {
+      const cur = new Cursor();
+      const id = await this.db.tenantTx(a.tenantId, async (tx) => {
+        const id = await this.createDraftTx(tx, a, i, 'manual', cur);
+        if (opts.idempotencyKey) await tx.query('UPDATE invoice SET idempotency_key = $2 WHERE id = $1', [id, opts.idempotencyKey]);
+        return id;
+      });
+      this.publish(a, cur);
+      return { id };
+    });
   }
 
   /** Inserts a draft with computed lines; linked tasks become `billed`. Used by REST, auto-billing and retainers. */

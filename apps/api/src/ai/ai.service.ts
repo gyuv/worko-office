@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import {
-  aiCostPaise, aiGate, aiSettingsSchema, can, classificationSchema, clientCtx, containsPii, dataBlock, draftSchema, estimateTokens, parseModelJson,
+  AI_FEATURES, aiCostPaise, aiGate, aiSettingsSchema, can, classificationSchema, clientCtx, containsPii, dataBlock, draftSchema, estimateTokens, parseModelJson,
   rateForModel, redact, restore, summarySchema, UNTRUSTED_DATA_RULES, withinCap,
   type AiFeature, type AiRate, type AiSettings, type CommChannel, type FieldSuggestion, type Module, type RedactionMap, type SuggestionKind, type SuggestionSource,
 } from '@worko/domain';
@@ -28,6 +28,17 @@ type Block = { label: string; id?: string; text: string };
 type RunIn<T> = { tenantId: string; feature: AiFeature; userId: string | null; ruleId?: string | null; task: string; blocks: Block[]; schema: z.ZodType<T>; maxTokens?: number; extraNames?: string[] };
 type RunOut<T> = { output: T | null; prompt: string; map: RedactionMap; provider: string; model: string; inputTokens: number; outputTokens: number; costPaise: number };
 type Payload = Record<string, unknown> & { snippets?: Array<{ id: string; text: string }> };
+
+const FP_TABLES: Record<string, string> = { comm_message: 'comm_message', notice: 'notice', document: 'document', task: 'task' };
+/** version per source entity the model looked at (clients/rules excluded) — approval refuses when it moved on. */
+async function fingerprint(tx: Tx, sources: SuggestionSource[]): Promise<Record<string, number | null>> {
+  const out: Record<string, number | null> = {};
+  for (const src of sources ?? []) {
+    const t = FP_TABLES[src.type]; if (!t) continue;
+    out[`${src.type}:${src.id}`] = (await tx.query(`SELECT version FROM ${t} WHERE id = $1 AND deleted_at IS NULL`, [src.id])).rows[0]?.version ?? null;
+  }
+  return out;
+}
 
 /** Deep-restores placeholders in every string of a parsed model answer (server-side only). */
 function restoreDeep<T>(v: T, map: RedactionMap): T {
@@ -62,6 +73,8 @@ export class AiService {
   private async effectiveTx(tx: Tx, feature: AiFeature): Promise<AiSettings> {
     const s = await this.settingsTx(tx);
     if (feature !== 'notice_extraction' || (s.enabled && s.features.notice_extraction)) return s;
+    // Only when the firm never saved AI settings: an explicit ai_settings row (incl. an opt-out) always wins.
+    if ((await tx.query('SELECT 1 FROM ai_settings LIMIT 1')).rowCount) return s;
     const legacy = (await tx.query(`SELECT (settings->'ai'->>'noticeExtraction')::boolean AS on FROM practice_settings LIMIT 1`)).rows[0]?.on === true;
     return legacy ? { ...s, enabled: true, features: { ...s.features, notice_extraction: true } } : s;
   }
@@ -82,6 +95,20 @@ export class AiService {
   }
   /** Gate for a feature without calling anything (UI hints, automation dry-runs). */
   async gate(tenantId: string, feature: AiFeature) { return this.db.tenantTx(tenantId, async (tx) => aiGate(await this.effectiveTx(tx, feature), feature, envNoAi())); }
+
+  /** What the UI needs to show/hide AI buttons: per-feature gate + whether budgets are used up. No settings detail, caps or rates. */
+  async availability(a: RequestActor) {
+    const month = istMonth(this.clock.now());
+    return this.db.tenantTx(a.tenantId, async (tx) => {
+      const features: Record<string, string> = {};
+      for (const f of AI_FEATURES) features[f] = aiGate(await this.effectiveTx(tx, f), f, envNoAi());
+      const s = await this.settingsTx(tx);
+      const sum = async (user: boolean) => Number((await tx.query(`SELECT COALESCE(sum(cost_paise), 0)::bigint AS n FROM ai_usage WHERE month = $1 ${user ? 'AND user_id = $2' : ''}`, user ? [month, a.userId] : [month])).rows[0].n);
+      const firmCapReached = (await sum(false)) >= s.monthlyCapPaise;
+      const userCapReached = s.perUserMonthlyCapPaise !== null && (await sum(true)) >= s.perUserMonthlyCapPaise;
+      return { noAiMode: envNoAi() || s.noAiMode, features, firmCapReached, userCapReached, mock: this.provider.name === 'mock' };
+    });
+  }
 
   async usage(a: RequestActor, month: string) {
     return this.db.tenantTx(a.tenantId, async (tx) => {
@@ -121,23 +148,31 @@ export class AiService {
       let map: RedactionMap = {};
       const blocks = i.blocks.map((b) => { const r = redact(b.text.slice(0, 40_000), { names: [...names, ...(i.extraNames ?? [])], map }); map = r.map; return dataBlock(b.label, r.text, b.id); });
       const user = `${i.task}\n\n${blocks.join('\n\n')}`;
-      if (containsPii(user)) throw refuse('redaction_failed', 'Could not redact the content safely');
+      // Block ids (uuids) are ours, not PII: ignore them in the last guard (a uuid's 12-digit tail could look like an account number).
+      if (containsPii(user.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, ''))) throw refuse('redaction_failed', 'Could not redact the content safely');
       const system = `You assist an Indian CA/CS firm. ${UNTRUSTED_DATA_RULES} Reply with JSON only.`;
       const rates = await this.rates(tx);
       const rate = rateForModel(rates, this.provider.name, this.provider.model, this.clock.todayIst());
       const est = aiCostPaise(rate, estimateTokens(system + user), i.maxTokens ?? 1000);
+      // Serialise cap checks per tenant × month and reserve the estimate in the same transaction (no two calls squeeze under the cap).
+      await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`ai-cap:${i.tenantId}:${month}`]);
       const used = Number((await tx.query('SELECT COALESCE(sum(cost_paise), 0)::bigint AS n FROM ai_usage WHERE month = $1', [month])).rows[0].n);
       if (!withinCap(used, est, s.monthlyCapPaise)) throw refuse('ai_cap', 'Monthly AI budget reached');
       if (i.userId && s.perUserMonthlyCapPaise !== null) {
         const mine = Number((await tx.query('SELECT COALESCE(sum(cost_paise), 0)::bigint AS n FROM ai_usage WHERE month = $1 AND user_id = $2', [month, i.userId])).rows[0].n);
         if (!withinCap(mine, est, s.perUserMonthlyCapPaise)) throw refuse('ai_cap', 'Your monthly AI budget is used up');
       }
-      return { system, user, map, rate };
+      const usageId = uuidv7();
+      await tx.query(`INSERT INTO ai_usage (id, tenant_id, feature, user_id, rule_id, provider, model, input_tokens, output_tokens, cost_paise, month, occurred_at, device_id)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,0,0,$8,$9,$10,'server')`, [usageId, i.tenantId, i.feature, i.userId, i.ruleId ?? null, this.provider.name, this.provider.model, est, month, now]);
+      return { system, user, map, rate, usageId };
     });
-    const res = await this.provider.complete({ feature: i.feature, system: prep.system, user: prep.user, maxTokens: i.maxTokens ?? 1000 });
+    const settle = (inTok: number, outTok: number, model: string, cost: number) => this.db.tenantTx(i.tenantId, (tx) =>
+      tx.query('UPDATE ai_usage SET input_tokens = $2, output_tokens = $3, model = $4, cost_paise = $5, version = version + 1 WHERE id = $1', [prep.usageId, inTok, outTok, model, cost]));
+    let res;
+    try { res = await this.provider.complete({ feature: i.feature, system: prep.system, user: prep.user, maxTokens: i.maxTokens ?? 1000 }); } catch (e) { await settle(0, 0, this.provider.model, 0); throw e; }
     const costPaise = aiCostPaise(prep.rate, res.inputTokens, res.outputTokens);
-    await this.db.tenantTx(i.tenantId, (tx) => tx.query(`INSERT INTO ai_usage (id, tenant_id, feature, user_id, rule_id, provider, model, input_tokens, output_tokens, cost_paise, month, occurred_at, device_id)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'server')`, [uuidv7(), i.tenantId, i.feature, i.userId, i.ruleId ?? null, this.provider.name, res.model, res.inputTokens, res.outputTokens, costPaise, month, now]));
+    await settle(res.inputTokens, res.outputTokens, res.model, costPaise);
     const parsed = res.refused ? null : parseModelJson(res.text, i.schema);
     return { output: parsed ? restoreDeep(parsed, prep.map) : null, prompt: prep.user, map: prep.map, provider: this.provider.name, model: res.model, inputTokens: res.inputTokens, outputTokens: res.outputTokens, costPaise };
   }
@@ -171,7 +206,7 @@ export class AiService {
       }
       throw new BadRequestException({ message: 'messageId or noticeId required', code: 'source_required' });
     });
-    const r = await this.runModel({ tenantId: a.tenantId, feature: 'draft_reply', userId: a.userId, schema: draftSchema, extraNames: [src.c.name],
+    const r = await this.runModel({ tenantId: a.tenantId, feature: 'draft_reply', userId: a.userId, schema: draftSchema, extraNames: await this.namesOf(a.tenantId, src.c.id),
       task: `Draft a short, polite reply from the firm to the client about the item below${b.instruction ? `. Staff note: ${b.instruction.slice(0, 500)}` : ''}. Reply {"subject":string|null,"body":string}.`,
       blocks: [{ label: 'client', text: `Client: ${src.c.name}` }, { label: src.source.type, id: src.source.id, text: src.text }] });
     return this.saveSuggestion(a.tenantId, { kind: 'draft_reply', feature: 'draft_reply', clientId: src.c.id, entityType: src.source.type, entityId: src.source.id, requestedBy: a.userId, run: r,
@@ -193,7 +228,7 @@ export class AiService {
       return { c, sources: msgs.map((m) => ({ type: 'comm_message' as const, id: m.id as string, label: `${m.channel} ${m.direction}`, text: `${m.subject ?? ''} ${String(m.body ?? '').slice(0, 500)}`.trim() })) };
     });
     if (!src.sources.length) throw new ConflictException({ message: 'Nothing to summarise yet', code: 'nothing_to_summarise' });
-    const r = await this.runModel({ tenantId: a.tenantId, feature: 'summarise', userId: a.userId, schema: summarySchema, extraNames: [src.c.name],
+    const r = await this.runModel({ tenantId: a.tenantId, feature: 'summarise', userId: a.userId, schema: summarySchema, extraNames: await this.namesOf(a.tenantId, src.c.id),
       task: 'Summarise the client history below for a partner in 3–5 sentences plus up to 5 key points (open asks, promises, risks). Reply {"summary":string,"points":[string]}.',
       blocks: [{ label: 'client', text: `Client: ${src.c.name}` }, ...src.sources.map((s) => ({ label: s.type, id: s.id, text: s.text }))] });
     return this.saveSuggestion(a.tenantId, { kind: 'summary', feature: 'summarise', clientId: src.c.id, entityType: b.noticeId ? 'notice' : 'client', entityId: b.noticeId ?? src.c.id, requestedBy: a.userId, run: r,
@@ -210,7 +245,7 @@ export class AiService {
       return { doc, c };
     });
     const text = `File name: ${d.doc.name}\nType: ${d.doc.mime}\n${String(d.doc.extracted_text ?? '').slice(0, 5000)}`;
-    const r = await this.runModel({ tenantId: a.tenantId, feature: ruleId ? 'automation_draft' : 'classify_upload', userId: ruleId ? null : a.userId, ruleId, schema: classificationSchema, extraNames: [d.c.name],
+    const r = await this.runModel({ tenantId: a.tenantId, feature: ruleId ? 'automation_draft' : 'classify_upload', userId: ruleId ? null : a.userId, ruleId, schema: classificationSchema, extraNames: await this.namesOf(a.tenantId, d.c.id),
       task: 'Suggest a document category (short label, e.g. GST, Bank statements, Income tax, Sales invoices, General) and the Indian financial year (YYYY-YY) if evident. Reply {"category":string,"fy":string|null,"confidence":0..1}.',
       blocks: [{ label: 'document', id: d.doc.id, text }] });
     return this.saveSuggestion(a.tenantId, { kind: 'classification', feature: 'classify_upload', clientId: d.c.id, entityType: 'document', entityId: d.doc.id, requestedBy: ruleId ? null : a.userId, ruleId, runId, run: r,
@@ -221,7 +256,7 @@ export class AiService {
   /** (e) Automation "AI draft message": a draft that waits for a human; never sent automatically. */
   async draftForAutomation(a: RequestActor, b: { clientId: string; channel: CommChannel; instruction: string; contextText: string; ruleId: string; runId: string }) {
     const c = await this.db.tenantTx(a.tenantId, (tx) => this.clientFor(tx, a, b.clientId, 'communication', 'view'));
-    const r = await this.runModel({ tenantId: a.tenantId, feature: 'automation_draft', userId: null, ruleId: b.ruleId, schema: draftSchema, extraNames: [c.name],
+    const r = await this.runModel({ tenantId: a.tenantId, feature: 'automation_draft', userId: null, ruleId: b.ruleId, schema: draftSchema, extraNames: await this.namesOf(a.tenantId, c.id),
       task: `Draft a short message from the firm to the client. Purpose: ${b.instruction.slice(0, 500)}. Reply {"subject":string|null,"body":string}.`,
       blocks: [{ label: 'client', text: `Client: ${c.name}` }, { label: 'context', text: b.contextText }] });
     return this.saveSuggestion(a.tenantId, { kind: 'draft_message', feature: 'automation_draft', clientId: c.id, entityType: 'client', entityId: c.id, requestedBy: null, ruleId: b.ruleId, runId: b.runId, run: r,
@@ -243,10 +278,11 @@ export class AiService {
       const status = s.payload ? 'pending' : 'failed';
       const meta = { ...s.meta, ...(s.run ? { inputTokens: s.run.inputTokens, outputTokens: s.run.outputTokens, costPaise: s.run.costPaise } : {}) };
       await tx.query(`INSERT INTO suggestion (id, tenant_id, kind, feature, status, client_id, entity_type, entity_id, requested_by, rule_id, run_id, provider, model, payload_enc, prompt_enc, map_enc,
-          sources, meta, error, purge_after, created_at, device_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,'server')`,
+          sources, meta, error, purge_after, created_at, source_fp, device_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,'server')`,
         [id, tenantId, s.kind, s.feature, status, s.clientId, s.entityType, s.entityId, s.requestedBy, s.ruleId ?? null, s.runId ?? null, s.run?.provider ?? null, s.run?.model ?? null,
           await enc(s.payload, 'payload'), await enc(s.run?.prompt, 'prompt'), s.run && Object.keys(s.run.map).length ? await enc(s.run.map, 'map') : null,
-          JSON.stringify(s.sources), JSON.stringify(meta), s.payload ? null : 'unusable_model_output', new Date(now.getTime() + st.retentionDays * 86_400_000), now]);
+          JSON.stringify(s.sources), JSON.stringify(meta), s.payload ? null : 'unusable_model_output', new Date(now.getTime() + st.retentionDays * 86_400_000), now,
+          JSON.stringify(await fingerprint(tx, s.sources))]);
       // Metadata only: never the prompt, the output or the redaction map.
       await this.audit.record(tx, tenantId, { actorId: s.requestedBy, deviceId: a.deviceId, action: 'suggestion.created', entity: 'suggestion', entityId: id,
         diff: { kind: s.kind, feature: s.feature, status, clientId: s.clientId, entityType: s.entityType, entityId: s.entityId, ruleId: s.ruleId ?? null, provider: s.run?.provider ?? null, sources: s.sources.length } });
@@ -297,20 +333,36 @@ export class AiService {
       const mod = KIND_MODULE[r.kind as SuggestionKind];
       const action = r.kind === 'classification' || r.kind === 'esign_request' ? 'edit' : 'create';
       if (!can(a, mod, action, clientCtx(visibilityOf(c)))) throw new ForbiddenException({ message: `Needs ${mod}:${action}`, code: 'forbidden' });
+      // The sources changed since the model looked at them → refresh first (D157).
+      const canon = (o: Record<string, unknown>) => JSON.stringify(Object.entries(o ?? {}).sort(([x], [y]) => x.localeCompare(y)));
+      if (canon(await fingerprint(tx, r.sources as SuggestionSource[])) !== canon(r.source_fp as Record<string, unknown>)) {
+        throw new ConflictException({ message: 'The source changed since this suggestion was made — refresh it', code: 'suggestion_stale' });
+      }
+      // Atomic claim: a concurrent second approval finds it 'applying' and gets 409 (D156).
+      const claimed = (await tx.query(`UPDATE suggestion SET status = 'applying', version = version + 1 WHERE id = $1 AND status = 'pending' RETURNING id`, [id])).rowCount;
+      if (!claimed) throw new ConflictException({ message: 'Already decided', code: 'already_decided' });
       return this.out(tx, a.tenantId, r);
     });
+    try { return await this.applyClaimed(a, id, s, b); } catch (e) {
+      await this.db.tenantTx(a.tenantId, (tx) => tx.query(`UPDATE suggestion SET status = 'pending', version = version + 1 WHERE id = $1 AND status = 'applying'`, [id]));
+      throw e;
+    }
+  }
+
+  private async applyClaimed(a: RequestActor, id: string, s: Awaited<ReturnType<AiService['out']>>, b: { subject?: string | null; body?: string; channel?: CommChannel; category?: string; fy?: string | null }) {
+    const key = `suggestion:${id}`;
     const p = s.payload as Record<string, unknown>;
     let applied: Record<string, unknown>;
     switch (s.kind) {
       case 'draft_reply': case 'draft_message': {
         const channel = (b.channel ?? p.channel ?? 'email') as CommChannel;
         const body = b.body ?? String(p.body ?? '');
-        const r = await this.comm.send(a, { clientId: s.clientId as string, channel, subject: b.subject !== undefined ? b.subject : (p.subject as string | null) ?? 'Message from your CA', body });
+        const r = await this.comm.send(a, { clientId: s.clientId as string, channel, subject: b.subject !== undefined ? b.subject : (p.subject as string | null) ?? 'Message from your CA', body }, { idempotencyKey: key });
         applied = { messageId: r.id, status: r.status, channel, edited: b.body !== undefined && b.body !== p.body };
         break;
       }
       case 'summary': {
-        const r = await this.comm.logActivity(a, s.clientId as string, { channel: 'note', subject: 'Summary (AI suggestion, reviewed)', body: b.body ?? String(p.summary ?? '') });
+        const r = await this.comm.logActivity(a, s.clientId as string, { channel: 'note', subject: 'Summary (AI suggestion, reviewed)', body: b.body ?? String(p.summary ?? '') }, { idempotencyKey: key });
         applied = { messageId: r.id };
         break;
       }
@@ -322,14 +374,14 @@ export class AiService {
         break;
       }
       case 'esign_request': {
-        const r = await this.esign.create(a, p as unknown as Parameters<EsignService['create']>[1]);
+        const r = await this.esign.create(a, p as unknown as Parameters<EsignService['create']>[1], { idempotencyKey: key });
         applied = { esignRequestId: (r as { id: string }).id };
         break;
       }
       default: throw new BadRequestException('Unknown kind');
     }
     await this.db.tenantTx(a.tenantId, async (tx) => {
-      await tx.query(`UPDATE suggestion SET status = 'approved', decided_by = $2, decided_at = $3, applied = $4, version = version + 1, updated_by = $2 WHERE id = $1`, [id, a.userId, this.clock.now(), JSON.stringify(applied)]);
+      await tx.query(`UPDATE suggestion SET status = 'approved', decided_by = $2, decided_at = $3, applied = $4, version = version + 1, updated_by = $2 WHERE id = $1 AND status = 'applying'`, [id, a.userId, this.clock.now(), JSON.stringify(applied)]);
       await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'suggestion.approved', entity: 'suggestion', entityId: id,
         diff: { kind: s.kind, edited: !!(b.body !== undefined || b.category !== undefined || b.fy !== undefined), applied: Object.fromEntries(Object.entries(applied).filter(([k]) => k.endsWith('Id') || k === 'status' || k === 'channel')) } });
     });
@@ -351,6 +403,12 @@ export class AiService {
       WHERE purge_after <= $1 AND purged_at IS NULL`, [now])).rowCount ?? 0);
   }
 
+  /** The client's own name and its contacts' names: always redacted (people are not caught by patterns). */
+  private async namesOf(tenantId: string, clientId: string): Promise<string[]> {
+    return this.db.tenantTx(tenantId, async (tx) => [
+      ...(await tx.query('SELECT name FROM client WHERE id = $1', [clientId])).rows.map((r) => r.name as string),
+      ...(await tx.query('SELECT name FROM contact WHERE client_id = $1 AND deleted_at IS NULL', [clientId])).rows.map((r) => r.name as string)]);
+  }
   private async clientFor(tx: Tx, a: RequestActor, clientId: string, module: Module, action: 'view' | 'create' | 'edit') {
     const c = (await tx.query('SELECT * FROM client WHERE id = $1 AND deleted_at IS NULL', [clientId])).rows[0];
     const ctx = c && clientCtx(visibilityOf(c));

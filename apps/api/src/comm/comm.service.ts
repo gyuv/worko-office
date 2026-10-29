@@ -14,6 +14,7 @@ import { JobQueueService, Reschedule } from '../jobs/job-queue.service.js';
 import { insertNotifications } from '../notifications/insert.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { requireFirmWide } from '../tasks/system-actor.js';
+import { once } from '../common/idempotency.js';
 import { taskScopeSql } from '../tasks/scope.js';
 import { assertCommConfig, COMM_CHANNELS_TOKEN, INBOUND_PROVIDERS, mockInboundAllowed, TransientSendError, type ChannelAdapters, type InboundProvider } from './channels.js';
 import { addressFor, checkSend, clientAddresses, consentError, consentOf, firmName, istMonth, loadCommSettings, loadRates, matchAddress, monthRange, SPENT_STATUSES, usedPaise, visibleClient } from './common.js';
@@ -27,6 +28,8 @@ export type QueueInput = {
   dltTemplateId?: string | null; createdBy: string | null; broadcastId?: string | null; now: Date; meta?: Record<string, unknown>;
   /** Email body format, set by the sender (templates: html; free text: text) — never guessed from content. */
   format?: 'text' | 'html';
+  /** Stored on the row (unique per tenant): a repeat with the same key is a no-op (D155). */
+  idempotencyKey?: string | null;
 };
 export type Queued = { id: string; sendAt: Date; costPaise: number; capWarning: boolean } | { error: 'opted_out' | 'not_opted_in' | 'over_cap' };
 
@@ -240,10 +243,10 @@ export class CommService implements OnModuleInit {
     if (chk.error) return { error: chk.error };
     const id = uuidv7();
     await tx.query(`INSERT INTO comm_message (id, tenant_id, client_id, contact_id, direction, channel, address, subject, body, template_id, category, status, cost_paise, cap_warning,
-        broadcast_id, send_at, created_by, occurred_at, meta, format, device_id) VALUES ($1,$2,$3,$4,'out',$5,$6,$7,$8,$9,$10,'queued',$11,$12,$13,$14,$15,$16,$17,$18,'server')`,
+        broadcast_id, send_at, created_by, occurred_at, meta, format, idempotency_key, device_id) VALUES ($1,$2,$3,$4,'out',$5,$6,$7,$8,$9,$10,'queued',$11,$12,$13,$14,$15,$16,$17,$18,$19,'server')`,
       [id, tenantId, i.clientId, i.contactId, i.channel, i.address, i.subject, i.text, i.templateId ?? null, i.category, chk.costPaise, chk.capWarning, i.broadcastId ?? null,
         chk.sendAt, i.createdBy, i.now, JSON.stringify({ ...(i.meta ?? {}), template: i.templateName ? { name: i.templateName, language: i.language ?? 'en', params: i.templateParams ?? [] } : null, dlt: i.dltTemplateId ?? null }),
-        i.channel === 'email' && i.format === 'html' ? 'html' : 'text']);
+        i.channel === 'email' && i.format === 'html' ? 'html' : 'text', i.idempotencyKey ?? null]);
     if (chk.sendAt > i.now) await this.jobs.enqueue(tx, tenantId, SEND_JOB, id, chk.sendAt);
     return { id, sendAt: chk.sendAt, costPaise: chk.costPaise, capWarning: chk.capWarning };
   }
@@ -290,7 +293,11 @@ export class CommService implements OnModuleInit {
     }
   }
 
-  async send(a: RequestActor, b: SendIn) {
+  async send(a: RequestActor, b: SendIn, opts: { idempotencyKey?: string | null } = {}) {
+    return once(this.db, a.tenantId, 'comm_message', opts.idempotencyKey, (r) => ({ id: r.id as string, status: (r.status === 'sent' || r.status === 'delivered' || r.status === 'read' ? 'sent' : r.status) as 'sent' | 'queued' | 'failed' | 'cancelled' | 'skip',
+      sendAt: r.send_at as Date, costPaise: Number(r.cost_paise ?? 0), capWarning: !!r.cap_warning, repeated: true }), () => this.sendOnce(a, b, opts.idempotencyKey ?? null));
+  }
+  private async sendOnce(a: RequestActor, b: SendIn, idempotencyKey: string | null) {
     const now = this.clock.now();
     const out = await this.db.tenantTx(a.tenantId, async (tx) => {
       const client = await visibleClient(tx, a, b.clientId, 'create');
@@ -325,7 +332,7 @@ export class CommService implements OnModuleInit {
       }
       const q = await this.queueTx(tx, a.tenantId, { clientId: client.id, contactId: target.contactId, channel: b.channel, address, category, subject, text,
         templateId: (tpl?.id as string) ?? null, templateName: (tpl?.name as string) ?? null, language: (tpl?.language as string) ?? null, templateParams: (tpl?.params as string[]) ?? [],
-        dltTemplateId: (tpl?.dlt_template_id as string) ?? null, createdBy: a.userId, now, format: tpl && b.channel === 'email' ? 'html' : 'text' });
+        dltTemplateId: (tpl?.dlt_template_id as string) ?? null, createdBy: a.userId, now, format: tpl && b.channel === 'email' ? 'html' : 'text', idempotencyKey });
       const sensitive = !!tpl?.sensitive;
       if ('error' in q) {
         await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'comm.message_refused', entity: 'client', entityId: client.id, diff: { channel: b.channel, category, reason: q.error, address: maskAddress(address) } });
@@ -337,21 +344,21 @@ export class CommService implements OnModuleInit {
     });
     if ('error' in out) throw new ConflictException({ message: `Not sent: ${out.error}`, code: out.error });
     const status = out.sendAt > now ? 'queued' : await this.deliverNow(a.tenantId, out.id, now);
-    return { id: out.id, status, sendAt: out.sendAt, costPaise: out.costPaise, capWarning: out.capWarning };
+    return { id: out.id, status, sendAt: out.sendAt, costPaise: out.costPaise, capWarning: out.capWarning, repeated: false };
   }
 
   // ---------- Timeline ----------
-  async logActivity(a: RequestActor, clientId: string, b: { channel: 'note' | 'call'; body: string; direction?: 'in' | 'out'; callMinutes?: number | null; occurredAt?: string | null; subject?: string | null }) {
-    return this.db.tenantTx(a.tenantId, async (tx) => {
+  async logActivity(a: RequestActor, clientId: string, b: { channel: 'note' | 'call'; body: string; direction?: 'in' | 'out'; callMinutes?: number | null; occurredAt?: string | null; subject?: string | null }, opts: { idempotencyKey?: string | null } = {}) {
+    return once(this.db, a.tenantId, 'comm_message', opts.idempotencyKey, (r) => ({ id: r.id as string }), () => this.db.tenantTx(a.tenantId, async (tx) => {
       await visibleClient(tx, a, clientId, 'create');
       const id = uuidv7(); const at = b.occurredAt ? new Date(b.occurredAt) : this.clock.now();
       if (at > new Date(this.clock.now().getTime() + 5 * 60_000)) throw new BadRequestException({ message: 'Future time', code: 'future_time' });
-      await tx.query(`INSERT INTO comm_message (id, tenant_id, client_id, direction, channel, subject, body, status, call_minutes, created_by, occurred_at, device_id)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,'logged',$8,$9,$10,$11)`, [id, a.tenantId, clientId, b.channel === 'note' ? 'internal' : (b.direction ?? 'out'), b.channel, b.subject ?? null, b.body,
-        b.channel === 'call' ? b.callMinutes ?? null : null, a.userId, at, a.deviceId]);
+      await tx.query(`INSERT INTO comm_message (id, tenant_id, client_id, direction, channel, subject, body, status, call_minutes, created_by, occurred_at, device_id, idempotency_key)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,'logged',$8,$9,$10,$11,$12)`, [id, a.tenantId, clientId, b.channel === 'note' ? 'internal' : (b.direction ?? 'out'), b.channel, b.subject ?? null, b.body,
+        b.channel === 'call' ? b.callMinutes ?? null : null, a.userId, at, a.deviceId, opts.idempotencyKey ?? null]);
       await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: `comm.${b.channel}_logged`, entity: 'comm_message', entityId: id, diff: { clientId, direction: b.direction ?? null, callMinutes: b.callMinutes ?? null } });
       return { id };
-    });
+    }));
   }
 
   /**

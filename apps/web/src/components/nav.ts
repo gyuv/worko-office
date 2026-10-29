@@ -1,6 +1,6 @@
 import type { MessageKey } from '@worko/i18n';
 import type { Action, Module } from '@worko/domain';
-import { BarChart3, Bell, Clock, Fingerprint, Plane, Receipt, Briefcase, CalendarCheck, FileText, Home, IndianRupee, ScrollText, Shield, Users, CheckSquare, ArrowLeftRight, ListTodo, Settings, Wallet, Megaphone, MessagesSquare, CalendarDays, CalendarClock, Gavel, ClipboardCheck, KeyRound, BadgeCheck, PenTool, Target, type LucideIcon } from 'lucide-react';
+import { BarChart3, Bell, Clock, Fingerprint, Plane, Receipt, Briefcase, CalendarCheck, FileText, Home, IndianRupee, ScrollText, Shield, Users, CheckSquare, ArrowLeftRight, ListTodo, Settings, Wallet, Megaphone, MessagesSquare, CalendarDays, CalendarClock, Gavel, ClipboardCheck, KeyRound, BadgeCheck, PenTool, Target, Workflow, Sparkles, type LucideIcon } from 'lucide-react';
 import type { Route } from '../lib/router';
 
 export type NavItem = { route: Route; label: MessageKey; icon: LucideIcon; phase?: number; perm?: [Module, Action]; shortcut?: string };
@@ -29,6 +29,8 @@ export const NAV: NavItem[] = [
   { route: 'chat', label: 'p7.nav.chat', icon: MessagesSquare },
   { route: 'calendar', label: 'p7.nav.calendar', icon: CalendarDays },
   { route: 'booking', label: 'p7.nav.booking', icon: CalendarClock, perm: ['communication', 'view'] },
+  { route: 'automation', label: 'p10.nav.automation', icon: Workflow, perm: ['automation', 'view'] },
+  { route: 'suggestions', label: 'p10.nav.suggestions', icon: Sparkles, perm: ['ai', 'view'] },
   { route: 'reports', label: 'nav.reports', icon: BarChart3 },
   { route: 'notifications', label: 'nav.notifications', icon: Bell, shortcut: 'g n' },
   { route: 'team', label: 'nav.team', icon: Users, perm: ['users', 'view'] },

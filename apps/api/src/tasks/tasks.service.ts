@@ -9,6 +9,7 @@ import { uuidv7 } from '../db/ids.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { SyncService } from '../sync/sync.service.js';
 import { udinGateError } from '../practice/udin-gate.js';
+import { once } from '../common/idempotency.js';
 import { actorChangeError, canTaskRow, checkPeopleAndRevoke, stateOf, taskScopeSql, ymd } from './scope.js';
 
 export type TaskListQ = {
@@ -78,7 +79,10 @@ export class TasksService {
 
   get(a: RequestActor, id: string) { return this.db.tenantTx(a.tenantId, async (tx) => presentTask(await this.load(tx, a, id))); }
 
-  async create(a: RequestActor, patch: Record<string, unknown>) {
+  async create(a: RequestActor, patch: Record<string, unknown>, opts: { idempotencyKey?: string | null } = {}) {
+    return once(this.db, a.tenantId, 'task', opts.idempotencyKey, (r) => ({ id: r.id as string }), () => this.createOnce(a, patch, opts.idempotencyKey ?? null));
+  }
+  private async createOnce(a: RequestActor, patch: Record<string, unknown>, key: string | null) {
     const id = uuidv7();
     const r = await this.db.tenantTx(a.tenantId, async (tx) => {
       const row = { ...patch };
@@ -87,7 +91,9 @@ export class TasksService {
         if (!st) throw new BadRequestException('Unknown service');
         if (row.checks === undefined) row.checks = ((st.default_checks ?? []) as TaskCheck[]).map((c) => ({ ...c, done: false }));
       }
-      return this.sync.applyInTx(tx, a, { table: 'task', id, baseVersion: 0, patch: row });
+      const res = await this.sync.applyInTx(tx, a, { table: 'task', id, baseVersion: 0, patch: row });
+      if (key) await tx.query('UPDATE task SET idempotency_key = $2 WHERE id = $1', [id, key]);
+      return res;
     });
     this.publish(a, r.cursor);
     return { id };

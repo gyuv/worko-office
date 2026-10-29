@@ -23,6 +23,7 @@ export class AiController {
   constructor(private ai: AiService) {}
   @Get('settings') @Perm('settings', 'view') settings(@CurrentActor() a: RequestActor) { return this.ai.getSettings(a); }
   @Put('settings') @Perm('settings', 'edit') putSettings(@CurrentActor() a: RequestActor, @Body() b: unknown) { return this.ai.putSettings(a, b); }
+  @Get('availability') @Perm('ai', 'view') availability(@CurrentActor() a: RequestActor) { return this.ai.availability(a); }
   @Get('usage') @Perm('settings', 'view') usage(@CurrentActor() a: RequestActor, @Query(new ZodPipe(z.object({ month }))) q: { month: string }) { return this.ai.usage(a, q.month); }
   @Post('draft-reply') @Perm('ai', 'create') draft(@CurrentActor() a: RequestActor, @Body(new ZodPipe(draftIn)) b: z.infer<typeof draftIn>) { return this.ai.draftReply(a, b); }
   @Post('summaries') @Perm('ai', 'create') summarise(@CurrentActor() a: RequestActor, @Body(new ZodPipe(summaryIn)) b: z.infer<typeof summaryIn>) { return this.ai.summarise(a, b); }

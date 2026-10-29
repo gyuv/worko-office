@@ -1,4 +1,8 @@
-import { isScanEvent, SCAN_WINDOW_DAYS, type EventContext } from '@worko/domain';
+import { can, clientCtx, isScanEvent, SCAN_WINDOW_DAYS, type Actor, type EventContext, type Module } from '@worko/domain';
+import { loadTeamIds, loadUserRoles } from '../auth/roles.repo.js';
+import { visibilityOf } from '../clients/scope.js';
+import { leadCtx } from '../leads/leads.service.js';
+import { canTaskRow } from '../tasks/scope.js';
 import type { Tx } from '../db/db.service.js';
 import { ymd } from '../practice/common.js';
 
@@ -146,4 +150,42 @@ export async function candidateEvents(tx: Tx, type: string, today: string, o: { 
     ? (await tx.query(scanSelect(type, '', o.limit), [today, SCAN_WINDOW_DAYS])).rows.map((r) => ({ id: null, type, entity_type: r.et, entity_id: r.id, client_id: r.client_id, payload: { due: r.due, subjectKey: subjectKeyOf(r.et, r.id, r.due) }, causation: null, occurred_at: null }))
     : (await tx.query(`${RECENT[type]} LIMIT ${Number(o.limit)}`)).rows.map((r) => ({ id: null, type, entity_type: r.et, entity_id: r.id, client_id: r.client_id, payload: r.payload, causation: null, occurred_at: null }));
   return [...real, ...more.filter((m) => !seen.has(m.entity_id))].slice(0, o.limit);
+}
+
+// ---------- Subject visibility (D154) ----------
+const SECTION_MODULE: Array<[string, Module]> = [['notice', 'notices'], ['hearing', 'notices'], ['dsc', 'dsc'], ['licence', 'compliance'], ['invoice', 'billing'], ['receipt', 'receipts'],
+  ['document', 'documents'], ['pbc', 'audit']];
+/**
+ * Can `actor` see the event's subject: the client (clients:view), the module record on it, the task (task scope incl. its
+ * people), and leads/proposals (lead scope). Used for the owner (runs), the caller (dry-runs) and notify recipients.
+ */
+export async function entityVisible(tx: Tx, actor: Actor & { superAdmin?: boolean }, ctx: EventContext): Promise<boolean> {
+  if (actor.superAdmin) return true;
+  const cid = (ctx.client as { id?: string } | undefined)?.id;
+  const client = cid ? (await tx.query('SELECT * FROM client WHERE id = $1', [cid])).rows[0] : null;
+  if (client) {
+    const cc = clientCtx(visibilityOf(client));
+    if (!can(actor, 'clients', 'view', cc)) return false;
+    for (const [sec, mod] of SECTION_MODULE) if (ctx[sec] && !can(actor, mod, 'view', cc)) return false;
+  }
+  const tid = (ctx.task as { id?: string } | undefined)?.id;
+  if (tid) {
+    const t = (await tx.query('SELECT * FROM task WHERE id = $1', [tid])).rows[0];
+    if (!t || !(await canTaskRow(actor, 'view', t, tx, client ?? undefined))) return false;
+  }
+  const lid = (ctx.lead as { id?: string } | undefined)?.id;
+  if (lid) {
+    const l = (await tx.query('SELECT * FROM lead WHERE id = $1', [lid])).rows[0];
+    if (!l || !can(actor, 'leads', 'view', leadCtx(l))) return false;
+  }
+  return true;
+}
+/** Active staff among `ids` who can see the subject (notify recipients). */
+export async function usersSeeingEntity(tx: Tx, ids: string[], ctx: EventContext): Promise<string[]> {
+  const out: string[] = [];
+  for (const id of new Set(ids)) {
+    const u = (await tx.query(`SELECT id, branch_id FROM app_user WHERE id = $1 AND status = 'active' AND deleted_at IS NULL AND kind = 'staff'`, [id])).rows[0];
+    if (u && await entityVisible(tx, { userId: u.id, branchId: u.branch_id, teamIds: await loadTeamIds(tx, u.id), roles: await loadUserRoles(tx, u.id) }, ctx)) out.push(id);
+  }
+  return out;
 }

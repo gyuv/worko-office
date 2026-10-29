@@ -199,3 +199,65 @@ describe('metering, caps, retention and no-AI mode', () => {
     await t.http().post(`/v1/automation/rules/${rule.id}/disable`).set(H(P)).expect(200);
   });
 });
+
+describe('phase 10 review regressions', () => {
+  it('availability: ai:view users see the per-feature gate only (no settings, caps or rates)', async () => {
+    await t.http().put('/v1/ai/settings').set(H(P)).send({ ...AI_ON, features: { ...AI_ON.features, summarise: false } }).expect(200);
+    await t.http().get('/v1/ai/availability').set(H(S)).expect(403);
+    const av = (await t.http().get('/v1/ai/availability').set(H(M)).expect(200)).body;
+    expect(av).toMatchObject({ noAiMode: false, firmCapReached: false, userCapReached: false, features: { draft_reply: 'ok', summarise: 'feature_disabled', ask: 'feature_disabled' } });
+    expect(Object.keys(av).sort()).toEqual(['features', 'firmCapReached', 'mock', 'noAiMode', 'userCapReached']);
+    await t.http().put('/v1/ai/settings').set(H(P)).send({ ...AI_ON, noAiMode: true }).expect(200);
+    expect(Object.values((await t.http().get('/v1/ai/availability').set(H(M))).body.features).every((x) => x === 'no_ai_mode')).toBe(true);
+    await t.http().put('/v1/ai/settings').set(H(P)).send(AI_ON).expect(200);
+  });
+
+  it('concurrent double approval sends exactly once', async () => {
+    const r = (await t.http().post('/v1/ai/draft-reply').set(H(P)).send({ clientId: clientA, messageId: msgId }).expect(201)).body;
+    const before = (await t.sql(`SELECT 1 FROM comm_message WHERE client_id = $1 AND direction = 'out'`, [clientA])).length;
+    const res = await Promise.all([1, 2, 3].map(() => t.http().post(`/v1/ai/suggestions/${r.id}/approve`).set(H(P)).send({})));
+    expect(res.map((x) => x.status).sort()).toEqual([200, 409, 409]);
+    expect((await t.sql(`SELECT 1 FROM comm_message WHERE client_id = $1 AND direction = 'out'`, [clientA])).length).toBe(before + 1);
+    expect((await t.sql(`SELECT 1 FROM comm_message WHERE idempotency_key = $1`, [`suggestion:${r.id}`])).length).toBe(1);
+  });
+
+  it('a suggestion whose source changed is refused as stale', async () => {
+    const doc = (await t.http().post('/v1/documents').set(H(P)).field('clientId', clientA).attach('file', Buffer.from('bank'), { filename: 'Bank statement 2025-26.txt', contentType: 'text/plain' }).expect(201)).body.id;
+    const r = (await t.http().post('/v1/ai/classify').set(H(P)).send({ documentId: doc }).expect(201)).body;
+    await t.http().patch(`/v1/documents/${doc}`).set(H(P)).send({ name: 'Renamed statement.txt' }).expect((x) => expect([200, 204]).toContain(x.status));
+    expect((await t.http().post(`/v1/ai/suggestions/${r.id}/approve`).set(H(P)).send({}).expect(409)).body.code).toBe('suggestion_stale');
+    expect((await t.http().get(`/v1/ai/suggestions/${r.id}`).set(H(P))).body.status).toBe('pending');
+  });
+
+  it("contact names are redacted, and new formats never reach the provider", async () => {
+    const m = (await t.http().post(`/v1/clients/${clientA}/timeline`).set(H(P)).send({ channel: 'call', direction: 'in', callMinutes: 1,
+      body: 'Ravi Kumar asked: director DIN 01234567, CIN U74999MH2015PTC123456, UPI ravi@okaxis, office 020-2612 3456, passport K1234567.' }).expect(201)).body.id;
+    await t.http().post('/v1/ai/draft-reply').set(H(P)).send({ clientId: clientA, messageId: m }).expect(201);
+    const sent = mock.calls.at(-1)!.user;
+    for (const x of ['Ravi Kumar', '01234567', 'U74999MH2015PTC123456', 'ravi@okaxis', '020-2612 3456', 'K1234567']) expect(sent).not.toContain(x);
+  });
+
+  it('AI caps hold under concurrency (estimate reserved under a per-tenant×month lock)', async () => {
+    await t.sql(`INSERT INTO ai_rate (provider, model, input_paise_per_mtok, output_paise_per_mtok, effective_from, note) VALUES ('mock','*', 1000000, 1000000, '2026-10-02', 'race')`);
+    const used = (await t.http().get('/v1/ai/usage?month=2026-10').set(H(P))).body.totalPaise as number;
+    await t.http().put('/v1/ai/settings').set(H(P)).send({ ...AI_ON, monthlyCapPaise: used + 1999 }).expect(200); // each estimate ≥ 1000 (max output tokens): one fits, two don't
+    // Slow provider: both requests are in flight together, so only the reservation can stop the second.
+    const orig = mock.complete.bind(mock);
+    mock.complete = async (r) => { await new Promise((ok) => setTimeout(ok, 300)); return orig(r); };
+    try {
+      const res = await Promise.all([1, 2].map(() => t.http().post('/v1/ai/draft-reply').set(H(P)).send({ clientId: clientA, messageId: msgId })));
+      expect(res.map((x) => x.status).sort()).toEqual([201, 403]);
+    } finally { mock.complete = orig; }
+    await t.sql(`DELETE FROM ai_rate WHERE note = 'race'`);
+    await t.http().put('/v1/ai/settings').set(H(P)).send(AI_ON).expect(200);
+  });
+
+  it('the legacy notice-extraction toggle never overrides a firm opt-out', async () => {
+    await t.http().put('/v1/ai/settings').set(H(P)).send({ enabled: false }).expect(200);
+    await t.sql(`INSERT INTO practice_settings (tenant_id, settings) VALUES ($1, '{"ai":{"noticeExtraction":true}}') ON CONFLICT (tenant_id) DO UPDATE SET settings = EXCLUDED.settings`, [P.tenantId]);
+    const calls = mock.calls.length;
+    const ex = (await t.http().post('/v1/notices/extract').set(H(P)).field('clientId', clientA).attach('file', Buffer.from('Show cause notice u/s 73'), { filename: 'n.txt', contentType: 'text/plain' }).expect(201)).body;
+    expect(ex.provider).toBe('mock');
+    expect(mock.calls.length).toBe(calls);
+  });
+});

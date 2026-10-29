@@ -11,6 +11,7 @@ import { Clock } from '../common/clock.js';
 import { CommService } from '../comm/comm.service.js';
 import { DbService, type Tx } from '../db/db.service.js';
 import { uuidv7 } from '../db/ids.js';
+import { once } from '../common/idempotency.js';
 import { DocumentsService } from '../documents/documents.service.js';
 import { insertNotifications } from '../notifications/insert.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
@@ -64,7 +65,10 @@ export class EsignService implements OnModuleInit {
   }
   private async visibleItem(tx: Tx, a: RequestActor, docId: string) { try { await this.docFor(tx, a, docId, 'view'); return true; } catch { return false; } }
 
-  async create(a: RequestActor, b: { title: string; mode: 'parallel' | 'sequential'; items: ItemIn[] }) {
+  async create(a: RequestActor, b: { title: string; mode: 'parallel' | 'sequential'; items: ItemIn[] }, opts: { idempotencyKey?: string | null } = {}) {
+    return once(this.db, a.tenantId, 'esign_request', opts.idempotencyKey, async (r) => ({ id: r.id as string, ...(await this.summary(a.tenantId, r.id as string)) }), () => this.createOnce(a, b, opts.idempotencyKey ?? null));
+  }
+  private async createOnce(a: RequestActor, b: { title: string; mode: 'parallel' | 'sequential'; items: ItemIn[] }, key: string | null) {
     if (process.env.NODE_ENV === 'production' && esignProvider() === 'mock') throw new BadRequestException({ message: 'E-sign provider not configured', code: 'esign_not_configured' });
     const prov = this.provider();
     const id = uuidv7();
@@ -91,7 +95,7 @@ export class EsignService implements OnModuleInit {
         }
         items.push({ itemId: uuidv7(), doc: d, version, sha256: v.sha256, signers });
       }
-      await tx.query('INSERT INTO esign_request (id, tenant_id, title, bulk, mode, provider, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7)', [id, a.tenantId, b.title, items.length > 1, b.mode, prov.name, a.userId]);
+      await tx.query('INSERT INTO esign_request (id, tenant_id, title, bulk, mode, provider, created_by, idempotency_key) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [id, a.tenantId, b.title, items.length > 1, b.mode, prov.name, a.userId, key]);
       for (const it of items) {
         await tx.query('INSERT INTO esign_item (id, tenant_id, request_id, document_id, document_version, client_id, original_sha256) VALUES ($1,$2,$3,$4,$5,$6,$7)',
           [it.itemId, a.tenantId, id, it.doc.id, it.version, it.doc.client_id, it.sha256]);

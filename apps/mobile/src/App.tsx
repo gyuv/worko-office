@@ -18,6 +18,8 @@ import { useChatUnread } from './screens/Comm';
 import { useLeadPerms } from './screens/Leads';
 import { PortalRoot } from './portal/PortalApp';
 import { usePortal } from './portal/session';
+import { routeForCategory, type Phase10Route } from './logic/automation';
+import { hasGrant } from './logic/billing';
 
 const t = createTranslator('en-IN', { product: PRODUCT.name });
 const qc = new QueryClient({ defaultOptions: { queries: { retry: 1 } } });
@@ -102,7 +104,9 @@ function Tabs({ theme }: { theme: Theme }) {
   const s = styles(theme);
   const [tab, setTab] = useState<Tab>('home');
   const current = TABS.find((x) => x.key === tab)!;
-  const [sub, setSub] = useState<'registers' | 'collections' | 'hr' | 'chat' | 'calendar' | 'appointments' | 'practice' | 'leads' | null>(null);
+  const [sub, setSub] = useState<'registers' | 'collections' | 'hr' | 'chat' | 'calendar' | 'appointments' | 'practice' | 'leads' | 'automation' | 'aiInbox' | null>(null);
+  const [deep, setDeep] = useState<Phase10Route | null>(null);
+  const openLink = (r: Phase10Route) => { setDeep(r); setSub(r.name); setTab('more'); };
   useSignatureRetry();
   return (
     <View style={{ flex: 1 }}>
@@ -110,10 +114,10 @@ function Tabs({ theme }: { theme: Theme }) {
       <View style={{ flex: 1, padding: 16 }}>
         {tab === 'home' ? <Home theme={theme} /> : tab === 'tasks' ? <Stack theme={theme} root={{ name: 'tasks' }} /> : tab === 'clients' ? <Stack theme={theme} root={{ name: 'clients' }} />
           : tab === 'more' ? (sub ? <View style={{ flex: 1 }}>
-            <Pressable onPress={() => setSub(null)} accessibilityRole="button" style={{ minHeight: 48, justifyContent: 'center' }}>
+            <Pressable onPress={() => { setSub(null); setDeep(null); }} accessibilityRole="button" style={{ minHeight: 48, justifyContent: 'center' }}>
               <Text style={{ color: theme.primary, fontWeight: '600' }}>{t('nav.more')}</Text></Pressable>
-            <Stack key={sub} theme={theme} root={{ name: sub }} /></View>
-            : <More theme={theme} onRegisters={() => setSub('registers')} onCollections={() => setSub('collections')} onHr={() => setSub('hr')} onOpen={setSub} />) : tab === 'inbox' ? <Inbox theme={theme} />
+            <Stack key={deep ? JSON.stringify(deep) : sub} theme={theme} root={deep ?? { name: sub }} /></View>
+            : <More theme={theme} onRegisters={() => setSub('registers')} onCollections={() => setSub('collections')} onHr={() => setSub('hr')} onOpen={setSub} />) : tab === 'inbox' ? <Inbox theme={theme} onOpen={openLink} />
           : <Text style={s.muted}>{t('home.comingSoon', { module: t(current.label), phase: current.phase ?? 0 })}</Text>}
       </View>
       <View style={s.tabbar} accessibilityRole="tablist">
@@ -169,7 +173,7 @@ function useInbox(): Item[] {
 }
 
 /** Works offline: read/ack are local writes that sync when the connection returns. */
-function Inbox({ theme }: { theme: Theme }) {
+function Inbox({ theme, onOpen }: { theme: Theme; onOpen(r: Phase10Route): void }) {
   const s = styles(theme);
   const items = useInbox();
   const act = async (id: string, patch: Record<string, unknown>) => { await getEngine()?.write('notification', id, patch); void syncNow(); };
@@ -179,7 +183,7 @@ function Inbox({ theme }: { theme: Theme }) {
       const urgent = item.priority === 'critical' || item.priority === 'high';
       const now = new Date().toISOString();
       return (
-        <Pressable style={s.row} onPress={() => !item.readAt && void act(item.id, { read_at: now })} accessibilityRole="button"
+        <Pressable style={s.row} onPress={() => { if (!item.readAt) void act(item.id, { read_at: now }); const link = routeForCategory(item.category); if (link) onOpen(link); }} accessibilityRole="button"
           accessibilityHint={item.readAt ? undefined : t('notif.markRead')}>
           <Feather name={item.escalationLevel ? 'shield' : urgent ? 'alert-octagon' : 'bell'} size={18} color={urgent ? theme.status.overdue : theme.textMuted} style={{ marginRight: 10 }} />
           <View style={{ flex: 1 }}>
@@ -211,7 +215,7 @@ function Home({ theme }: { theme: Theme }) {
   );
 }
 
-function More({ theme, onRegisters, onCollections, onHr, onOpen }: { theme: Theme; onRegisters(): void; onCollections(): void; onHr(): void; onOpen(x: 'chat' | 'calendar' | 'appointments' | 'practice' | 'leads'): void }) {
+function More({ theme, onRegisters, onCollections, onHr, onOpen }: { theme: Theme; onRegisters(): void; onCollections(): void; onHr(): void; onOpen(x: 'chat' | 'calendar' | 'appointments' | 'practice' | 'leads' | 'automation' | 'aiInbox'): void }) {
   const s = styles(theme);
   const qcl = useQueryClient();
   const setTokens = useSession((x) => x.setTokens);
@@ -224,6 +228,8 @@ function More({ theme, onRegisters, onCollections, onHr, onOpen }: { theme: Them
   const billing = useBillingPerms().view;
   const unread = useChatUnread();
   const leads = useLeadPerms().view;
+  const grants = useQuery({ queryKey: ['me'], queryFn: () => unwrap(api.GET('/me')) }).data?.grants;
+  const phase10 = ([['automation', 'zap', 'm.auto.title', hasGrant(grants, 'automation', 'view')], ['aiInbox', 'cpu', 'm.ai.title', hasGrant(grants, 'ai', 'view')]] as const).filter((x) => x[3]);
   return (
     <View style={{ flex: 1 }}>
       {([['chat', 'message-square', 'm.chat.title'], ['calendar', 'calendar', 'm.cal.title'], ['appointments', 'user-check', 'm.cal.appointments']] as const).map(([k, icon, label]) => (
@@ -231,6 +237,13 @@ function More({ theme, onRegisters, onCollections, onHr, onOpen }: { theme: Them
           <Feather name={icon} size={18} color={theme.primary} style={{ marginRight: 10 }} />
           <Text style={[s.text, { flex: 1 }]}>{t(label)}</Text>
           {k === 'chat' && unread > 0 && <Text style={{ color: theme.primaryText, backgroundColor: theme.primary, borderRadius: 10, paddingHorizontal: 8, overflow: 'hidden', marginRight: 6 }}>{unread}</Text>}
+          <Feather name="chevron-right" size={18} color={theme.textMuted} />
+        </Pressable>
+      ))}
+      {phase10.map(([k, icon, label]) => (
+        <Pressable key={k} style={[s.row, { minHeight: 48 }]} onPress={() => onOpen(k)} accessibilityRole="button">
+          <Feather name={icon} size={18} color={theme.primary} style={{ marginRight: 10 }} />
+          <Text style={[s.text, { flex: 1 }]}>{t(label)}</Text>
           <Feather name="chevron-right" size={18} color={theme.textMuted} />
         </Pressable>
       ))}

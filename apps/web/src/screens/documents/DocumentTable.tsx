@@ -1,3 +1,4 @@
+import { SuggestCategoryButton } from '../ai/AiParts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatDate, formatDateTime } from '@worko/i18n';
 import { Copy, Download, Eye, EyeOff, FilePlus2, History, Link2, RotateCcw, ScrollText, Trash2 } from 'lucide-react';
@@ -54,6 +55,7 @@ export function DocumentTable({ docs, loading, trashed, showClient }: { docs: Do
                     <IconBtn label={t('docs.download', { name: d.name })} onClick={() => void download(d.id).catch((e: Error) => setErr(e.message))}><Download size={14} /></IconBtn>
                     {d.clientId && can('documents', 'edit') && (() => { const on = !!(d as Doc & { clientVisible?: boolean }).clientVisible; return (
                       <IconBtn label={t(on ? 'p9.doc.hideFromClient' : 'p9.doc.showToClient', { name: d.name })} pressed={on} onClick={() => visible.mutate({ id: d.id, on: !on })}>{on ? <Eye size={14} /> : <EyeOff size={14} />}</IconBtn>); })()}
+                    {d.clientId && can('documents', 'edit') && <SuggestCategoryButton documentId={d.id} name={d.name} />}
                     <IconBtn label={t('docs.newVersion', { name: d.name })} onClick={() => { setVersionFor(d); file.current?.click(); }}><FilePlus2 size={14} /></IconBtn>
                     <IconBtn label={t('docs.versions', { name: d.name })} onClick={() => setDlg({ kind: 'versions', doc: d })}><History size={14} /></IconBtn>
                     <IconBtn label={t('docs.share', { name: d.name })} onClick={() => setDlg({ kind: 'share', doc: d })}><Link2 size={14} /></IconBtn>

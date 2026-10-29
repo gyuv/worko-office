@@ -235,10 +235,14 @@ describe('safety', () => {
     await task({ client_id: clientA, title: 'breakme 3' }); await flush();
     expect(await runsOf(bad.id)).toHaveLength(2);
     const failed = (await runsOf(bad.id))[0]!;
-    const re = (await t.http().post(`/v1/automation/runs/${failed.id}/retry`).set(H(P)).expect(200)).body;
-    expect(re).toMatchObject({ retried: 1, run: { attempts: 2, status: 'failed' } });
+    // Retry goes through the same gates: a paused rule does nothing.
+    expect((await t.http().post(`/v1/automation/runs/${failed.id}/retry`).set(H(P)).expect(200)).body).toMatchObject({ retried: 0, skipped: 'rule_inactive' });
     await t.http().post(`/v1/automation/rules/${bad.id}/resume`).set(H(P)).expect(200);
     expect((await t.http().get(`/v1/automation/rules/${bad.id}`).set(H(P))).body).toMatchObject({ status: 'active', consecutiveFailures: 0 });
+    // Concurrent retries: each failed action is claimed once.
+    const [r1, r2] = await Promise.all([1, 2].map(() => t.http().post(`/v1/automation/runs/${failed.id}/retry`).set(H(P)).expect(200)));
+    expect(r1!.body.retried + r2!.body.retried).toBe(1);
+    expect((await runActions(failed.id as string))[0]).toMatchObject({ status: 'failed', attempts: 2 });
     await disable(bad.id);
   });
 
@@ -272,5 +276,91 @@ describe('safety', () => {
     const c = (await t.http().get('/v1/automation/costs?month=2026-10').set(H(P)).expect(200)).body;
     expect(c).toMatchObject({ month: '2026-10', capPaise: 500_000 });
     expect(c.items.find((i: { name: string }) => i.name === 'Document Collection Agent')).toMatchObject({ commPaise: 0, actions: expect.any(Number) });
+  });
+});
+
+describe('phase 10 review regressions', () => {
+  const simple = (title: string, actions: unknown[], limits: Record<string, unknown> = {}) => ({ trigger: { kind: 'event', event: 'task.created' }, conditions: { field: 'task.title', op: 'contains', value: title }, actions, limits });
+
+  it('dry-run: custom definitions need manage rights; items the caller cannot see are counts only', async () => {
+    const r = await rule({ name: 'dry leak', enabled: false, definition: simple('dryleak', [notifyTo(['owner'])]) });
+    await task({ client_id: clientB, title: 'dryleak beta secret' });
+    await task({ client_id: clientA, title: 'dryleak alpha' });
+    await t.http().post(`/v1/automation/rules/${r.id}/dry-run`).set(H(M)).send({ definition: simple('', [notifyTo(['owner'])]) }).expect(403);
+    const d = (await t.http().post(`/v1/automation/rules/${r.id}/dry-run`).set(H(M)).send({ limit: 100 }).expect(200)).body;
+    expect(d.hidden).toBeGreaterThan(0);
+    expect(JSON.stringify(d)).not.toContain('Beta Hidden');
+    expect(JSON.stringify(d)).not.toContain('dryleak beta secret');
+    expect(d.items.every((i: { clientId: string | null }) => i.clientId !== clientB)).toBe(true);
+    const draft = (await t.http().post('/v1/automation/dry-run').set(H(M)).send({ scope: 'personal', definition: simple('dryleak', [notifyTo(['owner'])]), limit: 100 }).expect(200)).body;
+    expect(JSON.stringify(draft)).not.toContain('Beta Hidden');
+    await disable(r.id);
+  });
+
+  it('editing a firm rule makes the editor its owner; non-owners need the action permissions to enable/edit', async () => {
+    const P2 = await t.addUser(P, 'autofirm', 'Prakash', 'partner');
+    // A custom role: firm-wide automation manager with no tasks rights.
+    const grants = ['view', 'create', 'edit'].map((action) => ({ module: 'automation', action, scope: 'all' }));
+    await t.sql(`INSERT INTO role (id, tenant_id, key, name, system, grants) VALUES (gen_random_uuid(), $1, 'automator', 'Automator', false, $2)`, [P.tenantId, JSON.stringify(grants)]);
+    const Ad = await t.addUser(P, 'autofirm', 'Asha', 'automator');
+    const r = await rule({ name: 'owned', enabled: false, definition: simple('owned', [{ type: 'create_task', title: 'x' }]) });
+    // Admin manages firm settings but holds no tasks permissions: can't borrow the owner's.
+    expect((await t.http().post(`/v1/automation/rules/${r.id}/enable`).set(H(Ad)).expect(403)).body.code).toBe('missing_action_permission');
+    expect((await t.http().patch(`/v1/automation/rules/${r.id}`).set(H(Ad)).send({ definition: simple('owned2', [{ type: 'create_task', title: 'y' }]) }).expect(403)).body.code).toBe('missing_action_permission');
+    const upd = (await t.http().patch(`/v1/automation/rules/${r.id}`).set(H(P2)).send({ definition: simple('owned2', [{ type: 'create_task', title: 'y' }]) }).expect(200)).body;
+    expect(upd.ownerId).toBe(P2.userId);
+    const v = (await t.http().get(`/v1/automation/rules/${r.id}/versions`).set(H(P)).expect(200)).body.items[0];
+    expect(v).toMatchObject({ version: 2, ownerId: P2.userId, previousOwnerId: P.userId });
+    // A rename doesn't change the owner.
+    expect((await t.http().patch(`/v1/automation/rules/${r.id}`).set(H(P)).send({ name: 'renamed' }).expect(200)).body.ownerId).toBe(P2.userId);
+  });
+
+  it('personal rules: lead scope is checked; notify only reaches users who can see the subject', async () => {
+    const r = await rule({ name: 'm leads', scope: 'personal', definition: { trigger: { kind: 'event', event: 'lead.stage_changed' }, actions: [notifyTo(['owner'], 'Lead moved')] } }, M);
+    const lead = (await t.http().post('/v1/leads').set(H(P)).send({ name: 'Partner Private Lead', source: 'referral', ownerId: P.userId }).expect(201)).body;
+    await t.http().post(`/v1/leads/${lead.id}/move`).set(H(P)).send({ stage: 'contacted' }).expect(200);
+    await flush();
+    expect((await t.http().get(`/v1/automation/runs?ruleId=${r.id}`).set(H(M))).body.items[0]).toMatchObject({ status: 'skipped', skipReason: 'outside_owner_scope' });
+    await t.http().post(`/v1/automation/rules/${r.id}/disable`).set(H(M)).expect(200);
+    const n = await rule({ name: 'notify S', definition: simple('notifys', [notifyTo([{ userId: S.userId }])]) });
+    const tid = await task({ client_id: clientB, title: 'notifys beta' }); // Sita is not on Beta
+    await flush();
+    const run = (await runsOf(n.id)).find((x) => x.entityId === tid)!;
+    expect((await runActions(run.id as string))[0]).toMatchObject({ status: 'refused', code: 'no_recipient' });
+    await disable(n.id);
+  });
+
+  it('crash recovery: a stale running run is resumed by the reaper without repeating committed actions', async () => {
+    const r = await rule({ name: 'two notes', definition: simple('crashme', [notifyTo(['owner'], 'one'), notifyTo(['owner'], 'two')]) });
+    const tid = await task({ client_id: clientA, title: 'crashme' });
+    await flush();
+    const run = (await runsOf(r.id)).find((x) => x.entityId === tid)!;
+    // Simulate a crash after action 1's side effect but before its outcome was recorded.
+    await t.sql(`UPDATE automation_run SET status = 'running', started_at = $2 WHERE id = $1`, [run.id, new Date(NOW.getTime() - 3_600_000)]);
+    await t.sql(`DELETE FROM automation_run_action WHERE run_id = $1 AND idx = 1`, [run.id]);
+    await tick(NOW);
+    expect((await runsOf(r.id)).find((x) => x.entityId === tid)).toMatchObject({ status: 'succeeded', actionsDone: 2 });
+    expect((await t.sql(`SELECT 1 FROM notification WHERE category = 'automation.alert' AND entity_id = $1`, [tid])).length).toBe(2);
+    await disable(r.id);
+  });
+
+  it('daily action limit holds under concurrency', async () => {
+    const r = await rule({ name: 'one a day', definition: simple('racer', [notifyTo(['owner'])], { maxActionsPerDay: 1 }) });
+    await task({ client_id: clientA, title: 'racer 1' }); await task({ client_id: clientA, title: 'racer 2' });
+    const evs = await t.sql<{ id: string }>(`SELECT e.id FROM automation_event e JOIN task t ON t.id = e.entity_id WHERE t.title LIKE 'racer %'`);
+    await Promise.all(evs.map((e) => engine.processEvent(P.tenantId, e.id, NOW)));
+    const st = (await Promise.all((await runsOf(r.id)).map((x) => runActions(x.id as string)))).map((x) => x[0]!.status).sort();
+    expect(st).toEqual(['done', 'rate_limited']);
+    await flush();
+    await disable(r.id);
+  });
+
+  it('invoices inserted already issued emit invoice.issued', async () => {
+    const r = await rule({ name: 'issued', enabled: true, definition: { trigger: { kind: 'event', event: 'invoice.issued' }, actions: [notifyTo(['owner'], 'Issued')] } });
+    const [inv] = await t.sql<{ id: string }>(`INSERT INTO invoice (id, tenant_id, entity_id, client_id, status, kind, supply_type, supplier_state, number, fy, issue_date)
+      SELECT gen_random_uuid(), $1, (SELECT id FROM firm_entity WHERE tenant_id = $1 LIMIT 1), $2, 'issued', 'invoice', 'intra', '27', 'IMP-1', 2026, '2026-10-29' RETURNING id`, [P.tenantId, clientA]);
+    expect((await t.sql(`SELECT 1 FROM automation_event WHERE type = 'invoice.issued' AND entity_id = $1`, [inv!.id])).length).toBe(1);
+    await flush();
+    await disable(r.id);
   });
 });

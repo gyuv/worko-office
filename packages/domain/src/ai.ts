@@ -33,16 +33,27 @@ export function aiGate(s: AiSettings, feature: AiFeature, envDisabled: boolean):
 }
 
 // ---------- Redaction ----------
-export type RedactionKind = 'EMAIL' | 'GSTIN' | 'PAN' | 'TAN' | 'AADHAAR' | 'PHONE' | 'BANK' | 'IFSC' | 'CLIENT';
+export type RedactionKind = 'EMAIL' | 'UPI' | 'GSTIN' | 'CIN' | 'PAN' | 'TAN' | 'IFSC' | 'VOTER' | 'PASSPORT' | 'DIN' | 'PHONE' | 'LANDLINE' | 'AADHAAR' | 'BANK' | 'CLIENT';
 /** placeholder → original. Kept server-side only (encrypted); never sent to a provider, never in audit/logs. */
 export type RedactionMap = Record<string, string>;
+// Order matters: longer/structured identifiers first; numeric catch-alls (Aadhaar, bank account) last.
 const PATTERNS: Array<[RedactionKind, RegExp]> = [
   ['EMAIL', /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g],
+  // UPI VPA: handle@psp (no dot in the PSP part, so it never collides with e-mail).
+  ['UPI', /\b[A-Za-z0-9._-]{2,256}@[A-Za-z]{2,64}\b/g],
   ['GSTIN', /\b\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z][A-Z0-9][0-9A-Z]\b/gi],
-  ['PAN', /\b[A-Z]{3}[ABCFGHLJPTK][A-Z]\d{4}[A-Z]\b/gi],
+  ['CIN', /\b[LU]\d{5}[A-Z]{2}\d{4}[A-Z]{3}\d{6}\b/gi],
+  // 4th character = holder type: A B C F G H J L P T, E (LLP) and K (Krish, artificial juridical) — PAN_REGEX in identifiers.ts.
+  ['PAN', /\b[A-Z]{3}[ABCEFGHJKLPT][A-Z]\d{4}[A-Z]\b/gi],
   ['TAN', /\b[A-Z]{4}\d{5}[A-Z]\b/gi],
   ['IFSC', /\b[A-Z]{4}0[A-Z0-9]{6}\b/gi],
+  ['VOTER', /\b[A-Z]{3}\d{7}\b/gi],
+  ['PASSPORT', /\b[A-PR-WY][1-9]\d\s?\d{4}[1-9]\b/gi],
+  // Director Identification Number: 8 digits, only when labelled DIN (bare 8-digit numbers are too common to redact).
+  ['DIN', /(?<=\bDIN\b[\s.:#-]{0,4}(?:no\.?\s*)?)\d{8}\b/gi],
   ['PHONE', /(?:\+91[\s-]?|\b0)?\b[6-9]\d{4}[\s-]?\d{5}\b/g],
+  // Landlines: STD code (0 + 2–4 digits, or +91 without the 0) then the subscriber number.
+  ['LANDLINE', /(?:\+91[\s-]?\(?[1-9]\d{1,3}\)?|\(?\b0[1-9]\d{1,3}\)?)[\s-]\d{3,4}[\s-]?\d{3,4}\b/g],
   ['AADHAAR', /\b[2-9]\d{3}[\s-]?\d{4}[\s-]?\d{4}\b/g],
   ['BANK', /\b\d{9,18}\b/g],
 ];
@@ -74,7 +85,7 @@ export function redact(input: string, opts: { names?: string[]; map?: RedactionM
 }
 /** Puts the originals back (server-side, after the provider answered). Unknown placeholders are left as they are. */
 export function restore(text: string, map: RedactionMap): string {
-  return text.replace(/\[(?:EMAIL|GSTIN|PAN|TAN|IFSC|AADHAAR|PHONE|BANK|CLIENT)_\d+\]/g, (p) => map[p] ?? p);
+  return text.replace(/\[(?:EMAIL|UPI|GSTIN|CIN|PAN|TAN|IFSC|VOTER|PASSPORT|DIN|PHONE|LANDLINE|AADHAAR|BANK|CLIENT)_\d+\]/g, (p) => map[p] ?? p);
 }
 /** True if the text still contains anything the redactor would replace (used as a last guard before a call). */
 export function containsPii(text: string): boolean {

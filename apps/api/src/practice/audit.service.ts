@@ -8,6 +8,7 @@ import { CommService } from '../comm/comm.service.js';
 import { addressFor } from '../comm/common.js';
 import { DbService, type Tx } from '../db/db.service.js';
 import { uuidv7 } from '../db/ids.js';
+import { once } from '../common/idempotency.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { clientFor, createLinkedTask, Cursor, loadPracticeSettings, Params, requireFirmWide, staffUser, visibleSql, ymd } from './common.js';
 import { udinPortalUrl } from './udin-gate.js';
@@ -298,18 +299,20 @@ export class AuditWorkService {
   }
 
   // ---------- PBC ----------
-  async addPbc(a: RequestActor, engagementId: string, items: Array<{ title: string; description?: string | null; dueDate?: string | null }>) {
-    return this.db.tenantTx(a.tenantId, async (tx) => {
+  async addPbc(a: RequestActor, engagementId: string, items: Array<{ title: string; description?: string | null; dueDate?: string | null }>, opts: { idempotencyKey?: string | null } = {}) {
+    const key = opts.idempotencyKey ?? null;
+    return once(this.db, a.tenantId, 'pbc_item', key ? `${key}:0` : null, async () => ({ ids: (await this.db.tenantTx(a.tenantId, (tx) => tx.query(`SELECT id FROM pbc_item WHERE idempotency_key LIKE $1 ORDER BY idempotency_key`, [`${key}:%`]))).rows.map((r) => r.id as string) }),
+      () => this.db.tenantTx(a.tenantId, async (tx) => {
       const { e } = await this.loadEng(tx, a, engagementId, 'edit');
       const ids: string[] = [];
       for (const it of items) {
         const id = uuidv7(); ids.push(id);
-        await tx.query('INSERT INTO pbc_item (id, tenant_id, engagement_id, client_id, title, description, due_date, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
-          [id, a.tenantId, engagementId, e.client_id, it.title, it.description ?? null, it.dueDate ?? null, a.userId]);
+        await tx.query('INSERT INTO pbc_item (id, tenant_id, engagement_id, client_id, title, description, due_date, created_by, idempotency_key) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+          [id, a.tenantId, engagementId, e.client_id, it.title, it.description ?? null, it.dueDate ?? null, a.userId, key ? `${key}:${ids.length - 1}` : null]);
       }
       await this.rec(tx, a, 'pbc.requested', 'audit_engagement', engagementId, { count: items.length });
       return { ids };
-    });
+    }));
   }
 
   async updatePbc(a: RequestActor, id: string, b: { status?: 'requested' | 'received' | 'accepted' | 'rejected'; documentIds?: string[]; rejectionReason?: string | null; dueDate?: string | null }) {

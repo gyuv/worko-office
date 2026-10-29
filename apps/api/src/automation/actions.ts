@@ -15,7 +15,7 @@ import { addressFor, checkSend, loadCommSettings, loadRates } from '../comm/comm
 import { DbService, type Tx } from '../db/db.service.js';
 import { insertNotifications } from '../notifications/insert.js';
 import { AuditWorkService } from '../practice/audit.service.js';
-import { usersSeeing } from '../practice/common.js';
+import { usersSeeingEntity } from './context.js';
 import { udinGateError } from '../practice/udin-gate.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { TasksService } from '../tasks/tasks.service.js';
@@ -72,12 +72,14 @@ export class ActionRunner {
   async execute(actor: RequestActor, rule: RuleRow, a: AutomationAction, ctx: Ctx, run: { id: string; idx: number }): Promise<ActionOutcome> {
     const today = this.clock.todayIst();
     const clientId = this.clientOf(ctx); const taskId = this.taskOf(ctx);
+    // Per-action idempotency key: a retried or resumed action returns the row it already created (D155).
+    const idem = { idempotencyKey: `auto:${run.id}:${run.idx}` };
     switch (a.type) {
       case 'create_task': {
         const assignee = this.person(a.assignee, ctx, rule) ?? rule.owner_id;
         const r = await this.tasks.create(actor, { client_id: clientId, title: this.render(a.title, ctx), description: a.description ? this.render(a.description, ctx) : `Created by automation “${rule.name}”.`,
           assignee_id: assignee, priority: a.priority, act_by: a.dueInDays !== undefined ? addDaysIso(today, a.dueInDays) : null,
-          checks: a.checklist.map((l) => { const label = this.render(l, ctx); return { key: checkKey(label), label, required: false, done: false }; }) });
+          checks: a.checklist.map((l) => { const label = this.render(l, ctx); return { key: checkKey(label), label, required: false, done: false }; }) }, idem);
         return { status: 'done', result: { taskId: r.id } };
       }
       case 'assign_task': {
@@ -107,21 +109,20 @@ export class ActionRunner {
         if (!clientId) return refused('no_client');
         const vars = Object.fromEntries(Object.entries(a.vars ?? {}).map(([k, v]) => [k, this.render(v, ctx)]));
         const r = await this.comm.send(actor, { clientId, channel: a.channel, templateId: a.templateId ?? null, vars,
-          subject: a.subject ? this.render(a.subject, ctx) : null, body: a.body ? this.render(a.body, ctx) : null });
+          subject: a.subject ? this.render(a.subject, ctx) : null, body: a.body ? this.render(a.body, ctx) : null }, idem);
         return { status: r.status === 'queued' ? 'queued' : r.status === 'failed' ? 'failed' : 'done', code: r.status === 'failed' ? 'send_failed' : null,
           result: { messageId: r.id, status: r.status, sendAt: r.sendAt }, costPaise: r.costPaise };
       }
       case 'create_pbc_request': {
         const eng = s((ctx.pbc as Record<string, unknown> | undefined)?.engagementId);
         if (!eng) return refused('no_engagement');
-        const r = await this.work.addPbc(actor, eng, a.items.map((i) => ({ title: this.render(i.title, ctx), dueDate: i.dueInDays !== undefined ? addDaysIso(today, i.dueInDays) : null })));
+        const r = await this.work.addPbc(actor, eng, a.items.map((i) => ({ title: this.render(i.title, ctx), dueDate: i.dueInDays !== undefined ? addDaysIso(today, i.dueInDays) : null })), idem);
         return { status: 'done', result: { pbcItemIds: r.ids } };
       }
       case 'notify': {
         const ids = [...new Set(a.to.map((p) => this.person(p, ctx, rule)).filter((x): x is string => !!x))];
-        const module: Module = ctx.lead && !ctx.client ? 'leads' : 'clients';
         const r = await this.db.tenantTx(rule.tenant_id, async (tx) => {
-          const users = await usersSeeing(tx, ids, clientId, module);
+          const users = await usersSeeingEntity(tx, ids, ctx);
           if (!users.length) return null;
           return insertNotifications(tx, rule.tenant_id, { userIds: users, category: 'automation.alert', priority: a.priority, title: this.render(a.title, ctx), body: a.body ? this.render(a.body, ctx) : `From automation “${rule.name}”`,
             entityType: ctx.entity.type, entityId: ctx.entity.id, dedupeKey: `auto:${run.id}:${run.idx}` });
@@ -132,14 +133,14 @@ export class ActionRunner {
       }
       case 'add_timeline_note': {
         if (!clientId) return refused('no_client');
-        const r = await this.comm.logActivity(actor, clientId, { channel: 'note', subject: `Automation: ${rule.name}`.slice(0, 200), body: this.render(a.body, ctx) });
+        const r = await this.comm.logActivity(actor, clientId, { channel: 'note', subject: `Automation: ${rule.name}`.slice(0, 200), body: this.render(a.body, ctx) }, idem);
         return { status: 'done', result: { messageId: r.id } };
       }
       case 'create_invoice_draft': {
         if (!clientId) return refused('no_client');
         // Draft only — issuing always needs a person (D143).
         const r = await this.invoices.create(actor, { clientId, notes: `Drafted by automation “${rule.name}”.`, lines: [{ description: this.render(a.description, ctx), ratePaise: a.ratePaise,
-          sac: a.sac ?? null, gstRate: a.gstRate ?? null, taskIds: a.linkTask && taskId ? [taskId] : [] }] });
+          sac: a.sac ?? null, gstRate: a.gstRate ?? null, taskIds: a.linkTask && taskId ? [taskId] : [] }] }, idem);
         return { status: 'done', result: { invoiceId: r.id, draft: true } };
       }
       case 'request_esign': {
@@ -212,7 +213,7 @@ export class ActionRunner {
       case 'create_pbc_request': return plan(`Request ${a.items.length} PBC item(s)`, (ctx.pbc as Record<string, unknown> | undefined)?.engagementId ? null : 'no_engagement');
       case 'notify': {
         const ids = [...new Set(a.to.map((p) => this.person(p, ctx, rule)).filter((x): x is string => !!x))];
-        const users = await usersSeeing(tx, ids, clientId, ctx.lead && !ctx.client ? 'leads' : 'clients');
+        const users = await usersSeeingEntity(tx, ids, ctx);
         return { type: a.type, summary: `Notify ${users.length} user(s): “${this.render(a.title, ctx)}”`, wouldRefuse: users.length ? null : 'no_recipient', costPaise: 0, details: { recipients: users } };
       }
       case 'add_timeline_note': return plan('Add a timeline note', clientId ? null : 'no_client');

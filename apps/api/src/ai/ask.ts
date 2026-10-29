@@ -7,6 +7,9 @@ import type { RequestActor } from '../auth/context.js';
  *
  * - A tool is a typed, read-only function the model may request; it runs AS THE ASKING USER, so it can only return rows
  *   that user could see through the normal API (each tool reuses the owning service's scoped list/report method).
+ * - ROW-LEVEL SCOPE IS MANDATORY: `permittedTools` only filters by module×action; every tool's `run` MUST query through the
+ *   owning service's scoped method (clientScopeSql / taskScopeSql / leadScopeSql …) so rows the asker can't see never reach
+ *   the model, and must answer only with ids the asker may open. Phase 11 must add a test per tool for this.
  * - The model never sees the database: it proposes `{tool, input}`; the server validates the input with the tool's zod
  *   schema, runs it, redacts the result through `AiService.runModel`'s pipeline and feeds it back inside a <data> block.
  * - The final answer is a SUGGESTION (sources = every tool call + row ids it used). A report definition produced from it

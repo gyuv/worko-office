@@ -18,6 +18,7 @@ import { getEngine, getStore, syncNow, useSync } from '../sync';
 import type { Theme } from '../theme';
 import { t, ui, useTable } from '../ui';
 import { Header } from './Header';
+import { AiDraftReply, AiTimelineSummarise } from './Automation';
 import type { Nav } from './Stack';
 
 const useUserId = () => useSession((x) => x.tokens?.userId ?? '');
@@ -406,6 +407,7 @@ export function ClientTimeline({ theme, clientId, onBack }: { theme: Theme; clie
           <Pressable style={[s.button, (!body.trim() || log.isPending) && { opacity: 0.5 }]} disabled={!body.trim() || log.isPending} onPress={() => log.mutate()} accessibilityRole="button">
             <Text style={s.buttonText}>{t('m.comm.save')}</Text></Pressable>
         </View>}
+        <AiTimelineSummarise theme={theme} clientId={clientId} />
         {mode === 'template' && <SendTemplate theme={theme} clientId={clientId} onDone={(text) => { setMsg(text); void qc.invalidateQueries({ queryKey: key }); }} />}
         {q.isLoading && <ActivityIndicator style={{ marginTop: 16 }} />}
         {q.isError && <Text style={s.alert}>{(q.error as { status?: number }).status === 404 ? t('m.comm.noAccess') : t('common.error')}</Text>}
@@ -419,6 +421,7 @@ export function ClientTimeline({ theme, clientId, onBack }: { theme: Theme; clie
             <Text style={s.text} numberOfLines={2}>{item.title || item.body || item.channel || item.kind}</Text>
             {!!item.title && !!item.body && <Text style={s.muted} numberOfLines={3}>{item.body}</Text>}
             <Text style={s.muted}>{[relativeTime(item.at ?? ''), item.direction === 'in' ? t('m.comm.inbound') : '', item.status, item.by, item.callMinutes ? t('m.comm.minutes', { count: item.callMinutes }) : ''].filter(Boolean).join(' · ')}</Text>
+            {item.kind === 'message' && item.direction === 'in' && !!item.id && <AiDraftReply theme={theme} clientId={clientId} messageId={item.id!} channel={item.channel} />}
           </View>
         </View>
       )} />

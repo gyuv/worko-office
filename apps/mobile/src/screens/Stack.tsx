@@ -11,6 +11,7 @@ import { EntryDetail, RegisterForm, RegisterList } from './Registers';
 import { Approvals, Attendance, ExpenseForm, Expenses, HrHub, Leave, LeaveApply, MyTime, TimeEntryForm, Timer } from './Hr';
 import { Appointments, Calendar, ChatList, ChatThread, ClientTimeline, EventForm } from './Comm';
 import { LeadBoard, LeadDetail } from './Leads';
+import { AiInbox, AutomationHub, RunDetail, SuggestionDetail } from './Automation';
 import { Compliance, TaskDetail, TaskList, Todos } from './Tasks';
 import { AuditList, DscDetail, DscList, EngagementDetail, EsignDetail, EsignList, Hearings, NoticeDetail, NoticeList, NoticeScan, PracticeHub } from './Practice';
 
@@ -24,12 +25,13 @@ export type Route =
   | { name: 'chat' } | { name: 'chatThread'; id: string } | { name: 'calendar' } | { name: 'eventForm'; id?: string; date?: string } | { name: 'timeline'; clientId: string } | { name: 'appointments' }
   | { name: 'practice' } | { name: 'notices' } | { name: 'notice'; id: string } | { name: 'noticeScan'; clientId?: string; noticeId?: string } | { name: 'hearings' }
   | { name: 'dscList' } | { name: 'dsc'; id: string } | { name: 'audit' } | { name: 'engagement'; id: string } | { name: 'esignList' } | { name: 'esign'; id: string }
-  | { name: 'leads' } | { name: 'lead'; id: string };
+  | { name: 'leads' } | { name: 'lead'; id: string }
+  | { name: 'automation'; runId?: string } | { name: 'autoRun'; id: string } | { name: 'aiInbox'; id?: string } | { name: 'aiSuggestion'; id: string };
 export type Nav = { push(r: Route): void; pop(): void; replace(r: Route): void; reset(r?: Route): void };
 
 /** A tiny stack (no navigation library). On tablets the root list stays on the left and the top route shows on the right. */
 export function Stack({ theme, root }: { theme: Theme; root: Route }) {
-  const [stack, setStack] = useState<Route[]>([root]);
+  const [stack, setStack] = useState<Route[]>(() => initialStack(root));
   const nav: Nav = {
     push: (r) => setStack((s) => [...s, r]),
     pop: () => setStack((s) => (s.length > 1 ? s.slice(0, -1) : s)),
@@ -103,5 +105,16 @@ function render(r: Route, nav: Nav, theme: Theme, isRoot: boolean, placeholder =
     case 'esign': return scroll(<EsignDetail key={r.id} theme={theme} id={r.id} onBack={back} />);
     case 'leads': return <LeadBoard theme={theme} nav={nav} onBack={back} />;
     case 'lead': return scroll(<LeadDetail key={r.id} theme={theme} id={r.id} onBack={back} />);
+    case 'automation': return <AutomationHub theme={theme} nav={nav} onBack={back} />;
+    case 'autoRun': return scroll(<RunDetail key={r.id} theme={theme} id={r.id} onBack={back} />);
+    case 'aiInbox': return <AiInbox theme={theme} nav={nav} onBack={back} />;
+    case 'aiSuggestion': return scroll(<SuggestionDetail key={r.id} theme={theme} id={r.id} onBack={back} />);
   }
+}
+
+/** Notification deep links: a root carrying an id opens its detail on top (back returns to the list). */
+function initialStack(root: Route): Route[] {
+  if (root.name === 'automation' && root.runId) return [{ name: 'automation' }, { name: 'autoRun', id: root.runId }];
+  if (root.name === 'aiInbox' && root.id) return [{ name: 'aiInbox' }, { name: 'aiSuggestion', id: root.id }];
+  return [root];
 }
