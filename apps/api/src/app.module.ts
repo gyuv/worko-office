@@ -89,6 +89,13 @@ import { PortalService } from './portal/portal.service.js';
 import { LeadsController, ProposalsController } from './leads/leads.controller.js';
 import { LeadsService } from './leads/leads.service.js';
 import { ProposalsService } from './leads/proposals.service.js';
+import { AiController } from './ai/ai.controller.js';
+import { AiService } from './ai/ai.service.js';
+import { AI_PROVIDER, aiProviderFactory } from './ai/provider.js';
+import { ActionRunner } from './automation/actions.js';
+import { AutomationController } from './automation/automation.controller.js';
+import { AutomationService } from './automation/automation.service.js';
+import { AutomationEngine } from './automation/engine.js';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ limit: Number(process.env.RATE_LIMIT ?? 300), ttl: 60_000 }])],
@@ -98,7 +105,7 @@ import { ProposalsService } from './leads/proposals.service.js';
     TasksController, ComplianceController, BillingController, TimeController, HrController,
     CommController, TimelineController, ChatController, CalendarController, BookingAdminController, BookingPublicController,
     NoticesController, AuditWorkController, DscController, EsignController,
-    PortalPublicController, PortalController, PortalAdminController, LeadsController, ProposalsController],
+    PortalPublicController, PortalController, PortalAdminController, LeadsController, ProposalsController, AutomationController, AiController],
   providers: [
     DbService, AuditService, TokenService, AuthService, TenancyService, UsersService, RulesService,
     RealtimeService, RealtimeGateway, JobQueueService, SyncService, NotificationsService,
@@ -111,6 +118,7 @@ import { ProposalsService } from './leads/proposals.service.js';
     CommService, BroadcastService, ChatService, CalendarService, ConnectionsService,
     NoticesService, AuditWorkService, DscService, EsignService, PracticeService,
     PortalAuthService, PortalService, PortalAdminService, LeadsService, ProposalsService,
+    AiService, { provide: AI_PROVIDER, useFactory: aiProviderFactory }, ActionRunner, AutomationEngine, AutomationService,
     { provide: NOTICE_EXTRACTORS, useFactory: noticeExtractorsFactory },
     { provide: ESIGN_PROVIDERS, useFactory: esignProvidersFactory },
     { provide: MockChannelHub, useFactory: () => new MockChannelHub() },

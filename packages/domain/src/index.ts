@@ -13,3 +13,5 @@ export * from './comm.js';
 export * from './practice.js';
 export * from './crm.js';
 export * from './client-portal.js';
+export * from './automation.js';
+export * from './ai.js';

@@ -15,6 +15,7 @@ import { SyncService } from '../sync/sync.service.js';
 import { clientFor, createLinkedTask, Cursor, loadPracticeSettings, Params, staffUser, usersSeeing, visibleSql, ymd } from './common.js';
 import { extractableSchema } from './schemas.js';
 import { NOTICE_EXTRACTORS, textOf, type NoticeExtractor } from './extractor.js';
+import { AiService } from '../ai/ai.service.js';
 
 export type NoticeIn = {
   clientId: string; authority: NoticeAuthority; level?: string; section?: string | null; referenceNo?: string | null; din?: string | null; title: string; description?: string | null;
@@ -51,7 +52,7 @@ const extractionOut = (r: Record<string, unknown>) => ({
 @Injectable()
 export class NoticesService {
   constructor(private db: DbService, private audit: AuditService, private sync: SyncService, private realtime: RealtimeService, private clock: Clock,
-    private docs: DocumentsService, @Inject(STORAGE) private storage: StorageAdapter, @Inject(NOTICE_EXTRACTORS) private extractors: Record<string, NoticeExtractor>) {}
+    private docs: DocumentsService, @Inject(STORAGE) private storage: StorageAdapter, @Inject(NOTICE_EXTRACTORS) private extractors: Record<string, NoticeExtractor>, private ai: AiService) {}
 
   private publish(tenantId: string, c: Cursor | number) { const v = typeof c === 'number' ? c : c.v; if (v) this.realtime.publish({ type: 'changed', tenantId, cursor: v }); }
   private rec(tx: Tx, a: RequestActor, action: string, entityId: string | null, diff?: unknown) {
@@ -172,15 +173,20 @@ export class NoticesService {
 
   // ---------- Extraction: upload → suggestions → confirm ----------
   async extract(a: RequestActor, file: { buffer: Buffer; mimetype: string; originalname: string; size: number }, m: { clientId: string; noticeId?: string | null }, ip: string | null) {
-    const settings = await this.db.tenantTx(a.tenantId, async (tx) => {
+    await this.db.tenantTx(a.tenantId, async (tx) => {
       await clientFor(tx, a, m.clientId, 'notices', 'create');
       if (m.noticeId) { const n = await this.load(tx, a, m.noticeId, 'edit'); if (n.client_id !== m.clientId) throw new BadRequestException('Notice belongs to another client'); }
-      return loadPracticeSettings(tx);
     });
     const doc = await this.docs.upload(a, file, { clientId: m.clientId, category: 'Notices', tags: ['notice'] }, ip);
-    const ext = settings.ai.noticeExtraction && this.extractors.anthropic ? this.extractors.anthropic : this.extractors.mock!;
+    // AI layer when the firm opted in (gate, redaction, metering); otherwise — or if the AI call is refused/fails — the local extractor.
+    const text = textOf(file.buffer, file.mimetype);
+    const ext: { name: string } = { name: this.extractors.mock!.name };
     let suggestions: FieldSuggestion[] = [];
-    try { suggestions = await ext.extract(textOf(file.buffer, file.mimetype)); } catch { suggestions = []; }
+    let viaAi = false;
+    if ((await this.ai.gate(a.tenantId, 'notice_extraction')) === 'ok') {
+      try { const r = await this.ai.extractNotice(a, text); suggestions = r.suggestions; ext.name = r.provider; viaAi = true; } catch { viaAi = false; }
+    }
+    if (!viaAi) { try { suggestions = await this.extractors.mock!.extract(text); } catch { suggestions = []; } }
     const id = uuidv7();
     await this.db.tenantTx(a.tenantId, async (tx) => {
       await tx.query(`INSERT INTO notice_extraction (id, tenant_id, client_id, notice_id, document_id, document_version, provider, suggestions, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,

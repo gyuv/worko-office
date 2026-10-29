@@ -328,6 +328,21 @@ describe('demo seed', () => {
     expect(props.find((x) => x.status === 'accepted')!.convertedAt).toBeTruthy();
     expect((await q<{ n: number }>(`SELECT count(*)::int AS n FROM client_service cs JOIN client c ON c.id = cs.client_id WHERE c.file_no = 'F-151' AND cs.billing_frequency = 'monthly'`))[0]!.n).toBe(2);
     expect((await q<{ n: number }>(`SELECT count(*)::int AS n FROM document d JOIN client c ON c.id = d.client_id WHERE c.file_no = 'F-151' AND d.category = 'Engagement letters'`))[0]!.n).toBe(1);
+    // Phase 10: GST Document Collection Agent with run history (reminders, then stopped on upload), a nudger, a paused rule;
+    // mock AI opted in with three pending suggestions and usage on the meter.
+    const rules = (await http().get('/v1/automation/rules').set(P).expect(200)).body.items as Array<{ id: string; agentKey: string | null; status: string; enabled: boolean }>;
+    expect(rules.map((r) => `${r.agentKey}:${r.status}`).sort()).toEqual(['document_collection:active', 'null:paused', 'overdue_nudger:active']);
+    const dc = rules.find((r) => r.agentKey === 'document_collection')!;
+    const runs = (await http().get(`/v1/automation/runs?ruleId=${dc.id}`).set(P).expect(200)).body.items as Array<{ step: string; status: string; skipReason: string | null }>;
+    expect(runs.filter((r) => r.step === 'repeat')).toHaveLength(2);
+    expect(runs.some((r) => r.step === 'stop' && r.skipReason === 'stopped 1 on document.uploaded')).toBe(true);
+    expect((await http().get(`/v1/automation/runs?status=failed`).set(P).expect(200)).body.items).toHaveLength(3);
+    expect((await http().get('/v1/ai/settings').set(P).expect(200)).body).toMatchObject({ enabled: true, provider: 'mock' });
+    const sugs = (await http().get('/v1/ai/suggestions?status=pending').set(P).expect(200)).body.items as Array<{ kind: string; mock: boolean; payload: Record<string, unknown> }>;
+    expect(sugs.map((x) => x.kind).sort()).toEqual(['classification', 'draft_reply', 'summary']);
+    expect(sugs.every((x) => x.mock)).toBe(true);
+    expect(String(sugs.find((x) => x.kind === 'draft_reply')!.payload.body)).toMatch(/^\[Mock AI\]/);
+    expect((await http().get('/v1/ai/usage?month=2026-10').set(P).expect(200)).body.byFeature.length).toBeGreaterThanOrEqual(3);
     app.get(Clock).set(new Date('2026-10-15T12:00:00+05:30')); // slots depend on "now"
     try { expect((await http().get('/v1/book/demo/consult?from=2026-10-16&to=2026-10-22').expect(200)).body.slots.length).toBeGreaterThan(10); } finally { app.get(Clock).set(null); }
   });

@@ -19,7 +19,7 @@ export const practiceSettingsSchema = z.object({
   dsc: z.object({ thresholds: z.array(z.number().int().min(0).max(365)).min(1).max(10).default(DEFAULT_EXPIRY_THRESHOLDS), renewalTaskDays: z.number().int().min(0).max(365).default(30) }).default({}),
   licences: z.object({ thresholds: z.array(z.number().int().min(0).max(365)).min(1).max(10).default(DEFAULT_EXPIRY_THRESHOLDS), renewalTaskDays: z.number().int().min(0).max(365).default(30) }).default({}),
   pbc: z.object({ reminderEveryDays: z.number().int().min(1).max(30).default(3), maxReminders: z.number().int().min(0).max(20).default(5), channel: z.enum(['email', 'whatsapp', 'sms']).default('email') }).default({}),
-  /** AI extraction sends document text to an external model: off unless the firm opts in (D115). */
+  /** Deprecated (D150): the AI opt-in lives in ai_settings now; kept so stored settings still validate. Ignored. */
   ai: z.object({ noticeExtraction: z.boolean().default(false) }).default({}),
 }).strict();
 export type PracticeSettings = z.infer<typeof practiceSettingsSchema>;

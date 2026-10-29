@@ -31,6 +31,7 @@ import { seedHr } from './seed-hr.js';
 import { seedComm } from './seed-comm.js';
 import { seedPractice8 } from './seed-practice.js';
 import { PORTAL_DEMO, seedPortalLeads } from './seed-portal.js';
+import { seedAutomationAi } from './seed-automation.js';
 
 export const DEMO = { firm: 'demo', password: 'Demo@12345', users: [
   { name: 'Anita Sharma', email: 'partner@demo.worko.in', role: 'partner', phone: '+919800000001' },
@@ -79,6 +80,7 @@ export async function seedDemo(url: string, opts: { today?: string } = {}) {
     await seedComm(db, tenantId, today);
     await seedPractice8(db, tenantId, today);
     await seedPortalLeads(db, tenantId, today);
+    await seedAutomationAi(db, tenantId, today);
     return { created: true, tenantId };
   } finally {
     await db.pool.end();

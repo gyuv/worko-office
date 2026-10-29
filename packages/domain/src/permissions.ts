@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const MODULES = [
   'clients', 'leads', 'tasks', 'compliance', 'notices', 'audit', 'billing', 'receipts', 'time',
-  'hr', 'documents', 'registers', 'dsc', 'vault', 'communication', 'automation', 'reports',
+  'hr', 'documents', 'registers', 'dsc', 'vault', 'communication', 'automation', 'ai', 'reports',
   'settings', 'users', 'audit_log',
 ] as const;
 export const ACTIONS = ['view', 'create', 'edit', 'delete', 'approve', 'export', 'print', 'assign', 'reveal'] as const;
