@@ -12,7 +12,8 @@ import { insertNotifications } from '../notifications/insert.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { STORAGE, type StorageAdapter } from '../storage/storage.js';
 import { SyncService } from '../sync/sync.service.js';
-import { clientFor, createLinkedTask, Cursor, loadPracticeSettings, Params, staffUser, visibleSql, ymd } from './common.js';
+import { clientFor, createLinkedTask, Cursor, loadPracticeSettings, Params, staffUser, usersSeeing, visibleSql, ymd } from './common.js';
+import { extractableSchema } from './schemas.js';
 import { NOTICE_EXTRACTORS, textOf, type NoticeExtractor } from './extractor.js';
 
 export type NoticeIn = {
@@ -135,21 +136,7 @@ export class NoticesService {
   async update(a: RequestActor, id: string, b: NoticePatch) {
     const cur = new Cursor();
     await this.db.tenantTx(a.tenantId, async (tx) => {
-      const n = await this.load(tx, a, id, 'edit', true);
-      if (n.status === 'closed') throw new ConflictException({ message: 'Notice is closed', code: 'notice_closed' });
-      const next = { authority: b.authority ?? n.authority, level: b.level ?? (b.authority && b.authority !== n.authority ? NOTICE_AUTHORITIES[b.authority].levels[0] : n.level) };
-      this.validate(next.authority, next.level, { issueDate: b.issueDate !== undefined ? b.issueDate : ymd(n.issue_date), responseDue: b.responseDue !== undefined ? b.responseDue : ymd(n.response_due) });
-      if (b.assigneeId !== undefined) await staffUser(tx, b.assigneeId, 'assigneeId');
-      if (b.reviewerId !== undefined) await staffUser(tx, b.reviewerId, 'reviewerId');
-      const patch: Record<string, unknown> = { level: next.level };
-      for (const [k, v] of Object.entries(b)) if (v !== undefined && COLS[k]) patch[COLS[k]!] = v;
-      cur.add((await this.sync.serverPatch(tx, a, 'notice', id, patch))?.cursor);
-      // The linked task follows a changed response due (buffer re-applied) while it is still open.
-      if (b.responseDue !== undefined && n.task_id && b.responseDue) {
-        const s = await loadPracticeSettings(tx);
-        const t = (await tx.query('SELECT outcome FROM task WHERE id = $1', [n.task_id])).rows[0];
-        if (t && !t.outcome) cur.add((await this.sync.serverPatch(tx, a, 'task', n.task_id, { statutory_due: b.responseDue, act_by: noticeTaskDue(b.responseDue, s.notices.taskBufferDays, this.clock.todayIst()) }))?.cursor);
-      }
+      await this.updateInTx(tx, a, id, b, cur);
       await this.rec(tx, a, 'notice.updated', id, b);
     });
     this.publish(a.tenantId, cur);
@@ -225,7 +212,10 @@ export class NoticesService {
       if (e.status !== 'pending') throw new ConflictException({ message: 'Extraction already decided', code: 'extraction_decided' });
       const unknown = Object.keys(b.fields).filter((k) => !EXTRACTABLE.includes(k));
       if (unknown.length) throw new BadRequestException({ message: `Not confirmable: ${unknown.join(', ')}`, code: 'invalid:fields' });
-      const f = b.fields as Record<string, unknown>;
+      // Same types as a manual edit: a corrected value that doesn't validate is a 400, never a database error.
+      const parsed = extractableSchema.safeParse(b.fields);
+      if (!parsed.success) throw new BadRequestException({ message: 'Invalid confirmed value', code: 'invalid:fields', issues: parsed.error.issues });
+      const f = parsed.data as Record<string, unknown>;
       let noticeId = e.notice_id as string | null;
       if (noticeId) {
         const patch: NoticePatch = { ...(f as NoticePatch) };
@@ -250,14 +240,22 @@ export class NoticesService {
     return r;
   }
 
+  /** One path for manual edits and confirmed extractions: validation, people checks and the linked task following the response due. */
   private async updateInTx(tx: Tx, a: RequestActor, id: string, b: NoticePatch, cur: Cursor) {
     const n = await this.load(tx, a, id, 'edit', true);
     if (n.status === 'closed') throw new ConflictException({ message: 'Notice is closed', code: 'notice_closed' });
     const authority = b.authority ?? n.authority; const level = b.level ?? (b.authority && b.authority !== n.authority ? NOTICE_AUTHORITIES[b.authority].levels[0] : n.level);
-    this.validate(authority, level, { issueDate: b.issueDate ?? ymd(n.issue_date), responseDue: b.responseDue ?? ymd(n.response_due) });
+    this.validate(authority, level, { issueDate: b.issueDate !== undefined ? b.issueDate : ymd(n.issue_date), responseDue: b.responseDue !== undefined ? b.responseDue : ymd(n.response_due) });
+    if (b.assigneeId !== undefined) await staffUser(tx, b.assigneeId, 'assigneeId');
+    if (b.reviewerId !== undefined) await staffUser(tx, b.reviewerId, 'reviewerId');
     const patch: Record<string, unknown> = { level };
     for (const [k, v] of Object.entries(b)) if (v !== undefined && COLS[k]) patch[COLS[k]!] = v;
     cur.add((await this.sync.serverPatch(tx, a, 'notice', id, patch))?.cursor);
+    if (b.responseDue && n.task_id) {
+      const s = await loadPracticeSettings(tx);
+      const t = (await tx.query('SELECT outcome FROM task WHERE id = $1', [n.task_id])).rows[0];
+      if (t && !t.outcome) cur.add((await this.sync.serverPatch(tx, a, 'task', n.task_id, { statutory_due: b.responseDue, act_by: noticeTaskDue(b.responseDue, s.notices.taskBufferDays, this.clock.todayIst()) }))?.cursor);
+    }
   }
 
   async discardExtraction(a: RequestActor, id: string) {
@@ -329,6 +327,7 @@ export class NoticesService {
       if (b.venue !== undefined) patch.venue = b.venue;
       if (b.virtualLink !== undefined) patch.virtual_link = b.virtualLink;
       cur.add((await this.sync.serverPatch(tx, a, 'notice_hearing', id, patch))?.cursor);
+      if (b.status === 'cancelled') cur.add(await this.withdrawReminders(tx, id));
       if (b.status === 'cancelled' && h.calendar_event_id) cur.add(Number((await tx.query('UPDATE calendar_event SET deleted_at = now() WHERE id = $1 RETURNING sync_cursor', [h.calendar_event_id])).rows[0]?.sync_cursor ?? 0));
       await this.rec(tx, a, 'notice.hearing_updated', h.notice_id, { hearingId: id, ...b });
     });
@@ -343,12 +342,20 @@ export class NoticesService {
       if (h.status !== 'scheduled') throw new ConflictException({ message: 'Hearing is no longer scheduled', code: 'hearing_not_scheduled' });
       cur.add((await this.sync.serverPatch(tx, a, 'notice_hearing', id, { status: 'adjourned' }))?.cursor);
       if (h.calendar_event_id) cur.add(Number((await tx.query('UPDATE calendar_event SET deleted_at = now() WHERE id = $1 RETURNING sync_cursor', [h.calendar_event_id])).rows[0]?.sync_cursor ?? 0));
+      cur.add(await this.withdrawReminders(tx, id));
       const nid = await this.hearingTx(tx, a, n, { venue: h.venue, virtualLink: h.virtual_link, ...b }, cur, id, b.reason ?? null);
       await this.rec(tx, a, 'notice.hearing_adjourned', h.notice_id, { from: id, to: nid, startsAt: b.startsAt, reason: b.reason ?? null });
       return nid;
     });
     this.publish(a.tenantId, cur);
     return { id: newId };
+  }
+
+  /** Future (unfired) reminders of a hearing are soft-deleted; the trigger bumps version/cursor so devices drop them, and delivery skips deleted rows. */
+  private async withdrawReminders(tx: Tx, hearingId: string) {
+    const r = await tx.query(`UPDATE notification SET deleted_at = now() WHERE entity_type = 'notice_hearing' AND entity_id = $1 AND deleted_at IS NULL AND fire_at > $2 RETURNING sync_cursor`,
+      [hearingId, this.clock.now()]);
+    return Math.max(0, ...r.rows.map((x) => Number(x.sync_cursor)));
   }
 
   // ---------- Reports & escalation ----------
@@ -381,20 +388,22 @@ export class NoticesService {
   async escalateTx(tx: Tx, tenantId: string, today: string): Promise<{ notified: number; cursor: number }> {
     const s = await loadPracticeSettings(tx);
     let notified = 0; const cur = new Cursor();
-    const overdue = (await tx.query(`SELECT n.id, n.title, n.response_due, COALESCE(n.assignee_id, c.manager_id, c.partner_id) AS who FROM notice n JOIN client c ON c.id = n.client_id
+    const overdue = (await tx.query(`SELECT n.id, n.client_id, n.title, n.response_due, COALESCE(n.assignee_id, c.manager_id, c.partner_id) AS who FROM notice n JOIN client c ON c.id = n.client_id
       WHERE n.deleted_at IS NULL AND n.status IN ('received','under_review','drafting') AND n.response_due < $1`, [today])).rows;
     for (const n of overdue) {
-      if (!n.who) continue;
-      const r = await insertNotifications(tx, tenantId, { userIds: [n.who], category: 'notice.response_due', priority: 'critical', title: `Notice reply overdue: ${String(n.title).slice(0, 120)}`,
+      const who = await usersSeeing(tx, [n.who], n.client_id, 'notices');
+      if (!who.length) continue;
+      const r = await insertNotifications(tx, tenantId, { userIds: who, category: 'notice.response_due', priority: 'critical', title: `Notice reply overdue: ${String(n.title).slice(0, 120)}`,
         body: `Response was due ${ymd(n.response_due)}`, entityType: 'notice', entityId: n.id, requiresAck: true, escalateAfterMinutes: s.notices.escalateAfterMinutes, dedupeKey: `notice-overdue:${n.id}:${ymd(n.response_due)}` });
       notified += r.ids.length; cur.add(r.cursor);
     }
     const until = new Date(Date.parse(`${today}T00:00:00+05:30`) + (s.notices.hearingPrepDays + 1) * 86_400_000);
-    const hs = (await tx.query(`SELECT h.id, h.starts_at, n.title, COALESCE(h.owner_id, n.assignee_id) AS who FROM notice_hearing h JOIN notice n ON n.id = h.notice_id
+    const hs = (await tx.query(`SELECT h.id, h.client_id, h.starts_at, n.title, COALESCE(h.owner_id, n.assignee_id) AS who FROM notice_hearing h JOIN notice n ON n.id = h.notice_id
       WHERE h.deleted_at IS NULL AND h.status = 'scheduled' AND NOT h.prep_done AND h.starts_at >= $1 AND h.starts_at < $2`, [new Date(`${today}T00:00:00+05:30`), until])).rows;
     for (const h of hs) {
-      if (!h.who) continue;
-      const r = await insertNotifications(tx, tenantId, { userIds: [h.who], category: 'notice.hearing', priority: 'high', title: `Hearing prep pending: ${String(h.title).slice(0, 120)}`,
+      const who = await usersSeeing(tx, [h.who], h.client_id, 'notices');
+      if (!who.length) continue;
+      const r = await insertNotifications(tx, tenantId, { userIds: who, category: 'notice.hearing', priority: 'high', title: `Hearing prep pending: ${String(h.title).slice(0, 120)}`,
         body: 'Mark preparation done or escalate.', entityType: 'notice_hearing', entityId: h.id, requiresAck: true, escalateAfterMinutes: s.notices.escalateAfterMinutes,
         dedupeKey: `hearing-prep:${h.id}:${(h.starts_at as Date).toISOString()}` });
       notified += r.ids.length; cur.add(r.cursor);

@@ -7,7 +7,8 @@ import { CurrentActor, Perm, Public, type RequestActor } from '../auth/context.j
 import { ZodPipe } from '../common/zod.pipe.js';
 import { MAX_UPLOAD } from '../documents/documents.service.js';
 import { AuditWorkService } from './audit.service.js';
-import { isoDate } from './common.js';
+import { isoDate, SECRET_TEXT_RX } from './common.js';
+import { httpsUrl, noticeFields } from './schemas.js';
 import { DscService, SECRET_KEY_RX } from './dsc.service.js';
 import { EsignService } from './esign.service.js';
 import { NoticesService } from './notices.service.js';
@@ -23,12 +24,6 @@ const bool = z.enum(['true', 'false']).transform((v) => v === 'true');
 const yearRange = z.string().regex(/^\d{4}-\d{2}$/);
 
 // ---------- Notices ----------
-const noticeFields = {
-  authority: z.enum(NOTICE_AUTHORITY_KEYS), level: z.string().regex(/^[a-z_]{2,40}$/).optional(), section: opt(40), referenceNo: opt(80), din: opt(80), title: txt(300),
-  description: opt(5000), issueDate: isoDate.nullable().optional(), receivedOn: isoDate.optional(), responseDue: isoDate.nullable().optional(),
-  assessmentYear: yearRange.nullable().optional(), financialYear: yearRange.nullable().optional(), period: opt(40), demandPaise: paise.optional(),
-  assigneeId: uuid.nullable().optional(), reviewerId: uuid.nullable().optional(),
-};
 const noticeIn = z.object({ clientId: uuid, ...noticeFields, createTask: z.boolean().optional(), appealOf: uuid.nullable().optional() }).strict();
 const noticePatch = z.object(noticeFields).partial().strict();
 const noticeListQ = z.object({ clientId: uuid.optional(), status: z.string().transform((s) => s.split(',')).pipe(z.array(z.enum(NOTICE_STATUSES))).optional(),
@@ -36,12 +31,12 @@ const noticeListQ = z.object({ clientId: uuid.optional(), status: z.string().tra
 const statusIn = z.object({ status: z.enum(NOTICE_STATUSES), outcome: z.enum(NOTICE_OUTCOMES).nullable().optional(), outcomeNote: opt(2000), finalDemandPaise: paise.nullable().optional() }).strict();
 const linkDocIn = z.object({ documentId: uuid, kind: z.enum(['notice', 'reply', 'order', 'evidence', 'other']) }).strict();
 const extractB = z.object({ clientId: uuid, noticeId: uuid.optional() });
-const confirmIn = z.object({ fields: z.record(z.union([z.string().max(200), z.number().int().min(0).max(1e15)])), title: txt(300).optional(), level: z.string().max(40).optional(),
+const confirmIn = z.object({ fields: z.record(z.union([z.string().max(200), z.number()])), title: txt(300).optional(), level: z.string().max(40).optional(),
   assigneeId: uuid.nullable().optional(), reviewerId: uuid.nullable().optional() }).strict();
 const hearingIn = z.object({ startsAt: z.string().datetime({ offset: true }), endsAt: z.string().datetime({ offset: true }).nullable().optional(), venue: opt(300),
-  virtualLink: z.string().url().max(500).refine((u) => u.startsWith('https://'), 'https only').nullable().optional() }).strict();
+  virtualLink: httpsUrl.nullable().optional() }).strict();
 const hearingPatch = z.object({ prepDone: z.boolean().optional(), status: z.enum(['held', 'cancelled']).optional(), outcomeNote: opt(2000), venue: opt(300),
-  virtualLink: z.string().url().max(500).nullable().optional() }).strict();
+  virtualLink: httpsUrl.nullable().optional() }).strict();
 const adjournIn = hearingIn.extend({ reason: opt(500) });
 
 @Controller('notices')
@@ -82,7 +77,7 @@ const programmeIn = z.object({ name: txt(200), auditType, sections: z.array(sect
 const programmePatch = z.object({ name: txt(200).optional(), sections: z.array(sectionIn).min(1).max(50).optional(), active: z.boolean().optional(), udinRequired: z.boolean().optional() }).strict();
 const engagementIn = z.object({ clientId: uuid, fy: yearRange, auditType, programmeId: uuid.nullable().optional(), partnerId: uuid.nullable().optional(), managerId: uuid.nullable().optional(),
   taskId: uuid.nullable().optional(), createTask: z.boolean().optional(), udinRequired: z.boolean().optional(), reportDue: isoDate.nullable().optional() }).strict();
-const engagementPatch = z.object({ status: z.enum(['planning', 'fieldwork', 'review', 'reporting', 'closed']).optional(), partnerId: uuid.nullable().optional(), managerId: uuid.nullable().optional() }).strict();
+const engagementPatch = z.object({ status: z.enum(['planning', 'fieldwork', 'review', 'closed']).optional(), partnerId: uuid.nullable().optional(), managerId: uuid.nullable().optional() }).strict();
 const engListQ = z.object({ clientId: uuid.optional(), fy: yearRange.optional(), status: z.string().max(20).optional(), ...page });
 const pbcIn = z.object({ items: z.array(z.object({ title: txt(300), description: opt(2000), dueDate: isoDate.nullable().optional() }).strict()).min(1).max(200) }).strict();
 const pbcPatch = z.object({ status: z.enum(['requested', 'received', 'accepted', 'rejected']).optional(), documentIds: z.array(uuid).max(50).optional(), rejectionReason: opt(1000),
@@ -134,7 +129,11 @@ export class AuditWorkController {
 // ---------- DSC register & licences ----------
 /** Refuses any PIN/password-like key anywhere in the body before validation (D117). */
 const noSecrets = <T extends z.ZodTypeAny>(s: T) => z.unknown().superRefine((v, ctx) => {
-  if (v && typeof v === 'object') for (const k of Object.keys(v)) if (SECRET_KEY_RX.test(k)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [k], message: 'secret_not_allowed: DSC PINs/passwords are never stored' });
+  if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) {
+    if (SECRET_KEY_RX.test(k)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [k], message: 'secret_not_allowed: DSC PINs/passwords are never stored' });
+    // Content heuristic for free text ("PIN: 1234"); limits in KNOWN_GAPS.
+    else if (typeof x === 'string' && SECRET_TEXT_RX.test(x)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [k], message: 'secret_not_allowed: looks like a PIN/password' });
+  }
 }).pipe(s);
 const dscIn = z.object({
   clientId: uuid.nullable().optional(), holderKind: z.enum(['client_contact', 'staff']), contactId: uuid.nullable().optional(), holderUserId: uuid.nullable().optional(), holderName: opt(200),
@@ -155,12 +154,12 @@ export class DscController {
   @Get('dsc') @Perm('dsc', 'view') list(@CurrentActor() a: RequestActor, @Query(new ZodPipe(dscListQ)) q: z.infer<typeof dscListQ>) { return this.dsc.list(a, q); }
   @Post('dsc') @Perm('dsc', 'create') create(@CurrentActor() a: RequestActor, @Body(new ZodPipe(noSecrets(dscIn))) b: z.infer<typeof dscIn>) { return this.dsc.create(a, b); }
   @Post('dsc/custody/:id/acknowledge') @HttpCode(204) @Perm('dsc', 'view')
-  async ack(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(z.object({ name: opt(200) }).strict())) b: { name?: string | null }) { await this.dsc.acknowledge(a, id, b); }
+  async ack(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(noSecrets(z.object({ name: opt(200) }).strict()))) b: { name?: string | null }) { await this.dsc.acknowledge(a, id, b); }
   @Get('dsc/:id') @Perm('dsc', 'view') get(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string) { return this.dsc.get(a, id); }
   @Patch('dsc/:id') @HttpCode(204) @Perm('dsc', 'edit')
   async update(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(noSecrets(dscPatch))) b: z.infer<typeof dscPatch>) { await this.dsc.update(a, id, b); }
   @Post('dsc/:id/custody') @Perm('dsc', 'edit')
-  move(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(moveIn)) b: z.infer<typeof moveIn>) { return this.dsc.move(a, id, b); }
+  move(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(noSecrets(moveIn))) b: z.infer<typeof moveIn>) { return this.dsc.move(a, id, b); }
   @Get('licences') @Perm('compliance', 'view')
   licences(@CurrentActor() a: RequestActor, @Query(new ZodPipe(z.object({ clientId: uuid.optional(), status: z.string().max(30).optional(), dueWithinDays: z.coerce.number().int().min(-3650).max(3650).optional() }))) q: { clientId?: string; status?: string; dueWithinDays?: number }) {
     return this.dsc.listLicences(a, q);

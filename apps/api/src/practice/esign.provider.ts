@@ -72,6 +72,7 @@ export class AspEsignProvider implements EsignProvider {
     const j = (await res.json()) as { id: string; signers: Array<{ ref: string; url: string }> };
     return { txnId: j.id, signerUrls: Object.fromEntries(j.signers.map((s) => [s.ref, s.url])) };
   }
+  /** VERIFY AGAINST OFFICIAL DOCS: transaction cancel/void endpoint of the ASP. */
   async cancel(txnId: string) { const c = this.cfg(); await fetch(`${c.url}/transactions/${encodeURIComponent(txnId)}/cancel`, { method: 'POST', headers: { 'x-asp-id': c.id, authorization: `Bearer ${c.key}` } }); }
   verifyWebhook(raw: Buffer, h: Headers) { const k = process.env.ESIGN_WEBHOOK_SECRET || ''; return !!k && k !== DEV_ESIGN_WEBHOOK_SECRET && safeEq(hdr(h, 'x-asp-signature'), esignHmac(k, raw)); }
   parseWebhook(raw: Buffer): EsignEvent[] {

@@ -163,3 +163,17 @@ export function parseNoticeText(text: string): FieldSuggestion[] {
   if (r) add('gstin', r[1]!, 0.9, r[0]);
   return out;
 }
+
+// ---------------- Audit engagement workflow ----------------
+export const ENGAGEMENT_STATUSES = ['planning', 'fieldwork', 'review', 'reporting', 'closed'] as const;
+export type EngagementStatus = (typeof ENGAGEMENT_STATUSES)[number];
+const ENG_FLOW: Record<EngagementStatus, EngagementStatus[]> = {
+  planning: ['fieldwork'], fieldwork: ['planning', 'review'], review: ['fieldwork', 'closed'], reporting: ['review', 'closed'], closed: ['review'],
+};
+/** planning → fieldwork → review → closed (one step back allowed); reopening a closed engagement is partner-only. 'reporting' is legacy. */
+export function engagementTransitionError(from: EngagementStatus, to: EngagementStatus, isPartner: boolean): string | null {
+  if (from === to) return null;
+  if (to === 'reporting' || !ENG_FLOW[from].includes(to)) return 'invalid_transition';
+  if (from === 'closed' && !isPartner) return 'partner_required';
+  return null;
+}

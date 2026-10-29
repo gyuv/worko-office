@@ -104,7 +104,8 @@ export const chatMessageWritable = {
 /** Own events and events the actor attends; client-linked ones only while the client is visible (clients:view). */
 export function calendarScopeSql(a: RequestActor, p: Params): string {
   const me = p.add(a.userId);
-  return `(x.owner_id = ${me}::uuid OR ${me}::uuid = ANY(x.attendee_ids)) AND (x.client_id IS NULL OR EXISTS (SELECT 1 FROM client c WHERE c.id = x.client_id AND ${clientScopeSql(a, 'clients', 'view', p)}))`;
+  return `(x.owner_id = ${me}::uuid OR ${me}::uuid = ANY(x.attendee_ids)) AND (x.client_id IS NULL OR EXISTS (SELECT 1 FROM client c WHERE c.id = x.client_id AND ${clientScopeSql(a, 'clients', 'view', p)}
+    AND (x.kind <> 'hearing' OR ${clientScopeSql(a, 'notices', 'view', p)})))`;
 }
 export const calendarWritable = {
   kind: z.enum(['meeting', 'personal']), title: z.string().trim().min(1).max(300), description: z.string().max(5000).nullable(), location: z.string().max(300).nullable(),

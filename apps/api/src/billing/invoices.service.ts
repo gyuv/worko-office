@@ -1,3 +1,4 @@
+import { udinGateError } from '../practice/udin-gate.js';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { amountInWords, computeInvoice, formatINR, GST_STATES, supplyTypeOf, type LineInput } from '@worko/domain';
 import PDFDocument from 'pdfkit';
@@ -131,6 +132,7 @@ export class InvoicesService {
       const t = (await tx.query('SELECT id, client_id, status, outcome FROM task WHERE id = $1 AND deleted_at IS NULL FOR UPDATE', [tid])).rows[0];
       if (!t || t.client_id !== client.id) throw new BadRequestException({ message: 'Task not found for this client', code: 'invalid_task' });
       if (t.status !== 'done' || t.outcome) throw new ConflictException({ message: 'Task is not done-and-unbilled', code: 'task_not_billable' });
+      if (await udinGateError(tx, tid)) throw new BadRequestException({ message: 'Record the UDIN before billing this audit task', code: 'udin_required' });
       try {
         await tx.query('SAVEPOINT link');
         await tx.query('INSERT INTO invoice_task (tenant_id, invoice_id, line_id, task_id) VALUES ($1,$2,$3,$4)', [a.tenantId, invoiceId, lineId, tid]);

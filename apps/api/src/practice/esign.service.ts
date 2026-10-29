@@ -193,7 +193,8 @@ export class EsignService implements OnModuleInit {
       const out = [];
       for (const r of rows) {
         let visible = 0; for (const d of (r.docs ?? []) as string[]) if (await this.visibleItem(tx, a, d)) visible++;
-        if (visible) out.push({ id: r.id, title: r.title, bulk: r.bulk, mode: r.mode, provider: r.provider, status: r.status, items: (r.docs ?? []).length, visibleItems: visible, createdAt: r.created_at, completedAt: r.completed_at });
+        // Partial visibility (D123): only visible items are counted/shown and the title is redacted.
+        if (visible) out.push({ id: r.id, title: visible === (r.docs ?? []).length ? r.title : 'Restricted bulk request', bulk: r.bulk, mode: r.mode, provider: r.provider, status: r.status, items: (r.docs ?? []).length, visibleItems: visible, createdAt: r.created_at, completedAt: r.completed_at });
       }
       return { total: out.length, items: out.slice(q.offset, q.offset + q.limit) };
     });
@@ -209,10 +210,11 @@ export class EsignService implements OnModuleInit {
         const signers = (await tx.query(`SELECT id, ord, kind, contact_id AS "contactId", user_id AS "userId", name, status, notified_at AS "notifiedAt", signed_at AS "signedAt", masked_id AS "maskedId"
           FROM esign_signer WHERE item_id = $1 ORDER BY ord, id`, [i.id])).rows;
         items.push({ id: i.id, documentId: i.document_id, documentName: i.doc_name, documentVersion: i.document_version, clientId: i.client_id, status: i.status, error: i.error, attempts: i.attempts,
-          providerTxnId: i.provider_txn_id, signedVersion: i.signed_version, certificateDocumentId: i.certificate_document_id, originalSha256: i.original_sha256, signedSha256: i.signed_sha256, signers });
+          providerTxnId: i.provider_txn_id, signedVersion: i.signed_version, signedLabel: i.signed_label ?? null, certificateDocumentId: i.certificate_document_id, originalSha256: i.original_sha256, signedSha256: i.signed_sha256, signers });
       }
       if (!items.length) throw new NotFoundException();
-      return { id: r.id, title: r.title, bulk: r.bulk, mode: r.mode, provider: r.provider, status: r.status, createdAt: r.created_at, completedAt: r.completed_at, items };
+      const total = Number((await tx.query('SELECT count(*)::int AS n FROM esign_item WHERE request_id = $1', [id])).rows[0].n);
+      return { id: r.id, title: items.length === total ? r.title : 'Restricted bulk request', restricted: items.length !== total, bulk: r.bulk, mode: r.mode, provider: r.provider, status: r.status, createdAt: r.created_at, completedAt: r.completed_at, items };
     });
   }
 
@@ -224,20 +226,35 @@ export class EsignService implements OnModuleInit {
     return { r, items };
   }
 
+  /**
+   * Failed items: if every signer already signed and only storing failed (finalize_state set or all signed), re-run the idempotent finalize;
+   * otherwise cancel the old provider transaction and restart the item — every signer back to pending with a new link (review fix 7).
+   */
   async retry(a: RequestActor, id: string) {
-    const ids = await this.db.tenantTx(a.tenantId, async (tx) => {
+    const plan = await this.db.tenantTx(a.tenantId, async (tx) => {
       const { r, items } = await this.editableRequest(tx, a, id);
       if (r.status === 'cancelled') throw new ConflictException({ message: 'Request cancelled', code: 'esign_cancelled' });
-      const failed = items.filter((i) => i.status === 'failed').map((i) => i.id as string);
+      const failed = items.filter((i) => i.status === 'failed');
       if (!failed.length) throw new ConflictException({ message: 'Nothing to retry', code: 'nothing_to_retry' });
-      // New nonces: links sent for the failed attempt stop working.
-      await tx.query(`UPDATE esign_signer SET status = 'pending', link_nonce = encode(gen_random_bytes(12), 'hex'), notified_at = NULL WHERE item_id = ANY($1::uuid[]) AND status <> 'signed'`, [failed]);
-      await tx.query(`UPDATE esign_item SET status = 'pending' WHERE id = ANY($1::uuid[])`, [failed]);
+      const refinalize: string[] = []; const resend: Array<{ id: string; txn: string | null }> = [];
+      for (const i of failed) {
+        const open = (await tx.query(`SELECT count(*)::int AS n FROM esign_signer WHERE item_id = $1 AND status NOT IN ('signed','cancelled')`, [i.id])).rows[0].n;
+        if (i.finalize_state || (open === 0 && i.provider_txn_id && String(i.error ?? '').startsWith('finalize:'))) refinalize.push(i.id); else resend.push({ id: i.id, txn: i.provider_txn_id });
+      }
+      if (resend.length) {
+        const ids = resend.map((x) => x.id);
+        await tx.query(`UPDATE esign_signer SET status = 'pending', link_nonce = encode(gen_random_bytes(12), 'hex'), notified_at = NULL, signed_at = NULL, masked_id = NULL,
+          signer_name_as_per_id = NULL, provider_signer_ref = NULL WHERE item_id = ANY($1::uuid[]) AND status <> 'cancelled'`, [ids]);
+        await tx.query(`UPDATE esign_item SET status = 'pending', provider_txn_id = NULL WHERE id = ANY($1::uuid[])`, [ids]);
+      }
+      if (refinalize.length) await tx.query(`UPDATE esign_item SET status = 'sent', error = NULL WHERE id = ANY($1::uuid[])`, [refinalize]);
       await tx.query(`UPDATE esign_request SET status = 'in_progress' WHERE id = $1`, [id]);
-      await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'esign.retried', entity: 'esign_request', entityId: id, diff: { items: failed } });
-      return failed;
+      await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'esign.retried', entity: 'esign_request', entityId: id, diff: { resent: resend.map((x) => x.id), refinalized: refinalize } });
+      return { refinalize, resend };
     });
-    for (const i of ids) await this.send(a.tenantId, i, a.userId);
+    for (const x of plan.resend) if (x.txn) await this.provider().cancel(x.txn).catch(() => undefined);
+    for (const x of plan.resend) await this.send(a.tenantId, x.id, a.userId);
+    for (const i of plan.refinalize) await this.finalize(a.tenantId, i);
     await this.db.tenantTx(a.tenantId, (tx) => this.rollup(tx, id));
     return this.summary(a.tenantId, id);
   }
@@ -321,30 +338,59 @@ export class EsignService implements OnModuleInit {
   }
 
   /** All signed: store the provider's signed file as a new version of the document + an audit-trail certificate (separate document, D119). */
+  /**
+   * All signed → store the signed file + certificate. Idempotent (finalize_state): a retry after a partial failure never stores a second
+   * signed version. If the document moved on (newer version than the one signed), the signed file is stored as a non-current version
+   * labelled "signed copy of vN" (D119, review fix 13).
+   */
   private async finalize(tenantId: string, itemId: string) {
     const sys = systemActor(tenantId);
     const it = await this.db.tenantTx(tenantId, async (tx) => {
-      const it = (await tx.query(`SELECT i.*, d.name AS doc_name, d.fy, v.storage_key, t.name AS firm_name, r.provider FROM esign_item i JOIN document d ON d.id = i.document_id
+      const it = (await tx.query(`SELECT i.*, d.name AS doc_name, d.fy, d.current_version, v.storage_key, t.name AS firm_name, r.provider FROM esign_item i JOIN document d ON d.id = i.document_id
         JOIN document_version v ON v.document_id = i.document_id AND v.version = i.document_version JOIN tenant t ON t.id = i.tenant_id JOIN esign_request r ON r.id = i.request_id WHERE i.id = $1`, [itemId])).rows[0];
       const signers = (await tx.query(`SELECT name, kind, masked_id, signer_name_as_per_id, signed_at FROM esign_signer WHERE item_id = $1 AND status = 'signed' ORDER BY ord, signed_at`, [itemId])).rows;
       return { ...it, signers };
     });
+    if (!it || it.status === 'signed') return;
     try {
-      const original = await toBuffer(await this.storage.get(it.storage_key));
-      if (sha(original) !== it.original_sha256) throw new Error('original_hash_mismatch');
-      const signed = await this.provider().fetchSigned(it.provider_txn_id, original);
-      const up = await this.docs.upload(sys, { buffer: signed, mimetype: 'application/pdf', originalname: it.doc_name, size: signed.length },
-        { documentId: it.document_id, note: `e-signed (${it.provider} txn ${it.provider_txn_id})` }, null);
-      const cert = await certificatePdf({ firm: it.firm_name, document: it.doc_name, version: it.document_version, signedVersion: up.version, originalSha256: it.original_sha256,
-        signedSha256: sha(signed), provider: it.provider, txnId: it.provider_txn_id, generatedAt: this.clock.now(),
-        signers: it.signers.map((s: Record<string, unknown>) => ({ name: s.name as string, kind: s.kind as string, maskedId: (s.masked_id as string) ?? null, nameAsPerId: (s.signer_name_as_per_id as string) ?? null, at: s.signed_at as Date })) });
-      const c = await this.docs.upload(sys, { buffer: cert, mimetype: 'application/pdf', originalname: `E-sign certificate — ${it.doc_name}.pdf`.slice(0, 280), size: cert.length },
-        { clientId: it.client_id, fy: it.fy, category: 'E-sign certificates', tags: ['esign', String(it.provider_txn_id)] }, null);
+      let signedVersion = it.signed_version as number | null; let signedSha = it.signed_sha256 as string | null;
+      if (!it.finalize_state) {
+        const original = await toBuffer(await this.storage.get(it.storage_key));
+        if (sha(original) !== it.original_sha256) throw new Error('original_hash_mismatch');
+        const signed = await this.provider().fetchSigned(it.provider_txn_id, original);
+        signedSha = sha(signed);
+        const note = `e-signed (${it.provider} txn ${it.provider_txn_id})`;
+        if (Number(it.current_version) === Number(it.document_version)) {
+          signedVersion = (await this.docs.upload(sys, { buffer: signed, mimetype: 'application/pdf', originalname: it.doc_name, size: signed.length }, { documentId: it.document_id, note }, null)).version;
+        } else {
+          signedVersion = await this.db.tenantTx(tenantId, async (tx) => {
+            await tx.query('SELECT 1 FROM document WHERE id = $1 FOR UPDATE', [it.document_id]);
+            const v = Number((await tx.query('SELECT max(version) AS v FROM document_version WHERE document_id = $1', [it.document_id])).rows[0].v) + 1;
+            const key = `t/${tenantId}/d/${it.document_id}/v${v}`;
+            await this.storage.put(key, signed, 'application/pdf');
+            await tx.query(`INSERT INTO document_version (id, tenant_id, document_id, version, storage_key, size, sha256, mime, note) VALUES ($1,$2,$3,$4,$5,$6,$7,'application/pdf',$8)`,
+              [uuidv7(), tenantId, it.document_id, v, key, signed.length, signedSha, `signed copy of v${it.document_version} — ${note}`]);
+            await this.audit.record(tx, tenantId, { actorId: null, deviceId: 'server', action: 'document.new_version', entity: 'document', entityId: it.document_id, diff: { version: v, current: false, signedCopyOf: it.document_version } });
+            return v;
+          });
+        }
+        await this.db.tenantTx(tenantId, (tx) => tx.query(`UPDATE esign_item SET finalize_state = 'version_stored', signed_version = $2, signed_sha256 = $3,
+          signed_label = $4 WHERE id = $1`, [itemId, signedVersion, signedSha, Number(it.current_version) === Number(it.document_version) ? null : `signed copy of v${it.document_version}`]));
+      }
+      let certId = it.certificate_document_id as string | null;
+      if (!certId) {
+        const cert = await certificatePdf({ firm: it.firm_name, document: it.doc_name, version: it.document_version, signedVersion: signedVersion!, originalSha256: it.original_sha256,
+          signedSha256: signedSha!, provider: it.provider, txnId: it.provider_txn_id, generatedAt: this.clock.now(),
+          signers: it.signers.map((s: Record<string, unknown>) => ({ name: s.name as string, kind: s.kind as string, maskedId: (s.masked_id as string) ?? null, nameAsPerId: (s.signer_name_as_per_id as string) ?? null, at: s.signed_at as Date })) });
+        certId = (await this.docs.upload(sys, { buffer: cert, mimetype: 'application/pdf', originalname: `E-sign certificate — ${it.doc_name}.pdf`.slice(0, 280), size: cert.length },
+          { clientId: it.client_id, fy: it.fy, category: 'E-sign certificates', tags: ['esign', String(it.provider_txn_id)] }, null)).id;
+        await this.db.tenantTx(tenantId, (tx) => tx.query(`UPDATE esign_item SET finalize_state = 'certificate_stored', certificate_document_id = $2 WHERE id = $1`, [itemId, certId]));
+      }
       await this.db.tenantTx(tenantId, async (tx) => {
-        await tx.query(`UPDATE esign_item SET status = 'signed', signed_version = $2, certificate_document_id = $3, signed_sha256 = $4, updated_at = now() WHERE id = $1`, [itemId, up.version, c.id, sha(signed)]);
+        await tx.query(`UPDATE esign_item SET status = 'signed', error = NULL, updated_at = now() WHERE id = $1`, [itemId]);
         await this.rollup(tx, it.request_id);
         await this.audit.record(tx, tenantId, { actorId: null, deviceId: 'server', action: 'esign.completed', entity: 'esign_request', entityId: it.request_id,
-          diff: { itemId, documentId: it.document_id, signedVersion: up.version, certificateDocumentId: c.id, originalSha256: it.original_sha256, signedSha256: sha(signed) } });
+          diff: { itemId, documentId: it.document_id, signedVersion, certificateDocumentId: certId, originalSha256: it.original_sha256, signedSha256: signedSha } });
         const owner = (await tx.query('SELECT created_by FROM esign_request WHERE id = $1', [it.request_id])).rows[0]?.created_by;
         if (owner) {
           const r = await insertNotifications(tx, tenantId, { userIds: [owner], category: 'esign.request', title: `Signed: ${String(it.doc_name).slice(0, 150)}`, entityType: 'esign_request', entityId: it.request_id, dedupeKey: `esign-done:${itemId}` });

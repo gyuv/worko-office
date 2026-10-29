@@ -193,6 +193,7 @@ export class TasksService {
     const next = { ...cur, ...patch };
     const who = await actorChangeError(a, cur, next, tx);
     if (who) return who;
+    if (next.status === 'done' && cur.status !== 'done' && (await udinGateError(tx, cur.id as string))) return 'udin_required';
     return taskChangeError(stateOf(cur), stateOf(next)) ?? (await checkPeopleAndRevoke(tx, a.tenantId, cur, next));
   }
 

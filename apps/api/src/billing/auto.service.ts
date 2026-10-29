@@ -1,3 +1,4 @@
+import { udinClearSql } from '../practice/udin-gate.js';
 import { ConflictException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service.js';
 import type { RequestActor } from '../auth/context.js';
@@ -56,7 +57,7 @@ export class BillingAutoService implements OnModuleInit {
   async unbilledTx(tx: Tx, a: RequestActor, q: { from?: string; to?: string; clientId?: string; action?: 'view' | 'create' }): Promise<UnbilledTask[]> {
     const p = new Params();
     const where = ["t.status = 'done'", 't.outcome IS NULL', 't.deleted_at IS NULL', 'c.deleted_at IS NULL', scopeSql(a, 'billing', q.action ?? 'view', p),
-      'COALESCE(s.billable, true)', 'NOT EXISTS (SELECT 1 FROM invoice_task it WHERE it.task_id = t.id AND it.live)'];
+      'COALESCE(s.billable, true)', 'NOT EXISTS (SELECT 1 FROM invoice_task it WHERE it.task_id = t.id AND it.live)', udinClearSql('t')];
     const done = `(t.completed_at AT TIME ZONE 'Asia/Kolkata')::date`;
     if (q.from) where.push(`${done} >= ${p.add(q.from)}::date`);
     if (q.to) where.push(`${done} <= ${p.add(q.to)}::date`);
@@ -165,7 +166,7 @@ export class BillingAutoService implements OnModuleInit {
       for (const x of items) {
         if (x.exists || x.ratePaise === null) { skipped++; continue; }
         const first = shiftMonth(month, 1 - MONTHS[x.frequency]!);
-        const tasks = (await tx.query(`SELECT t.id FROM task t WHERE t.client_id = $1 AND t.service_type_id = $2 AND t.status = 'done' AND t.outcome IS NULL AND t.deleted_at IS NULL
+        const tasks = (await tx.query(`SELECT t.id FROM task t WHERE t.client_id = $1 AND t.service_type_id = $2 AND t.status = 'done' AND t.outcome IS NULL AND t.deleted_at IS NULL AND ${udinClearSql('t')}
           AND t.period_key >= $3 AND t.period_key <= $4 AND NOT EXISTS (SELECT 1 FROM invoice_task it WHERE it.task_id = t.id AND it.live)`, [x.clientId, x.serviceTypeId, first, month])).rows.map((t) => t.id as string);
         await tx.query('SAVEPOINT retainer');
         try {

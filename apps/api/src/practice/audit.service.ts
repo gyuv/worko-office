@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { can, clientCtx, effectiveScope, invalidatedByEvidence, normalizeAddress, signoffError, type SignoffLevel } from '@worko/domain';
+import { can, clientCtx, effectiveScope, engagementTransitionError, invalidatedByEvidence, type EngagementStatus, normalizeAddress, signoffError, type SignoffLevel } from '@worko/domain';
 import { AuditService } from '../audit/audit.service.js';
 import type { RequestActor } from '../auth/context.js';
 import { visibilityOf } from '../clients/scope.js';
@@ -20,7 +20,7 @@ type UdinIn = { clientId: string; engagementId?: string | null; taskId?: string 
 
 const engOut = (r: Record<string, unknown>) => ({
   id: r.id, clientId: r.client_id, clientName: r.client_name ?? null, fy: r.fy, auditType: r.audit_type, programmeId: r.programme_id, partnerId: r.partner_id, managerId: r.manager_id,
-  taskId: r.task_id, status: r.status, udinRequired: r.udin_required, udinRecorded: r.udin_recorded ?? null, version: r.version, createdAt: r.created_at,
+  taskId: r.task_id, status: r.status, udinRequired: r.udin_required, udinRevokedAfterClose: r.udin_revoked_after_close ?? false, udinRecorded: r.udin_recorded ?? null, version: r.version, createdAt: r.created_at,
 });
 const procOut = (r: Record<string, unknown>) => ({
   id: r.id, sectionKey: r.section_key, sectionTitle: r.section_title, key: r.key, title: r.title, requiredEvidence: r.required_evidence, notApplicable: r.not_applicable,
@@ -100,8 +100,10 @@ export class AuditWorkService {
       const prog = b.programmeId ? (await tx.query('SELECT * FROM audit_programme WHERE id = $1 AND active', [b.programmeId])).rows[0] : null;
       if (b.programmeId && !prog) throw new BadRequestException({ message: 'Unknown programme', code: 'invalid:programmeId' });
       if (b.taskId) {
-        const t = (await tx.query('SELECT client_id, outcome FROM task WHERE id = $1 AND deleted_at IS NULL', [b.taskId])).rows[0];
+        const t = (await tx.query('SELECT client_id, outcome, status FROM task WHERE id = $1 AND deleted_at IS NULL', [b.taskId])).rows[0];
         if (!t || t.client_id !== b.clientId || t.outcome) throw new BadRequestException({ message: 'Task must be an open task of this client', code: 'invalid:taskId' });
+        // A done task would skip the UDIN gate (it is only checked on the move to done): refuse it.
+        if (t.status === 'done') throw new BadRequestException({ message: 'Task is already done; move it back to review first', code: 'task_already_done' });
       }
       const id = uuidv7();
       let taskId = b.taskId ?? null;
@@ -147,11 +149,22 @@ export class AuditWorkService {
 
   async updateEngagement(a: RequestActor, id: string, b: { status?: string; partnerId?: string | null; managerId?: string | null }) {
     await this.db.tenantTx(a.tenantId, async (tx) => {
-      const { e } = await this.loadEng(tx, a, id, 'edit');
+      const { e, c } = await this.loadEng(tx, a, id, 'edit');
       if (b.partnerId !== undefined) await staffUser(tx, b.partnerId, 'partnerId');
       if (b.managerId !== undefined) await staffUser(tx, b.managerId, 'managerId');
-      if (b.status === 'closed' && e.udin_required && !(await tx.query('SELECT 1 FROM udin_record WHERE engagement_id = $1 AND revoked_at IS NULL', [id])).rowCount) {
-        throw new BadRequestException({ message: 'Record the UDIN first', code: 'udin_required' });
+      if (e.status === 'closed' && (b.partnerId !== undefined || b.managerId !== undefined) && b.status === undefined) throw new ConflictException({ message: 'Engagement is closed', code: 'engagement_closed' });
+      if (b.status && b.status !== e.status) {
+        const why = engagementTransitionError(e.status, b.status as EngagementStatus, this.rights(a, e, c).canPartner);
+        if (why === 'partner_required') throw new ForbiddenException({ message: 'Only the engagement partner can reopen', code: why });
+        if (why) throw new BadRequestException({ message: 'Rejected', code: why });
+        if (b.status === 'closed') {
+          // Every procedure partner-signed, or marked N/A by a partner (D122).
+          const open = (await tx.query('SELECT count(*)::int AS n FROM audit_procedure WHERE engagement_id = $1 AND partner_by IS NULL AND NOT (not_applicable AND na_by_partner)', [id])).rows[0].n;
+          if (open) throw new BadRequestException({ message: `${open} procedure(s) lack partner sign-off`, code: 'signoffs_pending' });
+          if (e.udin_required && !(await tx.query('SELECT 1 FROM udin_record WHERE engagement_id = $1 AND revoked_at IS NULL', [id])).rowCount) {
+            throw new BadRequestException({ message: 'Record the UDIN first', code: 'udin_required' });
+          }
+        }
       }
       await tx.query(`UPDATE audit_engagement SET status = COALESCE($2, status), partner_id = CASE WHEN $3 THEN $4::uuid ELSE partner_id END,
         manager_id = CASE WHEN $5 THEN $6::uuid ELSE manager_id END, version = version + 1, updated_at = now() WHERE id = $1`,
@@ -164,7 +177,8 @@ export class AuditWorkService {
   private async loadProc(tx: Tx, a: RequestActor, id: string, action: 'view' | 'edit') {
     const p = (await tx.query('SELECT * FROM audit_procedure WHERE id = $1 FOR UPDATE', [id])).rows[0];
     if (!p) throw new NotFoundException();
-    const { e, c } = await this.loadEng(tx, a, p.engagement_id, action === 'edit' ? 'view' : 'view');
+    const { e, c } = await this.loadEng(tx, a, p.engagement_id, 'view');
+    if (action === 'edit' && e.status === 'closed') throw new ConflictException({ message: 'Engagement is closed', code: 'engagement_closed' });
     return { p, e, c };
   }
 
@@ -178,13 +192,22 @@ export class AuditWorkService {
     };
   }
 
+  /** Evidence changes clear sign-offs: on a reviewed procedure only the partner may do that (review fix 6). */
+  private evidenceRights(a: RequestActor, p: Record<string, unknown>, e: Record<string, unknown>, c: Record<string, unknown>) {
+    const r = this.rights(a, e, c);
+    if (!r.canPrepare) throw new ForbiddenException();
+    if (p.reviewed_by && !r.canPartner) throw new ForbiddenException({ message: 'Reviewed procedure: only the partner can change its evidence', code: 'procedure_locked' });
+  }
+
   async updateProcedure(a: RequestActor, id: string, b: { notApplicable?: boolean; conclusion?: string | null }) {
     await this.db.tenantTx(a.tenantId, async (tx) => {
       const { p, e, c } = await this.loadProc(tx, a, id, 'edit');
       if (!this.rights(a, e, c).canPrepare) throw new ForbiddenException();
       if (p.reviewed_by) throw new ConflictException({ message: 'Reviewed procedures are locked; ask the partner to reopen', code: 'procedure_locked' });
-      await tx.query('UPDATE audit_procedure SET not_applicable = COALESCE($2, not_applicable), conclusion = CASE WHEN $3 THEN $4 ELSE conclusion END, version = version + 1, updated_at = now() WHERE id = $1',
-        [id, b.notApplicable ?? null, b.conclusion !== undefined, b.conclusion ?? null]);
+      const partner = this.rights(a, e, c).canPartner;
+      await tx.query(`UPDATE audit_procedure SET not_applicable = COALESCE($2, not_applicable), conclusion = CASE WHEN $3 THEN $4 ELSE conclusion END,
+        na_by = CASE WHEN $2 IS NULL THEN na_by WHEN $2 THEN $5::uuid ELSE NULL END, na_by_partner = CASE WHEN $2 IS NULL THEN na_by_partner ELSE COALESCE($2, false) AND $6 END,
+        version = version + 1, updated_at = now() WHERE id = $1`, [id, b.notApplicable ?? null, b.conclusion !== undefined, b.conclusion ?? null, a.userId, partner]);
       await this.rec(tx, a, 'audit_procedure.updated', 'audit_procedure', id, { notApplicable: b.notApplicable, conclusion: b.conclusion !== undefined ? '[set]' : undefined });
     });
   }
@@ -232,7 +255,7 @@ export class AuditWorkService {
     return this.db.tenantTx(a.tenantId, async (tx) => {
       await this.loadProc(tx, a, id, 'view');
       return (await tx.query(`SELECT s.level, s.action, s.user_id AS "userId", u.name AS "userName", s.reason, s.at FROM audit_signoff_event s LEFT JOIN app_user u ON u.id = s.user_id
-        WHERE s.procedure_id = $1 ORDER BY s.at, s.id`, [id])).rows;
+        WHERE s.procedure_id = $1 ORDER BY s.at, CASE WHEN s.action = 'signed' THEN 0 ELSE 1 END, array_position(ARRAY['preparer','reviewer','partner'], s.level), s.id`, [id])).rows;
     });
   }
 
@@ -240,7 +263,7 @@ export class AuditWorkService {
   async linkWorkpaper(a: RequestActor, procedureId: string, documentId: string) {
     return this.db.tenantTx(a.tenantId, async (tx) => {
       const { p, e, c } = await this.loadProc(tx, a, procedureId, 'edit');
-      if (!this.rights(a, e, c).canPrepare) throw new ForbiddenException();
+      this.evidenceRights(a, p, e, c);
       const d = (await tx.query('SELECT client_id, current_version FROM document WHERE id = $1 AND deleted_at IS NULL', [documentId])).rows[0];
       if (!d || d.client_id !== e.client_id) throw new BadRequestException({ message: 'Workpaper must be a document of the engagement client', code: 'invalid:documentId' });
       const existing = (await tx.query('SELECT id FROM audit_workpaper WHERE procedure_id = $1 AND document_id = $2 AND unlinked_at IS NULL FOR UPDATE', [procedureId, documentId])).rows[0];
@@ -259,7 +282,7 @@ export class AuditWorkService {
       const w = (await tx.query('SELECT * FROM audit_workpaper WHERE id = $1 AND unlinked_at IS NULL', [id])).rows[0];
       if (!w) throw new NotFoundException();
       const { p, e, c } = await this.loadProc(tx, a, w.procedure_id, 'edit');
-      if (!this.rights(a, e, c).canPrepare) throw new ForbiddenException();
+      this.evidenceRights(a, p, e, c);
       await tx.query('UPDATE audit_workpaper SET unlinked_at = $2, unlinked_by = $3 WHERE id = $1', [id, this.clock.now(), a.userId]);
       const invalidated = await this.clearSignoffs(tx, a, p, 'invalidated', `evidence removed: document ${w.document_id}`);
       await this.rec(tx, a, 'audit_workpaper.unlinked', 'audit_procedure', w.procedure_id, { documentId: w.document_id, invalidated });
@@ -402,9 +425,13 @@ export class AuditWorkService {
     await this.db.tenantTx(a.tenantId, async (tx) => {
       const u = (await tx.query('SELECT * FROM udin_record WHERE id = $1 AND revoked_at IS NULL', [id])).rows[0];
       if (!u) throw new NotFoundException();
-      await clientFor(tx, a, u.client_id, 'audit', 'approve');
+      const c = await clientFor(tx, a, u.client_id, 'audit', 'approve');
+      const e = u.engagement_id ? (await tx.query('SELECT * FROM audit_engagement WHERE id = $1 FOR UPDATE', [u.engagement_id])).rows[0] : null;
+      const afterClose = e?.status === 'closed';
+      if (afterClose && !this.rights(a, e, c).canPartner) throw new ForbiddenException({ message: 'Engagement is closed: only the partner can revoke its UDIN', code: 'partner_required' });
       await tx.query('UPDATE udin_record SET revoked_at = $2, revoked_by = $3, revoke_reason = $4 WHERE id = $1', [id, this.clock.now(), a.userId, reason]);
-      await this.rec(tx, a, 'udin.revoked', 'udin_record', id, { udin: u.udin, reason });
+      if (afterClose) await tx.query('UPDATE audit_engagement SET udin_revoked_after_close = true, version = version + 1, updated_at = now() WHERE id = $1', [e.id]);
+      await this.rec(tx, a, 'udin.revoked', 'udin_record', id, { udin: u.udin, reason, engagementId: e?.id ?? null, afterClose });
     });
   }
 }

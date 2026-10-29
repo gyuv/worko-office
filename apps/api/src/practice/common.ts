@@ -5,6 +5,7 @@ import type { RequestActor } from '../auth/context.js';
 import { clientScopeSql, Params, visibilityOf } from '../clients/scope.js';
 import type { Tx } from '../db/db.service.js';
 import { uuidv7 } from '../db/ids.js';
+import { loadTeamIds, loadUserRoles } from '../auth/roles.repo.js';
 
 /** Firm settings for Phase 8 (data, not code). */
 export const practiceSettingsSchema = z.object({
@@ -75,6 +76,36 @@ export const ymd = (v: unknown): string | null => v instanceof Date
   ? `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`
   : typeof v === 'string' ? v.slice(0, 10) : null;
 
-export const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+/** A real calendar date (2026-13-45 is a 400, not a database error). */
+export const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((d) => !Number.isNaN(Date.parse(`${d}T00:00:00Z`)) && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d, 'Invalid date');
 export class Cursor { v = 0; add(c: number | null | undefined) { if (c && c > this.v) this.v = c; } }
 export { Params };
+
+/** Users (active staff) who can still see `clientId` for clients:view AND `module`:view — alerts never reach anyone who lost access. */
+export async function usersSeeing(tx: Tx, userIds: Array<string | null | undefined>, clientId: string | null, module: Module): Promise<string[]> {
+  const out: string[] = [];
+  const c = clientId ? (await tx.query('SELECT * FROM client WHERE id = $1 AND deleted_at IS NULL', [clientId])).rows[0] : null;
+  if (clientId && !c) return out;
+  for (const id of new Set(userIds.filter((x): x is string => !!x))) {
+    const u = (await tx.query(`SELECT id, branch_id FROM app_user WHERE id = $1 AND status = 'active' AND deleted_at IS NULL`, [id])).rows[0];
+    if (!u) continue;
+    const actor = { userId: u.id, branchId: u.branch_id, teamIds: await loadTeamIds(tx, u.id), roles: await loadUserRoles(tx, u.id) };
+    if (!c) { if (effectiveScope(actor, module, 'view')) out.push(id); continue; }
+    const ctx = clientCtx(visibilityOf(c));
+    if (can(actor, 'clients', 'view', ctx) && can(actor, module, 'view', ctx)) out.push(id);
+  }
+  return out;
+}
+
+/** For escalations of Phase 8 notifications: the client + module behind the entity, or null if not a client record. */
+export async function entityClient(tx: Tx, entityType: string | null, entityId: string | null): Promise<{ clientId: string | null; module: Module } | null> {
+  if (!entityType || !entityId) return null;
+  const map: Record<string, [string, Module]> = { notice: ['notice', 'notices'], notice_hearing: ['notice_hearing', 'notices'], dsc: ['dsc', 'dsc'], licence: ['licence', 'compliance'] };
+  const m = map[entityType];
+  if (!m) return null;
+  const r = (await tx.query(`SELECT client_id FROM ${m[0]} WHERE id = $1`, [entityId])).rows[0];
+  return r ? { clientId: r.client_id, module: m[1] } : null;
+}
+
+/** Heuristic for secrets typed into free text (DSC notes/labels/custody fields): "PIN: 1234", "password=abc". D117/KNOWN_GAPS. */
+export const SECRET_TEXT_RX = /\b(pin|password|passwd|pwd|passcode)\b\s*(is\s*)?[:=-]?\s*\S+/i;

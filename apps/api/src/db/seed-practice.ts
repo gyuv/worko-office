@@ -87,7 +87,7 @@ export async function seedPractice8(db: DbService, tenantId: string, today: stri
     const auditTask = await task(clients[0]!.id, 'Statutory audit — FY 2025-26', day(30), null, 'done', 'audit:seed-1', users.manager);
     const e1 = uuidv7();
     await tx.query(`INSERT INTO audit_engagement (id, tenant_id, client_id, fy, audit_type, programme_id, programme_snapshot, partner_id, manager_id, task_id, status, created_by)
-      VALUES ($1,$2,$3,'2025-26','statutory',$4,$5,$6,$7,$8,'reporting',$6)`, [e1, tenantId, clients[0]!.id, prog, JSON.stringify(sections), users.partner, users.manager, auditTask]);
+      VALUES ($1,$2,$3,'2025-26','statutory',$4,$5,$6,$7,$8,'review',$6)`, [e1, tenantId, clients[0]!.id, prog, JSON.stringify(sections), users.partner, users.manager, auditTask]);
     let sort = 0;
     for (const s of sections) for (const p of s.procedures) {
       const pid = uuidv7(); const k = sort;

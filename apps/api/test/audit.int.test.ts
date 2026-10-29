@@ -115,7 +115,7 @@ describe('audit programmes and engagements (M8)', () => {
     // Even if the task were done already, closing as billed is refused.
     await t.sql(`UPDATE task SET status = 'done' WHERE id = $1`, [taskId]);
     expect((await t.http().post(`/v1/tasks/${taskId}/close`).set(H(P)).send({ outcome: 'billed' }).expect(400)).body.code).toBe('udin_required');
-    expect((await t.http().patch(`/v1/audit/engagements/${engId}`).set(H(P)).send({ status: 'closed' }).expect(400)).body.code).toBe('udin_required');
+    expect((await t.http().patch(`/v1/audit/engagements/${engId}`).set(H(P)).send({ status: 'closed' }).expect(400)).body.code).toBe('invalid_transition');
     const base = { clientId: clientA, engagementId: engId, documentType: 'Statutory audit report', generatedOn: '2026-10-28', membershipNo: '123456' };
     await t.http().post('/v1/audit/udins').set(H(P)).send({ ...base, udin: '26123456ABC' }).expect(400);
     expect((await t.http().post('/v1/audit/udins').set(H(P)).send({ ...base, udin: '26654321ABCDEFGH12' }).expect(400)).body.code).toBe('membership_mismatch');
@@ -124,7 +124,9 @@ describe('audit programmes and engagements (M8)', () => {
     expect((await t.http().post('/v1/audit/udins').set(H(P)).send({ ...base, clientId: clientB, engagementId: null, udin: '26123456ABCDEFGH12' }).expect(409)).body.code).toBe('udin_duplicate');
     expect((await t.http().get(`/v1/audit/udins?engagementId=${engId}`).set(H(S)).expect(200)).body[0].udin).toBe('26123456ABCDEFGH12');
     await t.http().post(`/v1/tasks/${taskId}/close`).set(H(P)).send({ outcome: 'billed' }).expect(204);
-    await t.http().patch(`/v1/audit/engagements/${engId}`).set(H(P)).send({ status: 'closed' }).expect(204);
+    await t.http().patch(`/v1/audit/engagements/${engId}`).set(H(P)).send({ status: 'fieldwork' }).expect(204);
+    await t.http().patch(`/v1/audit/engagements/${engId}`).set(H(P)).send({ status: 'review' }).expect(204);
+    expect((await t.http().patch(`/v1/audit/engagements/${engId}`).set(H(P)).send({ status: 'closed' }).expect(400)).body.code).toBe('signoffs_pending');
     expect((await t.http().get('/v1/audit/udin-portal').set(H(S)).expect(200)).body.url).toMatch(/icai/);
   });
 

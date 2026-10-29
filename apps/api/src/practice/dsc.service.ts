@@ -10,6 +10,7 @@ import { RealtimeService } from '../realtime/realtime.service.js';
 import { SyncService } from '../sync/sync.service.js';
 import { systemActor } from '../tasks/system-actor.js';
 import { firmAll } from './scope.js';
+import { usersSeeing } from './common.js';
 import { clientFor, createLinkedTask, Cursor, loadPracticeSettings, Params, staffUser, visibleSql, ymd } from './common.js';
 
 export type Custody = 'in_office' | 'with_client' | 'with_staff';
@@ -137,7 +138,10 @@ export class DscService {
       const from = (b.validFrom ?? ymd(d.valid_from))!; const to = (b.validTo ?? ymd(d.valid_to))!;
       if (to < from) throw new BadRequestException({ message: 'Valid to before valid from', code: 'invalid:validTo' });
       // A renewal (new validity) restarts the alert cycle.
-      if (b.validTo && b.validTo !== ymd(d.valid_to)) { patch.alerts_sent = []; patch.renewal_task_id = null; }
+      if (b.validTo && b.validTo !== ymd(d.valid_to)) {
+        patch.alerts_sent = []; patch.renewal_task_id = null;
+        cur.add(await this.closeRenewalTask(tx, a, d.renewal_task_id, `DSC renewed: valid to ${b.validTo}`));
+      }
       cur.add((await this.sync.serverPatch(tx, a, 'dsc', id, patch))?.cursor);
       await this.rec(tx, a, 'dsc.updated', 'dsc', id, b);
     });
@@ -215,6 +219,7 @@ export class DscService {
   }
 
   async updateLicence(a: RequestActor, id: string, b: Partial<Omit<LicenceIn, 'clientId'>>) {
+    const cur = new Cursor();
     await this.db.tenantTx(a.tenantId, async (tx) => {
       const l = (await tx.query('SELECT * FROM licence WHERE id = $1 AND deleted_at IS NULL FOR UPDATE', [id])).rows[0];
       if (!l) throw new NotFoundException();
@@ -223,6 +228,7 @@ export class DscService {
       const vf = b.validFrom !== undefined ? b.validFrom : ymd(l.valid_from); const vt = b.validTo !== undefined ? b.validTo : ymd(l.valid_to);
       if (vf && vt && vt < vf) throw new BadRequestException({ message: 'Valid to before valid from', code: 'invalid:validTo' });
       const renewed = (b.validTo !== undefined && b.validTo !== ymd(l.valid_to)) || (b.renewalDue !== undefined && b.renewalDue !== ymd(l.renewal_due));
+      if (renewed) cur.add(await this.closeRenewalTask(tx, a, l.renewal_task_id, `Licence renewed: ${b.validTo ?? b.renewalDue ?? ''}`.trim()));
       await tx.query(`UPDATE licence SET licence_type = COALESCE($2, licence_type), number = CASE WHEN $3 THEN $4 ELSE number END, authority = CASE WHEN $5 THEN $6 ELSE authority END,
         valid_from = $7, valid_to = $8, renewal_due = CASE WHEN $9 THEN $10::date ELSE renewal_due END, document_ids = COALESCE($11, document_ids), status = COALESCE($12, status),
         notes = CASE WHEN $13 THEN $14 ELSE notes END, alerts_sent = CASE WHEN $15 THEN '{}' ELSE alerts_sent END, renewal_task_id = CASE WHEN $15 THEN NULL ELSE renewal_task_id END,
@@ -231,6 +237,19 @@ export class DscService {
         b.documentIds ?? null, b.status ?? null, b.notes !== undefined, b.notes ?? null, renewed]);
       await this.rec(tx, a, 'licence.updated', 'licence', id, b);
     });
+    this.publish(a.tenantId, cur);
+  }
+
+  /** A renewal makes the old renewal task moot: done → closed free, otherwise closed deleted, with the reason (review fix 14). */
+  private async closeRenewalTask(tx: Tx, a: RequestActor, taskId: string | null, reason: string): Promise<number> {
+    if (!taskId) return 0;
+    const t = (await tx.query('SELECT status, outcome FROM task WHERE id = $1 AND deleted_at IS NULL FOR UPDATE', [taskId])).rows[0];
+    if (!t || t.outcome) return 0;
+    const outcome = t.status === 'done' ? 'free' : 'deleted';
+    let c = (await this.sync.serverPatch(tx, a, 'task', taskId, { outcome, outcome_note: reason.slice(0, 500), closed_at: this.clock.now().toISOString(), closed_by: a.userId }))?.cursor ?? 0;
+    if (outcome === 'deleted') c = Number((await tx.query('UPDATE task SET deleted_at = now() WHERE id = $1 RETURNING sync_cursor', [taskId])).rows[0].sync_cursor);
+    await this.rec(tx, a, 'task.closed', 'task', taskId, { outcome, note: reason });
+    return c;
   }
 
   // ---------- Expiry alerts (daily, idempotent per record × validity × threshold) ----------
@@ -245,7 +264,7 @@ export class DscService {
       const due = dueThresholds(validTo, today, s.dsc.thresholds, d.alerts_sent ?? []);
       const left = daysBetween(today, validTo);
       const patch: Record<string, unknown> = {};
-      const who = [d.holder_user_id, d.custody_user_id, d.manager_id, d.partner_id, d.created_by].filter((x): x is string => !!x);
+      const who = await usersSeeing(tx, [d.holder_user_id, d.custody_user_id, d.manager_id, d.partner_id, d.created_by], d.client_id, 'dsc');
       if (due.length && who.length) {
         const t = due[0]!;
         const r = await insertNotifications(tx, tenantId, { userIds: [...new Set(who)].slice(0, 4), category: 'dsc.expiring', priority: t <= 7 ? 'high' : 'normal',
@@ -271,7 +290,7 @@ export class DscService {
       const dueOn = ymd(l.renewal_due ?? l.valid_to)!;
       const due = dueThresholds(dueOn, today, s.licences.thresholds, l.alerts_sent ?? []);
       const left = daysBetween(today, dueOn);
-      const who = [l.manager_id, l.partner_id, l.created_by].filter((x): x is string => !!x);
+      const who = await usersSeeing(tx, [l.manager_id, l.partner_id, l.created_by], l.client_id, 'compliance');
       let sent: number[] | null = null; let taskId: string | null = null;
       if (due.length && who.length) {
         const r = await insertNotifications(tx, tenantId, { userIds: [...new Set(who)], category: 'licence.expiring', priority: due[0]! <= 7 ? 'high' : 'normal',
