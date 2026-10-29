@@ -240,7 +240,9 @@ describe('follow-ups', () => {
     expect(msg[0]!.text).not.toMatch(/GSTIN|PAN|password/i);
     const link = /https?:\/\/\S+\/billing\/public\/(\S+)$/.exec(msg[0]!.text)![1]!;
     expect((await t.http().get(`/v1/billing/public/${link}`).expect(200)).headers['content-type']).toBe('application/pdf');
-    await t.http().get(`/v1/billing/public/${link.slice(0, -2)}xx`).expect(404);
+    // Tamper inside the signature: trailing base64url chars carry padding bits and can decode identically.
+    const at = link.lastIndexOf('.') + 5;
+    await t.http().get(`/v1/billing/public/${link.slice(0, at)}${link[at] === 'A' ? 'B' : 'A'}${link.slice(at + 1)}`).expect(404);
     expect(await run('2026-10-22')).toMatchObject({ sent: 2 }); // step 1: email + WhatsApp
     await t.http().post(`/v1/billing/invoices/${id}/follow-up`).set(H(f.p)).send({ promiseToPay: '2026-11-05' }).expect(204);
     expect(await run('2026-11-01')).toMatchObject({ sent: 0, escalated: 0 }); // promise pending
