@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import {
-  can, clientCtx, diffProposalVersions, ENTITY_TYPES, formatINR, isValidPan, normalizeAddress, placeholdersOf, proposalAcceptError, proposalTotals, renderTemplate,
+  can, clientCtx, diffProposalVersions, renderEngagementLetter, ENTITY_TYPES, formatINR, isValidPan, normalizeAddress, placeholdersOf, proposalAcceptError, proposalTotals, renderTemplate,
   supplyTypeOf, type CommChannel, type EntityType, type PortalGrants, type ProposalFrequency, type ProposalLine, type ProposalStatus,
 } from '@worko/domain';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
@@ -18,6 +18,7 @@ import { PortalAdminService } from '../portal/admin.service.js';
 import { loadPortalSettings } from '../portal/common.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { ymd } from '../tasks/scope.js';
+import { SyncService } from '../sync/sync.service.js';
 import { leadCtx, leadScopeSql, LeadsService } from './leads.service.js';
 import { Params } from '../clients/scope.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -47,7 +48,7 @@ function verifyLink(token: string): { t: string; p: string; v: number; n: string
 /** Proposals (D132): versioned (a sent version is immutable — editing creates the next), e-accept by signed link, one-click idempotent conversion. */
 @Injectable()
 export class ProposalsService {
-  constructor(private db: DbService, private audit: AuditService, private leads: LeadsService, private comm: CommService, private docs: DocumentsService, private esign: EsignService,
+  constructor(private db: DbService, private audit: AuditService, private sync: SyncService, private leads: LeadsService, private comm: CommService, private docs: DocumentsService, private esign: EsignService,
     private portal: PortalAdminService, private realtime: RealtimeService, private clock: Clock) {}
 
   private async load(tx: Tx, a: RequestActor, id: string, action: 'view' | 'edit' | 'approve', lock = false) {
@@ -78,6 +79,8 @@ export class ProposalsService {
         }
       }
       if (!description || fee === null) throw new BadRequestException({ message: `Line ${i + 1}: description and fee are required`, code: 'invalid:lines' });
+      if (Math.round((l.qty ?? 1) * fee) - (l.discountPaise ?? 0) < 0) throw new BadRequestException({ message: `Line ${i + 1}: discount exceeds the fee`, code: 'invalid:discountPaise' });
+      if (l.serviceTypeId && outL.some((x) => x.serviceTypeId === l.serviceTypeId)) throw new BadRequestException({ message: `Line ${i + 1}: a service may appear once per proposal`, code: 'duplicate_service' });
       outL.push({ serviceTypeId: l.serviceTypeId ?? null, description: description.slice(0, 500), frequency: l.frequency, qty: l.qty ?? 1, feePaise: fee, gstRate: gst ?? def, discountPaise: l.discountPaise ?? 0 });
     }
     return outL;
@@ -265,11 +268,12 @@ export class ProposalsService {
       const o = await this.openToken(tx, token);
       if (!o) throw new NotFoundException();
       const { t, v, p } = o;
-      const l = (await tx.query('SELECT name, company FROM lead WHERE id = $1', [p.lead_id])).rows[0];
+      const l = (await tx.query('SELECT name, company FROM lead WHERE id = $1 AND deleted_at IS NULL', [p.lead_id])).rows[0];
+      if (!l) throw new NotFoundException();
       const tn = (await tx.query('SELECT name FROM tenant WHERE id = current_tenant()')).rows[0];
       const s = await loadPortalSettings(tx);
       const err = proposalAcceptError({ status: p.status, sentVersion: p.sent_version, currentVersion: p.current_version, validUntil: ymd(v.valid_until) }, t.v, this.clock.todayIst());
-      const state = p.status === 'accepted' && p.accepted_version === t.v ? 'accepted' : p.status === 'declined' && p.sent_version === t.v ? 'declined' : err === 'already_decided' ? 'superseded' : err ?? 'open';
+      const state = p.status === 'accepted' && p.decided_version === t.v ? 'accepted' : p.status === 'declined' && p.decided_version === t.v ? 'declined' : err === 'already_decided' ? 'superseded' : err ?? 'open';
       return { firm: s.displayName ?? tn.name, accent: s.accent, number: p.number, title: p.title, version: t.v, preparedFor: l?.company ?? l?.name,
         lines: (v.lines as ProposalLine[]).map((x) => ({ description: x.description, frequency: x.frequency, qty: x.qty, feePaise: x.feePaise, discountPaise: x.discountPaise ?? 0, gstRate: x.gstRate })),
         totals: v.totals, terms: v.terms, validUntil: ymd(v.valid_until), state, acceptable: state === 'open' };
@@ -283,15 +287,16 @@ export class ProposalsService {
       const o = await this.openToken(tx, token, true);
       if (!o) throw new NotFoundException();
       const { t, v, p } = o;
+      if (!(await tx.query('SELECT 1 FROM lead WHERE id = $1 AND deleted_at IS NULL', [p.lead_id])).rowCount) throw new NotFoundException();
       const today = this.clock.todayIst(); const now = this.clock.now();
       const err = proposalAcceptError({ status: p.status, sentVersion: p.sent_version, currentVersion: p.current_version, validUntil: ymd(v.valid_until) }, t.v, today);
       if (err === 'expired' && p.status === 'sent') await tx.query(`UPDATE proposal SET status = 'expired', version = version + 1 WHERE id = $1`, [p.id]);
       if (err) return { error: err };
       if (b.accept) {
-        await tx.query(`UPDATE proposal SET status = 'accepted', accepted_version = $2, decided_at = $3, accepted_name = $4, accepted_ip = $5, accepted_ua = $6, version = version + 1, updated_at = now() WHERE id = $1`,
+        await tx.query(`UPDATE proposal SET status = 'accepted', accepted_version = $2, decided_version = $2, decided_at = $3, accepted_name = $4, accepted_ip = $5, accepted_ua = $6, version = version + 1, updated_at = now() WHERE id = $1`,
           [p.id, t.v, now, b.name, meta.ip, meta.userAgent?.slice(0, 300) ?? null]);
       } else {
-        await tx.query(`UPDATE proposal SET status = 'declined', decided_at = $2, declined_reason = $3, version = version + 1, updated_at = now() WHERE id = $1`, [p.id, now, b.reason]);
+        await tx.query(`UPDATE proposal SET status = 'declined', decided_version = $4, decided_at = $2, declined_reason = $3, version = version + 1, updated_at = now() WHERE id = $1`, [p.id, now, b.reason, t.v]);
       }
       const action = b.accept ? 'accepted' : 'declined';
       await this.leads.activity(tx, tenantId, p.lead_id, 'proposal', `Proposal ${p.number} v${t.v} ${action} online`, null, { proposalId: p.id, version: t.v });
@@ -356,11 +361,18 @@ export class ProposalsService {
       }
       const startPeriod = b.startPeriod ?? today.slice(0, 7);
       const services: string[] = []; const rates: string[] = [];
-      for (const line of v.lines as ProposalLine[]) {
-        if (!line.serviceTypeId) continue;
+      const svcLines = (v.lines as ProposalLine[]).filter((l) => l.serviceTypeId);
+      // One subscription + one rate per service: versions sent before the duplicate rule could hold two lines for one service.
+      if (new Set(svcLines.map((l) => l.serviceTypeId)).size !== svcLines.length) throw new ConflictException({ message: 'The accepted version lists a service twice', code: 'duplicate_service' });
+      for (const line of svcLines) {
+        const amount = Math.round(line.qty * line.feePaise) - (line.discountPaise ?? 0);
+        if (!Number.isSafeInteger(amount) || amount < 0) throw new ConflictException({ message: 'A line amount is negative', code: 'invalid:amount' });
         const bf = line.frequency === 'one_time' ? null : line.frequency;
-        let cs = (await tx.query('SELECT id FROM client_service WHERE client_id = $1 AND service_type_id = $2 AND deleted_at IS NULL', [clientId, line.serviceTypeId])).rows[0]?.id as string | undefined;
-        if (!cs) {
+        let cs = (await tx.query('SELECT id, billing_frequency, active FROM client_service WHERE client_id = $1 AND service_type_id = $2 AND deleted_at IS NULL', [clientId, line.serviceTypeId])).rows[0]?.id as string | undefined;
+        if (cs) {
+          // Existing subscription: the accepted proposal's frequency wins (and it is active again).
+          await this.sync.serverPatch(tx, a, 'client_service', cs, { billing_frequency: bf, active: true });
+        } else {
           cs = uuidv7();
           await tx.query(`INSERT INTO client_service (id, tenant_id, client_id, service_type_id, start_period, billing_frequency, active, notes, updated_by, device_id, field_versions)
             VALUES ($1,$2,$3,$4,$5,$6,true,$7,$8,$9,'{}')`, [cs, a.tenantId, clientId, line.serviceTypeId, startPeriod, bf, `From proposal ${p.number}`, a.userId, a.deviceId]);
@@ -368,7 +380,7 @@ export class ProposalsService {
         services.push(cs);
         const rid = uuidv7();
         await tx.query(`INSERT INTO billing_rate (id, tenant_id, service_type_id, client_id, amount_paise, effective_from, notes, created_by, updated_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
-          [rid, a.tenantId, line.serviceTypeId, clientId, Math.round(line.qty * line.feePaise) - (line.discountPaise ?? 0), today, `Proposal ${p.number} v${p.accepted_version}`, a.userId]);
+          [rid, a.tenantId, line.serviceTypeId, clientId, amount, today, `Proposal ${p.number} v${p.accepted_version}`, a.userId]);
         rates.push(rid);
       }
       await tx.query(`UPDATE lead SET stage = 'won', client_id = $2, converted_at = $3, lost_reason = NULL, stage_changed_at = $3, version = version + 1 WHERE id = $1`, [l.id, clientId, now]);
@@ -393,7 +405,12 @@ export class ProposalsService {
       await this.saveConversion(a, id, conv);
     }
     if (b.inviteToPortal && !conv.portal && conv.contactId) {
-      conv.portal = await this.portal.invite(a, { clientId: conv.clientId, contactId: conv.contactId, grants: b.portalGrants });
+      try { conv.portal = await this.portal.invite(a, { clientId: conv.clientId, contactId: conv.contactId, grants: b.portalGrants }); } catch (e) {
+        // An existing portal login needs staff to confirm the link explicitly (D139): report it, don't merge.
+        const code = (e as { getResponse?: () => { code?: string } }).getResponse?.().code;
+        if (code !== 'existing_portal_user') throw e;
+        return { alreadyConverted: res.already, ...conv, portal: { status: 'needs_confirmation', code } };
+      }
       await this.saveConversion(a, id, conv);
     }
     return { alreadyConverted: res.already, ...conv };
@@ -421,9 +438,8 @@ export class ProposalsService {
       services: lines.map((l) => `- ${l.description} (${FREQ[l.frequency]}): ${formatINR(Math.round(l.qty * l.feePaise) - (l.discountPaise ?? 0))} + GST ${l.gstRate}%`).join('\n'),
       fees: `${formatINR(n((d.v.totals as { firstYear: { taxablePaise: number } }).firstYear.taxablePaise))} for the first year (excluding GST)`, terms: d.v.terms ?? '-',
     };
-    // renderTemplate trims values to 500 chars per placeholder: services/terms are long, so substitute those two directly (plain text, no markup).
-    let body = d.tpl.replace(/\{\{\s*services\s*\}\}/g, vars.services).replace(/\{\{\s*terms\s*\}\}/g, vars.terms);
-    body = renderTemplate(body, vars).text;
+    const { services, terms, ...short } = vars;
+    const body = renderEngagementLetter(d.tpl, short, { services, terms }); // user text inserted raw after rendering (never expanded)
     const doc = new PDFDocument({ size: 'A4', margin: 56 });
     const chunks: Buffer[] = [];
     doc.on('data', (c: Buffer) => chunks.push(c));

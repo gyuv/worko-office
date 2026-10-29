@@ -1,5 +1,5 @@
-import { HttpException, HttpStatus, Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
-import { canIssueOtp, maskAddress, otpFailure, otpVerifyOutcome, PORTAL_OTP, portalIdentifier } from '@worko/domain';
+import { Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { canIssueOtp, chargeFailureTo, liveChallenges, maskAddress, PORTAL_OTP, portalIdentifier, recordVerifyFailure, verifyThrottled } from '@worko/domain';
 import { timingSafeEqual } from 'node:crypto';
 import { AuditService } from '../audit/audit.service.js';
 import type { PortalActor } from '../auth/context.js';
@@ -14,7 +14,6 @@ import { loadPortalSettings } from './common.js';
 export type PortalDevice = { platform: 'web' | 'android'; label?: string };
 export type PortalTokens = { accessToken: string; refreshToken: string; expiresIn: number; sessionId: string; portalUserId: string; tenantId: string };
 const bad = () => new UnauthorizedException('Invalid or expired code');
-const locked = () => new HttpException('Too many attempts. Try again later.', HttpStatus.TOO_MANY_REQUESTS);
 const REFRESH_TTL_DAYS = 30;
 
 /**
@@ -32,13 +31,30 @@ export class PortalAuthService {
     return r.rows[0] ?? null;
   }
 
+  private userSql(kind: 'email' | 'phone') {
+    return `SELECT u.* FROM portal_user u WHERE ${kind === 'email' ? 'u.email' : 'u.phone'} = $1 AND u.status IN ('invited','active')
+      AND EXISTS (SELECT 1 FROM portal_access a JOIN client c ON c.id = a.client_id WHERE a.portal_user_id = u.id AND a.revoked_at IS NULL AND c.portal_enabled AND c.deleted_at IS NULL)`;
+  }
   private findUser(tx: Tx, kind: 'email' | 'phone', value: string) {
     return tx.query(`SELECT u.* FROM portal_user u WHERE ${kind === 'email' ? 'u.email' : 'u.phone'} = $1 AND u.status IN ('invited','active')
       AND EXISTS (SELECT 1 FROM portal_access a JOIN client c ON c.id = a.client_id WHERE a.portal_user_id = u.id AND a.revoked_at IS NULL AND c.portal_enabled AND c.deleted_at IS NULL)`, [value]);
   }
 
-  /** Always "sent" to the caller. Only an invited/active user with at least one live client access gets a code. */
-  async requestOtp(firm: string, identifier: string): Promise<void> {
+  /** In-flight deferred code deliveries (tests await `drain()`). */
+  private pending = new Set<Promise<void>>();
+  drain() { return Promise.all([...this.pending]).then(() => undefined); }
+
+  /**
+   * Always "sent" to the caller, and the request path does no lookup or send at all: the work is deferred until after the response
+   * (in-process), so response content and timing don't depend on whether the firm/person exists (D136).
+   */
+  requestOtp(firm: string, identifier: string): void {
+    const p: Promise<void> = new Promise<void>((r) => setImmediate(r)).then(() => this.issue(firm, identifier)).catch(() => undefined).finally(() => this.pending.delete(p));
+    this.pending.add(p);
+  }
+
+  /** Issues a code to an invited/active user with a live client access. Never retires a live code (the person may be typing it). */
+  async issue(firm: string, identifier: string): Promise<void> {
     const id = portalIdentifier(identifier);
     const t = id ? await this.tenantBySlug(firm) : null;
     if (!id || !t) return;
@@ -46,13 +62,12 @@ export class PortalAuthService {
     const send = await this.db.tenantTx(t.id, async (tx) => {
       const u = (await this.findUser(tx, id.kind, id.value)).rows[0];
       if (!u) return null;
-      const recent = (await tx.query(`SELECT count(*)::int AS n FROM portal_otp WHERE portal_user_id = $1 AND created_at > $2::timestamptz - interval '1 hour'`, [u.id, now])).rows[0].n;
-      if (!canIssueOtp(recent, u.locked_until, now)) {
-        await this.audit.record(tx, t.id, { actorId: null, deviceId: 'portal', action: 'portal.otp_suppressed', entity: 'portal_user', entityId: u.id, diff: { reason: u.locked_until > now ? 'locked' : 'hourly_cap' } });
+      const cs = (await tx.query(`SELECT id, attempts, expires_at, consumed_at, created_at FROM portal_otp WHERE portal_user_id = $1 AND created_at > $2::timestamptz - interval '1 hour' FOR UPDATE`, [u.id, now])).rows;
+      const live = liveChallenges(cs.map(otpRow), now);
+      if (!canIssueOtp(cs.length, live.length)) {
+        await this.audit.record(tx, t.id, { actorId: null, deviceId: 'portal', action: 'portal.otp_suppressed', entity: 'portal_user', entityId: u.id, diff: { reason: live.length >= PORTAL_OTP.maxLive ? 'live_codes' : 'hourly_cap' } });
         return null;
       }
-      // A new code retires the open ones (no extra guesses by asking again).
-      await tx.query('UPDATE portal_otp SET consumed_at = $2 WHERE portal_user_id = $1 AND consumed_at IS NULL', [u.id, now]);
       const code = numericCode(6); const otpId = uuidv7();
       const channel = id.kind === 'email' ? 'email' : 'sms';
       await tx.query(`INSERT INTO portal_otp (id, tenant_id, portal_user_id, channel, code_hash, created_at, expires_at) VALUES ($1,$2,$3,$4,$5,$6, $6::timestamptz + make_interval(mins => $7))`,
@@ -73,31 +88,39 @@ export class PortalAuthService {
     }
   }
 
+  /**
+   * One uniform 401 for every failure (unknown person, wrong/expired code, throttled identifier). A wrong guess is charged to the
+   * newest live code and the identifier's window; with no live code nothing is counted, so strangers can't lock anyone out (D135).
+   */
   async verifyOtp(firm: string, identifier: string, code: string, device: PortalDevice, meta: { ip: string | null; userAgent?: string }): Promise<PortalTokens> {
     const id = portalIdentifier(identifier);
     const t = id ? await this.tenantBySlug(firm) : null;
     if (!id || !t) throw bad();
     const now = this.clock.now();
     const out = await this.db.tenantTx(t.id, async (tx) => {
-      const u = (await this.findUser(tx, id.kind, id.value)).rows[0];
+      const u = (await tx.query(`${this.userSql(id.kind)} FOR UPDATE OF u`, [id.value])).rows[0];
       if (!u) return { error: bad() };
-      const c = (await tx.query(`SELECT * FROM portal_otp WHERE portal_user_id = $1 AND consumed_at IS NULL ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, [u.id])).rows[0] ?? null;
-      const expect = c ? Buffer.from(c.code_hash) : null; const got = Buffer.from(sha256(`${u.id}:${code}`));
-      const match = !!expect && expect.length === got.length && timingSafeEqual(expect, got);
-      const o = otpVerifyOutcome({ lockedUntil: u.locked_until, failedLogins: u.failed_logins, challenge: c && { attempts: c.attempts, expiresAt: c.expires_at, consumedAt: c.consumed_at } }, match, now);
-      if (o === 'locked') return { error: locked() };
-      if (o === 'invalid') {
-        if (c) await tx.query('UPDATE portal_otp SET attempts = attempts + 1 WHERE id = $1', [c.id]);
-        const f = otpFailure(u.failed_logins, now);
-        await tx.query('UPDATE portal_user SET failed_logins = $2, locked_until = $3 WHERE id = $1', [u.id, f.failedLogins, f.lockedUntil]);
-        await this.audit.record(tx, t.id, { actorId: null, deviceId: 'portal', action: f.lockedUntil ? 'portal.locked' : 'portal.otp_failed', entity: 'portal_user', entityId: u.id, ip: meta.ip });
-        return { error: f.lockedUntil ? locked() : bad() };
+      const w = { failures: u.verify_failures as number, windowStart: u.verify_window_start as Date | null };
+      if (verifyThrottled(w, now)) return { error: bad() };
+      const live = liveChallenges((await tx.query(`SELECT id, attempts, expires_at, consumed_at, created_at, code_hash FROM portal_otp WHERE portal_user_id = $1 AND consumed_at IS NULL AND expires_at > $2 FOR UPDATE`, [u.id, now])).rows
+        .map((r) => ({ ...otpRow(r), hash: r.code_hash as string })), now);
+      const got = Buffer.from(sha256(`${u.id}:${code}`));
+      const hit = live.find((c) => { const e = Buffer.from(c.hash); return e.length === got.length && timingSafeEqual(e, got); });
+      if (!hit) {
+        const charge = chargeFailureTo(live);
+        if (charge) {
+          await tx.query('UPDATE portal_otp SET attempts = attempts + 1 WHERE id = $1', [charge.id]);
+          const nw = recordVerifyFailure(w, now);
+          await tx.query('UPDATE portal_user SET verify_failures = $2, verify_window_start = $3 WHERE id = $1', [u.id, nw.failures, nw.windowStart]);
+          await this.audit.record(tx, t.id, { actorId: null, deviceId: 'portal', action: 'portal.otp_failed', entity: 'portal_user', entityId: u.id, ip: meta.ip });
+        }
+        return { error: bad() };
       }
-      await tx.query('UPDATE portal_otp SET consumed_at = $2 WHERE id = $1', [c.id, now]);
-      await tx.query(`UPDATE portal_user SET failed_logins = 0, locked_until = NULL, status = 'active', last_login_at = $2, version = version + 1, updated_at = now() WHERE id = $1`, [u.id, now]);
+      await tx.query('UPDATE portal_otp SET consumed_at = $2 WHERE id = $1', [hit.id, now]);
+      await tx.query(`UPDATE portal_user SET verify_failures = 0, verify_window_start = NULL, failed_logins = 0, locked_until = NULL, status = 'active', last_login_at = $2, version = version + 1, updated_at = now() WHERE id = $1`, [u.id, now]);
       return { pair: await this.openSession(tx, t.id, u.id, device, meta) };
     });
-    if ('error' in out) throw out.error; // after commit: failure counters persist
+    if ('error' in out) throw out.error; // after commit: counters persist
     return out.pair!;
   }
 
@@ -112,7 +135,7 @@ export class PortalAuthService {
   }
 
   private insertRefresh(tx: Tx, tenantId: string, sid: string, token: string) {
-    return tx.query(`INSERT INTO portal_refresh_token (hash, tenant_id, session_id, expires_at) VALUES ($1,$2,$3, now() + make_interval(days => $4))`, [sha256(token), tenantId, sid, REFRESH_TTL_DAYS]);
+    return tx.query(`INSERT INTO portal_refresh_token (hash, tenant_id, session_id, expires_at) VALUES ($1,$2,$3, $5::timestamptz + make_interval(days => $4))`, [sha256(token), tenantId, sid, REFRESH_TTL_DAYS, this.clock.now()]);
   }
 
   /** Rotation with reuse detection (a replayed refresh token revokes the session), as for staff. */
@@ -122,7 +145,7 @@ export class PortalAuthService {
     const out = await this.db.tenantTx(tenantId, async (tx) => {
       const r = (await tx.query(`SELECT t.session_id, t.rotated_at, t.expires_at, s.portal_user_id, s.revoked_at, u.status FROM portal_refresh_token t
         JOIN portal_session s ON s.id = t.session_id JOIN portal_user u ON u.id = s.portal_user_id WHERE t.hash = $1 FOR UPDATE OF t`, [sha256(refreshToken)])).rows[0];
-      if (!r || r.revoked_at || r.expires_at < new Date() || r.status !== 'active') return { error: new UnauthorizedException() };
+      if (!r || r.revoked_at || r.expires_at < this.clock.now() || r.status !== 'active') return { error: new UnauthorizedException() };
       if (r.rotated_at) {
         await tx.query('UPDATE portal_session SET revoked_at = now() WHERE id = $1', [r.session_id]);
         await this.audit.record(tx, tenantId, { actorId: null, deviceId: `portal:${r.session_id}`, action: 'portal.refresh_reuse_detected', entity: 'portal_session', entityId: r.session_id });
@@ -146,3 +169,5 @@ export class PortalAuthService {
     });
   }
 }
+
+const otpRow = (r: Record<string, unknown>) => ({ id: r.id as string, attempts: r.attempts as number, expiresAt: r.expires_at as Date, consumedAt: (r.consumed_at as Date) ?? null, createdAt: r.created_at as Date });

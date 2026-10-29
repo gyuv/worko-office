@@ -1,5 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
-import { portalGrantsSchema, portalSettingsSchema, type PortalArea, type PortalGrants, type PortalSettings, portalAllows } from '@worko/domain';
+import { PORTAL_INBOX_CATEGORY, portalGrantsSchema, portalSettingsSchema, type PortalArea, type PortalGrants, type PortalSettings, portalAllows } from '@worko/domain';
 import type { PortalActor, RequestActor } from '../auth/context.js';
 import type { Tx } from '../db/db.service.js';
 import { insertNotifications, type NotifyInput } from '../notifications/insert.js';
@@ -31,12 +31,16 @@ export async function loadPortalSettings(tx: Tx): Promise<PortalSettings> {
   return portalSettingsSchema.parse(r?.settings ?? {});
 }
 
-/** SQL predicate (alias `d`) for documents a portal user may see under `grants`: shared by staff (client_visible) or uploaded via the portal. */
-export function portalDocSql(g: PortalGrants, add: (v: unknown) => string): string {
+/**
+ * SQL predicate (alias `d`) for documents a portal user may see: staff-shared (`client_visible`) documents inside the category/FY
+ * grants, plus the user's OWN uploads while they are still in the "From client" inbox (once staff re-file one, normal rules apply) — D137.
+ */
+export function portalDocSql(g: PortalGrants, add: (v: unknown) => string, portalUserId: string): string {
   if (!g.documents.enabled) return 'FALSE';
   const cats = g.documents.categories.includes('*') ? 'TRUE' : `lower(d.category) = ANY(${add(g.documents.categories.map((c) => c.toLowerCase()))}::text[])`;
   const fys = g.documents.fys.includes('*') ? 'TRUE' : `d.fy = ANY(${add(g.documents.fys)}::text[])`;
-  return `d.deleted_at IS NULL AND d.scan_status = 'clean' AND (d.source = 'portal' OR (d.client_visible AND ${cats} AND ${fys}))`;
+  const own = `(d.source = 'portal' AND d.portal_user_id = ${add(portalUserId)}::uuid AND d.category = ${add(PORTAL_INBOX_CATEGORY)})`;
+  return `d.deleted_at IS NULL AND d.scan_status = 'clean' AND (${own} OR (d.client_visible AND ${cats} AND ${fys}))`;
 }
 
 /** Staff responsible for a client (partner, manager, else assigned staff) — who hears about portal activity. */

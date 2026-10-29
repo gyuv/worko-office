@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 import { Clock } from '../src/common/clock.js';
 import { MockChannelHub } from '../src/comm/channels.js';
+import { PortalAuthService } from '../src/portal/portal-auth.service.js';
 import { base32Decode, totp } from '../src/auth/crypto.js';
 import { type MockSmsProvider, SMS_PROVIDER } from '../src/auth/sms.provider.js';
 import { migrate } from '../src/db/migrate.js';
@@ -296,6 +297,7 @@ describe('demo seed', () => {
     const hub = app.get(MockChannelHub);
     const portal = async (email: string) => {
       await http().post('/v1/portal/auth/otp/request').send({ firm: 'demo', identifier: email }).expect(202);
+      await app.get(PortalAuthService).drain();
       const code = [...hub.outbox].reverse().find((m) => m.to === email)!.text.match(/\b(\d{6})\b/)![1];
       return bearer((await http().post('/v1/portal/auth/otp/verify').send({ firm: 'demo', identifier: email, code, device: web }).expect(200)).body.accessToken);
     };

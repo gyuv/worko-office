@@ -38,29 +38,34 @@ export function portalAllows(g: PortalGrants, area: PortalArea, doc?: { category
 /** The category client uploads land in (staff re-file them). */
 export const PORTAL_INBOX_CATEGORY = 'From client';
 
-/** OTP rules (portal login). Codes are 6 digits, stored as hashes only. */
-export const PORTAL_OTP = { ttlMinutes: 10, maxAttempts: 5, maxPerHour: 5, lockAfterFailures: 5, lockMinutes: 15 } as const;
-
-export type OtpState = { lockedUntil: Date | null; failedLogins: number; challenge: { attempts: number; expiresAt: Date; consumedAt: Date | null } | null };
-export type OtpOutcome = 'ok' | 'locked' | 'invalid';
-
 /**
- * Decision for a verify attempt. Every non-ok outcome looks identical to the caller (no hint whether the code expired,
- * was wrong, or the person does not exist); 'locked' is reported as 429 only once the account is actually locked.
+ * OTP rules (portal login, D135). Codes are 6 digits, stored as hashes only. Several codes may be live at once (a re-request never
+ * retires a code the person may already hold); failures are charged to the newest live code only — a guess with no live code costs
+ * nothing — so a stranger can't lock the real person out: each new code they receive starts with fresh attempts. A per-identifier
+ * window bounds guessing; it resets on its own and on success.
  */
-export function otpVerifyOutcome(s: OtpState, codeMatches: boolean, now: Date): OtpOutcome {
-  if (s.lockedUntil && s.lockedUntil > now) return 'locked';
-  const c = s.challenge;
-  if (!c || c.consumedAt || c.expiresAt <= now || c.attempts >= PORTAL_OTP.maxAttempts) return 'invalid';
-  return codeMatches ? 'ok' : 'invalid';
+export const PORTAL_OTP = { ttlMinutes: 10, maxAttempts: 5, maxPerHour: 5, maxLive: 5, verifyFailuresPerWindow: 10, verifyWindowMinutes: 10 } as const;
+
+export type OtpChallenge = { id: string; attempts: number; expiresAt: Date; consumedAt: Date | null; createdAt: Date };
+/** Live codes, newest first. */
+export function liveChallenges<T extends OtpChallenge>(cs: T[], now: Date): T[] {
+  return cs.filter((c) => !c.consumedAt && c.expiresAt > now && c.attempts < PORTAL_OTP.maxAttempts).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
-/** Failure bookkeeping: lock after N failures in a row. */
-export function otpFailure(failedLogins: number, now: Date): { failedLogins: number; lockedUntil: Date | null } {
-  const n = failedLogins + 1;
-  return { failedLogins: n, lockedUntil: n >= PORTAL_OTP.lockAfterFailures ? new Date(now.getTime() + PORTAL_OTP.lockMinutes * 60_000) : null };
+/** The code a wrong guess is charged to (newest live), or null: no live code → the failure is not counted at all. */
+export const chargeFailureTo = <T extends OtpChallenge>(live: T[]): T | null => live[0] ?? null;
+
+export type VerifyWindow = { failures: number; windowStart: Date | null };
+/** True while the identifier has used up its wrong guesses for the current window (window expiry resets it). */
+export function verifyThrottled(w: VerifyWindow, now: Date): boolean {
+  if (!w.windowStart || now.getTime() - w.windowStart.getTime() >= PORTAL_OTP.verifyWindowMinutes * 60_000) return false;
+  return w.failures >= PORTAL_OTP.verifyFailuresPerWindow;
 }
-/** May a new code be issued? (Silent no when locked or over the hourly cap.) */
-export const canIssueOtp = (issuedLastHour: number, lockedUntil: Date | null, now: Date) => !(lockedUntil && lockedUntil > now) && issuedLastHour < PORTAL_OTP.maxPerHour;
+export function recordVerifyFailure(w: VerifyWindow, now: Date): VerifyWindow {
+  const expired = !w.windowStart || now.getTime() - w.windowStart.getTime() >= PORTAL_OTP.verifyWindowMinutes * 60_000;
+  return expired ? { failures: 1, windowStart: now } : { failures: w.failures + 1, windowStart: w.windowStart };
+}
+/** May a new code be issued? (Silently no when over the hourly cap or with too many live codes.) */
+export const canIssueOtp = (issuedLastHour: number, liveCount: number) => issuedLastHour < PORTAL_OTP.maxPerHour && liveCount < PORTAL_OTP.maxLive;
 
 /** Login identifier: an email or a mobile number, normalised. */
 export function portalIdentifier(raw: string): { kind: 'email' | 'phone'; value: string } | null {

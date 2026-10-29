@@ -40,8 +40,8 @@ export class PortalPublicController {
   constructor(private auth: PortalAuthService, private admin: PortalAdminService, private portal: PortalService) {}
 
   @Public() @Throttle(AUTH_LIMIT) @Post('auth/otp/request') @HttpCode(202)
-  async otpRequest(@Body(new ZodPipe(z.object({ firm, identifier }).strict())) b: { firm: string; identifier: string }) {
-    await this.auth.requestOtp(b.firm, b.identifier);
+  otpRequest(@Body(new ZodPipe(z.object({ firm, identifier }).strict())) b: { firm: string; identifier: string }) {
+    this.auth.requestOtp(b.firm, b.identifier); // deferred: nothing about the person is looked up on the request path
     return { sent: true }; // identical whether or not the person/firm exists
   }
 
@@ -117,7 +117,7 @@ export class PortalController {
 }
 
 const accessB = z.object({ grants: z.unknown().optional(), revoked: z.boolean().optional() }).strict();
-const inviteB = z.object({ clientId: z.string().uuid(), contactId: z.string().uuid(), grants: z.unknown().optional(), channel: z.enum(COMM_CHANNELS).optional(), send: z.boolean().optional() }).strict();
+const inviteB = z.object({ clientId: z.string().uuid(), contactId: z.string().uuid(), grants: z.unknown().optional(), channel: z.enum(COMM_CHANNELS).optional(), send: z.boolean().optional(), linkExisting: z.boolean().optional() }).strict();
 
 /** Staff administration of the portal (staff sessions only). */
 @Controller('portal-admin')

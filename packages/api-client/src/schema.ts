@@ -16235,6 +16235,8 @@ export interface operations {
                     /** @enum {string} */
                     channel?: "email" | "whatsapp" | "sms";
                     send?: boolean;
+                    /** @description Required to link a contact to an existing portal login (409 existing_portal_user otherwise; identifiers are never added) */
+                    linkExisting?: boolean;
                 };
             };
         };

@@ -6,6 +6,7 @@ import { createHmac } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { IS_PUBLIC, PORTAL_ALLOWED } from '../src/auth/context.js';
 import { MockChannelHub } from '../src/comm/channels.js';
+import { PortalAuthService } from '../src/portal/portal-auth.service.js';
 import { Clock } from '../src/common/clock.js';
 import { RealtimeService, type RealtimeEvent } from '../src/realtime/realtime.service.js';
 import { bearer, bootApp, type Session } from './helpers.js';
@@ -24,9 +25,10 @@ function gstin(state: string, n: number) { const base = `${state}AABCP${String(n
 const client = async (name: string, contacts: Array<Record<string, unknown>>, extra: Record<string, unknown> = {}) =>
   (await t.http().post('/v1/clients').set(H(P)).send({ name, entityType: 'PRIVATE_COMPANY', staffIds: [S.userId], contacts, ...extra }).expect(201)).body.id as string;
 const contactOf = async (clientId: string, email: string) => (await t.sql<{ id: string }>('SELECT id FROM contact WHERE client_id = $1 AND email = $2', [clientId, email]))[0]!.id;
+const reqOtp = async (b: Record<string, string>) => { const r = await t.http().post('/v1/portal/auth/otp/request').send(b).expect(202); await t.app.get(PortalAuthService).drain(); return r; };
 const lastCode = (to: string) => { const m = [...hub.outbox].reverse().find((x) => x.to === to); return m?.text.match(/\b(\d{6})\b/)?.[1] ?? null; };
 async function portalLogin(identifier: string, to = identifier) {
-  await t.http().post('/v1/portal/auth/otp/request').send({ firm: FIRM, identifier }).expect(202);
+  await reqOtp({ firm: FIRM, identifier });
   const code = lastCode(to)!;
   return (await t.http().post('/v1/portal/auth/otp/verify').send({ firm: FIRM, identifier, code, device: { platform: 'web' } }).expect(200)).body as { accessToken: string; refreshToken: string; portalUserId: string; sessionId: string };
 }
@@ -55,7 +57,7 @@ beforeAll(async () => {
   gitaContact = await contactOf(C, 'gita@gamma.example');
   const inv1 = (await t.http().post('/v1/portal-admin/invites').set(H(P)).send({ clientId: A, contactId: ravi.A }).expect(201)).body;
   expect(inv1.invite.status).toBe('sent');
-  const inv2 = (await t.http().post('/v1/portal-admin/invites').set(H(P)).send({ clientId: B, contactId: ravi.B, send: false }).expect(201)).body;
+  const inv2 = (await t.http().post('/v1/portal-admin/invites').set(H(P)).send({ clientId: B, contactId: ravi.B, send: false, linkExisting: true }).expect(201)).body;
   expect(inv2.portalUserId).toBe(inv1.portalUserId); // one login across group companies
   await t.http().post('/v1/portal-admin/invites').set(H(P)).send({ clientId: C, contactId: gitaContact, send: false,
     grants: { documents: { categories: ['ITR'], fys: ['2025-26'] }, invoices: false, payments: false } }).expect(201);
@@ -74,13 +76,13 @@ describe('portal sign-in (OTP)', () => {
   it('is enumeration-safe: same 202 for unknown firm/person/uninvited contact; codes only to invited people', async () => {
     const before = hub.outbox.length;
     for (const b of [{ firm: 'nope-firm', identifier: 'ravi@alpha.example' }, { firm: FIRM, identifier: 'stranger@x.example' }, { firm: FIRM, identifier: 'dev@delta.example' }, { firm: FIRM, identifier: 'not-an-id' }]) {
-      expect((await t.http().post('/v1/portal/auth/otp/request').send(b).expect(202)).body).toEqual({ sent: true });
+      expect((await reqOtp(b)).body).toEqual({ sent: true });
     }
     expect(hub.outbox.length).toBe(before);
     const bad = await t.http().post('/v1/portal/auth/otp/verify').send({ firm: FIRM, identifier: 'stranger@x.example', code: '123456', device: { platform: 'web' } }).expect(401);
     const bad2 = await t.http().post('/v1/portal/auth/otp/verify').send({ firm: FIRM, identifier: 'ravi@alpha.example', code: '000000', device: { platform: 'web' } }).expect(401);
     expect(bad.body.message).toBe(bad2.body.message);
-    await t.http().post('/v1/portal/auth/otp/request').send({ firm: FIRM, identifier: 'ravi@alpha.example' }).expect(202);
+    await reqOtp({ firm: FIRM, identifier: 'ravi@alpha.example' });
     const code = lastCode('ravi@alpha.example')!;
     expect(code).toMatch(/^\d{6}$/);
     // Stored hashed only; never in the message log / timeline or audit.
@@ -95,22 +97,50 @@ describe('portal sign-in (OTP)', () => {
     await portalLogin('98200 11111', '+919820011111');
   });
 
-  it('codes expire (pinned clock), are capped per hour, and repeated failures lock the account', async () => {
-    await t.http().post('/v1/portal/auth/otp/request').send({ firm: FIRM, identifier: 'lok@eps.example' }).expect(202);
+  it('codes expire (pinned clock); failures without a live code cost nothing; an attacker cannot lock the real user out', async () => {
+    const V = (code: string) => t.http().post('/v1/portal/auth/otp/verify').send({ firm: FIRM, identifier: 'lok@eps.example', code, device: { platform: 'web' } });
+    const fails = async () => (await t.sql<{ verify_failures: number }>(`SELECT verify_failures FROM portal_user WHERE email = 'lok@eps.example'`))[0]!.verify_failures;
+    await reqOtp({ firm: FIRM, identifier: 'lok@eps.example' });
     const code = lastCode('lok@eps.example')!;
     t.app.get(Clock).set(new Date(NOW.getTime() + 11 * 60_000));
-    await t.http().post('/v1/portal/auth/otp/verify').send({ firm: FIRM, identifier: 'lok@eps.example', code, device: { platform: 'web' } }).expect(401);
-    t.app.get(Clock).set(new Date(NOW.getTime() + 2 * 3600_000));
+    try {
+      await V(code).expect(401);
+      for (let i = 0; i < 20; i++) await V('000001').expect(401); // no live code → not counted
+      expect(await fails()).toBe(0);
+      // A new request never retires a live code: both codes work.
+      await reqOtp({ firm: FIRM, identifier: 'lok@eps.example' }); const c1 = lastCode('lok@eps.example')!;
+      await reqOtp({ firm: FIRM, identifier: 'lok@eps.example' }); const c2 = lastCode('lok@eps.example')!;
+      // Attacker burns the newest code's attempts; the user's other live code still works.
+      const wrong = ['111111', '222222', '333333', '444444', '555555'].filter((x) => x !== c1 && x !== c2).slice(0, 4);
+      for (const w of wrong) await V(w).expect(401);
+      const s1 = (await V(c1).expect(200)).body;
+      expect(s1.accessToken).toBeTruthy();
+      expect(await fails()).toBe(0); // success resets the window
+      // Throttled identifier: same 401 body as a wrong code, and it clears by itself.
+      await reqOtp({ firm: FIRM, identifier: 'lok@eps.example' }); const c3 = lastCode('lok@eps.example')!;
+      const bodies = new Set<string>();
+      for (let i = 0; i < 10; i++) bodies.add(JSON.stringify((await V(c3 === '000002' ? '000003' : '000002').expect(401)).body));
+      bodies.add(JSON.stringify((await V(c3).expect(401)).body)); // throttled: even the right code is refused, identically
+      expect(bodies.size).toBe(1);
+      t.app.get(Clock).set(new Date(NOW.getTime() + 22 * 60_000));
+      await reqOtp({ firm: FIRM, identifier: 'lok@eps.example' });
+      await V(lastCode('lok@eps.example')!).expect(200); // the real user gets back in
+    } finally { t.app.get(Clock).set(NOW); }
+  });
+
+  it('codes are capped per hour; the request path does no lookup or send (deferred)', async () => {
+    t.app.get(Clock).set(new Date(NOW.getTime() + 5 * 3600_000));
     try {
       const before = hub.outbox.filter((m) => m.to === 'lok@eps.example').length;
-      for (let i = 0; i < 6; i++) await t.http().post('/v1/portal/auth/otp/request').send({ firm: FIRM, identifier: 'lok@eps.example' }).expect(202);
-      expect(hub.outbox.filter((m) => m.to === 'lok@eps.example').length - before).toBe(5); // 6th silently suppressed
-      const good = lastCode('lok@eps.example')!;
-      // (1 failure already counted for the expired code) → 4 more wrong codes lock it
-      for (let i = 0; i < 3; i++) await t.http().post('/v1/portal/auth/otp/verify').send({ firm: FIRM, identifier: 'lok@eps.example', code: good === '111111' ? '222222' : '111111', device: { platform: 'web' } }).expect(401);
-      await t.http().post('/v1/portal/auth/otp/verify').send({ firm: FIRM, identifier: 'lok@eps.example', code: '999998', device: { platform: 'web' } }).expect(429);
-      await t.http().post('/v1/portal/auth/otp/verify').send({ firm: FIRM, identifier: 'lok@eps.example', code: good, device: { platform: 'web' } }).expect(429);
-      expect((await t.sql(`SELECT 1 FROM audit_log WHERE action = 'portal.locked'`)).length).toBe(1);
+      for (let i = 0; i < 6; i++) await reqOtp({ firm: FIRM, identifier: 'lok@eps.example' });
+      expect(hub.outbox.filter((m) => m.to === 'lok@eps.example').length - before).toBe(5);
+      const n = hub.outbox.length;
+      const r1 = await t.http().post('/v1/portal/auth/otp/request').send({ firm: FIRM, identifier: 'gita@gamma.example' }).expect(202);
+      const r2 = await t.http().post('/v1/portal/auth/otp/request').send({ firm: FIRM, identifier: 'nobody@nowhere.example' }).expect(202);
+      expect(hub.outbox.length).toBe(n); // nothing sent before the response
+      expect(r1.body).toEqual(r2.body);
+      await t.app.get(PortalAuthService).drain();
+      expect(hub.outbox.length).toBe(n + 1);
     } finally { t.app.get(Clock).set(NOW); }
   });
 
@@ -308,7 +338,7 @@ describe('client actions reflect instantly in the office', () => {
     await t.http().put(`/v1/portal-admin/clients/${A}/enabled`).set(H(P)).send({ enabled: true }).expect(204);
     await t.http().patch(`/v1/portal-admin/users/${s.portalUserId}`).set(H(P)).send({ status: 'disabled' }).expect(204);
     await t.http().get('/v1/portal/me').set(H(s)).expect(401);
-    await t.http().post('/v1/portal/auth/otp/request').send({ firm: FIRM, identifier: 'ravi@alpha.example' }).expect(202);
+    await reqOtp({ firm: FIRM, identifier: 'ravi@alpha.example' });
     const users = (await t.http().get('/v1/portal-admin/users').set(H(P)).expect(200)).body;
     expect(users.find((u: { id: string }) => u.id === s.portalUserId).status).toBe('disabled');
   });
@@ -324,5 +354,76 @@ describe('client actions reflect instantly in the office', () => {
   it('audit trail carries no contact PII from portal actions', async () => {
     const all = JSON.stringify(await t.sql(`SELECT diff FROM audit_log WHERE action LIKE 'portal.%'`));
     for (const pii of ['ravi@alpha.example', '9820011111', 'gita@gamma.example', 'Ravi Kumar']) expect(all).not.toContain(pii);
+  });
+});
+
+describe('phase 9 review regressions', () => {
+  let gita: { accessToken: string; portalUserId: string };
+  beforeAll(async () => {
+    t.app.get(Clock).set(new Date(NOW.getTime() + 8 * 3600_000));
+    gita = await portalLogin('gita@gamma.example');
+  });
+  afterAll(() => t.app.get(Clock).set(NOW));
+
+  it('only the uploader sees their own uploads, and only while still in the "From client" inbox', async () => {
+    const id = (await t.http().post(`/v1/portal/clients/${C}/documents`).set(H(gita)).attach('file', pdf, { filename: 'mine.pdf', contentType: 'application/pdf' }).expect(201)).body.id;
+    const list = async () => (await t.http().get(`/v1/portal/clients/${C}/documents`).set(H(gita)).expect(200)).body.map((d: { id: string }) => d.id);
+    expect(await list()).toContain(id);
+    // someone else's portal upload on the same client is not visible
+    await t.sql(`INSERT INTO document (id, tenant_id, client_id, category, name, mime, size, sha256, storage_key, source, portal_user_id)
+      SELECT gen_random_uuid(), tenant_id, client_id, 'From client', 'other.pdf', mime, size, sha256, storage_key, 'portal', gen_random_uuid() FROM document WHERE id = $1`, [id]);
+    expect((await list()).length).toBe(2); // gst25 (granted) + own upload
+    await t.http().patch(`/v1/documents/${id}`).set(H(P)).send({ category: 'ITR' }).expect(204); // staff re-files it
+    expect(await list()).not.toContain(id);
+  });
+
+  it('e-sign list offers a sign link only when it is the signer\'s turn; the public link enforces the turn too', async () => {
+    const doc = await upload(P, C, 'Engagement letter Gamma.pdf');
+    const seq = (await t.http().post('/v1/esign/requests').set(H(P)).send({ title: 'Seq', mode: 'sequential', items: [{ documentId: doc, signers: [{ kind: 'staff', userId: S.userId }, { kind: 'contact', contactId: gitaContact }] }] }).expect(201)).body;
+    let rows = (await t.http().get(`/v1/portal/clients/${C}/esign`).set(H(gita)).expect(200)).body as Array<{ title: string; signUrl: string }>;
+    expect(rows.find((r) => r.title === 'Seq')).toBeUndefined();
+    const s = (await t.sql<{ id: string; link_nonce: string }>(`SELECT s.id, s.link_nonce FROM esign_signer s JOIN esign_item i ON i.id = s.item_id WHERE i.request_id = $1 AND s.kind = 'contact'`, [seq.id]))[0]!;
+    const { signerLink } = await import('../src/practice/esign.service.js');
+    expect((await t.http().get(`/v1/esign/sign/${signerLink(P.tenantId, s.id, s.link_nonce)}`).expect(409)).body.code).toBe('not_your_turn');
+    await t.http().post('/v1/esign/requests').set(H(P)).send({ title: 'Par', mode: 'parallel', items: [{ documentId: doc, signers: [{ kind: 'contact', contactId: gitaContact }] }] }).expect(201);
+    rows = (await t.http().get(`/v1/portal/clients/${C}/esign`).set(H(gita)).expect(200)).body;
+    expect(rows.find((r) => r.title === 'Par')!.signUrl).toContain('/esign/sign/');
+  });
+
+  it('invite never merges people silently: existing login → 409 with masked match unless linkExisting', async () => {
+    const other = await client('Theta Pvt Ltd', [{ name: 'G Rao', email: 'gita@gamma.example', phone: '+919811177777', isPrimary: true }]);
+    const ct = await contactOf(other, 'gita@gamma.example');
+    const r = (await t.http().post('/v1/portal-admin/invites').set(H(P)).send({ clientId: other, contactId: ct, send: false }).expect(409)).body;
+    expect(r).toMatchObject({ code: 'existing_portal_user', match: { email: 'g•••@gamma.example', phone: null } });
+    await t.http().post('/v1/portal-admin/invites').set(H(P)).send({ clientId: other, contactId: ct, send: false, linkExisting: true }).expect(201);
+    expect((await t.sql<{ phone: string | null }>(`SELECT phone FROM portal_user WHERE email = 'gita@gamma.example'`))[0]!.phone).toBeNull(); // no identifier added
+  });
+
+  it('portal switch and staff replies go through sync/realtime after commit', async () => {
+    events.length = 0;
+    await t.http().put(`/v1/portal-admin/clients/${C}/enabled`).set(H(P)).send({ enabled: true }).expect(204);
+    const fv = (await t.sql<{ field_versions: Record<string, number> }>('SELECT field_versions FROM client WHERE id = $1', [C]))[0]!.field_versions;
+    expect(fv.portal_enabled).toBeGreaterThan(0);
+    await t.http().post(`/v1/portal-admin/clients/${C}/messages`).set(H(P)).send({ body: 'Hello' }).expect(201);
+    expect(events.filter((e) => e.type === 'changed' && e.cursor > 0).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('downloads: bad tokens 404, each download audited with the portal user (metadata only)', async () => {
+    await t.http().get(`/v1/portal/files/${Buffer.from('not json').toString('base64url')}.${'x'.repeat(43)}`).expect(404);
+    const gst = (await t.http().get(`/v1/portal/clients/${C}/documents`).set(H(gita)).expect(200)).body.find((d: { category: string }) => d.category === 'GST');
+    const { url } = (await t.http().post(`/v1/portal/clients/${C}/documents/${gst.id}/download-url`).set(H(gita)).expect(200)).body;
+    await t.http().get(url).expect(200);
+    const a = (await t.sql<{ diff: Record<string, unknown> }>(`SELECT diff FROM audit_log WHERE action = 'portal.document_downloaded' AND entity_id = $1`, [gst.id]))[0]!;
+    expect(a.diff).toMatchObject({ portalUserId: gita.portalUserId, clientId: C });
+  });
+
+  it('logo must be a clean image document', async () => {
+    const png = Buffer.from('89504e470d0a1a0a', 'hex');
+    const id = (await t.http().post('/v1/documents').set(H(P)).attach('file', png, { filename: 'logo.png', contentType: 'image/png' }).expect(201)).body.id;
+    await t.sql(`UPDATE document SET scan_status = 'pending' WHERE id = $1`, [id]);
+    await t.http().put('/v1/portal-admin/settings').set(H(P)).send({ logoDocumentId: id }).expect(400);
+    await t.sql(`UPDATE document SET scan_status = 'clean' WHERE id = $1`, [id]);
+    await t.http().put('/v1/portal-admin/settings').set(H(P)).send({ logoDocumentId: id }).expect(200);
+    await t.http().get(`/v1/portal/branding/${FIRM}/logo`).expect(200);
   });
 });

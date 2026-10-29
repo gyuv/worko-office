@@ -177,12 +177,28 @@ describe('proposals (versioned, e-accept, conversion)', () => {
     await t.http().post(`/v1/proposals/public/${tok}/accept`).send({ name: 'Old Owner', agree: true }).expect(200);
     const dup = (await t.http().post(`/v1/proposals/${id}/convert`).set(H(P)).send({}).expect(409)).body;
     expect(dup).toMatchObject({ code: 'duplicate_client', candidates: [{ id: existing }] });
+    await t.sql(`INSERT INTO client_service (id, tenant_id, client_id, service_type_id, billing_frequency, active) SELECT gen_random_uuid(), tenant_id, id, $2, 'monthly', false FROM client WHERE id = $1`, [existing, g3b]);
     const c = (await t.http().post(`/v1/proposals/${id}/convert`).set(H(P)).send({ clientId: existing }).expect(200)).body;
     expect(c).toMatchObject({ clientId: existing, createdClient: false });
-    expect((await t.sql<{ billing_frequency: string }>('SELECT billing_frequency FROM client_service WHERE client_id = $1', [existing]))[0]!.billing_frequency).toBe('quarterly');
+    expect(await t.sql('SELECT billing_frequency, active FROM client_service WHERE client_id = $1', [existing])).toEqual([{ billing_frequency: 'quarterly', active: true }]); // existing subscription updated
     expect((await t.sql('SELECT 1 FROM contact WHERE client_id = $1', [existing])).length).toBe(1); // matched the existing contact by email
   });
 
+  it('review regressions: duplicate service lines and negative amounts refused; deleted lead kills its link; declined state by decided version', async () => {
+    const l = await lead(P, { name: 'Dup', email: 'dup@x.example' });
+    expect((await t.http().post(`/v1/leads/${l.id}/proposals`).set(H(P)).send({ title: 'x', lines: [{ serviceTypeId: g3b, frequency: 'monthly' }, { serviceTypeId: g3b, frequency: 'annual', feePaise: 1 }] }).expect(400)).body.code).toBe('duplicate_service');
+    expect((await t.http().post(`/v1/leads/${l.id}/proposals`).set(H(P)).send({ title: 'x', lines: [{ description: 'Free', frequency: 'one_time', feePaise: 100, discountPaise: 500 }] }).expect(400)).body.code).toBe('invalid:discountPaise');
+    const id = (await t.http().post(`/v1/leads/${l.id}/proposals`).set(H(P)).send({ title: 'x', lines: [{ description: 'Advice', frequency: 'one_time', feePaise: 100_000 }] }).expect(201)).body.id;
+    const tok = tokenOf((await t.http().post(`/v1/proposals/${id}/send`).set(H(P)).send({ channel: 'email' }).expect(200)).body.link);
+    await t.http().post(`/v1/proposals/public/${tok}/decline`).send({ reason: 'No' }).expect(200);
+    expect((await t.http().get(`/v1/proposals/public/${tok}`).expect(200)).body.state).toBe('declined');
+    const l2 = await lead(P, { name: 'Del', email: 'del@x.example' });
+    const id2 = (await t.http().post(`/v1/leads/${l2.id}/proposals`).set(H(P)).send({ title: 'x', lines: [{ description: 'Advice', frequency: 'one_time', feePaise: 100_000 }] }).expect(201)).body.id;
+    const tok2 = tokenOf((await t.http().post(`/v1/proposals/${id2}/send`).set(H(P)).send({ channel: 'email' }).expect(200)).body.link);
+    await t.http().delete(`/v1/leads/${l2.id}`).set(H(P)).expect(204);
+    await t.http().get(`/v1/proposals/public/${tok2}`).expect(404);
+    await t.http().post(`/v1/proposals/public/${tok2}/accept`).send({ name: 'Del', agree: true }).expect(404);
+  });
   it('public page is rate-limited per IP', async () => {
     let limited = false;
     for (let i = 0; i < 25 && !limited; i++) limited = (await t.http().get(`/v1/proposals/public/${link2}`)).status === 429;
@@ -193,4 +209,5 @@ describe('proposals (versioned, e-accept, conversion)', () => {
     const all = JSON.stringify(await t.sql(`SELECT diff FROM audit_log WHERE action LIKE 'lead.%' OR action LIKE 'proposal.%' OR (action = 'client.created' AND diff->>'source' = 'proposal')`));
     for (const pii of ['neha@navkar.example', '9822233344', 'AAFFN1234K', 'Neha Shah', 'Too expensive']) expect(all).not.toContain(pii);
   });
+
 });

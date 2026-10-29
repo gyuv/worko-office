@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { computeInvoice, type SupplyType } from './billing.js';
+import { renderTemplate } from './comm.js';
 import type { Paise } from './money.js';
 
 // ---------- Leads pipeline (M4) ----------
@@ -117,3 +118,17 @@ export const crmSettingsSchema = z.object({
   defaultTerms: z.string().max(5000).default('Fees are payable within 15 days of invoice. Out-of-pocket expenses are billed at actuals.'),
 }).strict();
 export type CrmSettings = z.infer<typeof crmSettingsSchema>;
+
+/**
+ * Engagement letter text: the firm's template is rendered first (short values escaped/trimmed by `renderTemplate`), then long
+ * free text (services list, terms) is substituted raw at one-time sentinel markers — so placeholders inside user text are never
+ * expanded and values are never re-scanned (D138).
+ */
+export function renderEngagementLetter(tpl: string, vars: Record<string, string>, raw: { services: string; terms: string }): string {
+  // A marker that occurs in none of the inputs (not a secret; works in browsers and React Native too).
+  let tag = ''; const all = tpl + Object.values(vars).join('') + raw.services + raw.terms;
+  do tag = Math.random().toString(36).slice(2, 12); while (all.includes(tag));
+  const mark = { services: `@@S${tag}@@`, terms: `@@T${tag}@@` };
+  const text = renderTemplate(tpl, { ...vars, services: mark.services, terms: mark.terms }).text;
+  return text.split(mark.services).join(raw.services).split(mark.terms).join(raw.terms);
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  canIssueOtp, defaultPortalGrants, diffProposalVersions, leadTransitionError, needsRebalance, otpFailure, otpVerifyOutcome, PORTAL_OTP, portalAllows,
+  canIssueOtp, chargeFailureTo, defaultPortalGrants, diffProposalVersions, leadTransitionError, liveChallenges, needsRebalance, PORTAL_OTP, portalAllows, recordVerifyFailure, verifyThrottled, renderEngagementLetter,
   portalGrantsSchema, portalIdentifier, portalSettingsSchema, positionBetween, proposalAcceptError, proposalTotals, templateErrors, ENGAGEMENT_LETTER_VARIABLES,
   DEFAULT_ENGAGEMENT_LETTER, crmSettingsSchema, type ProposalLine,
 } from './index.js';
@@ -85,20 +85,28 @@ describe('client portal', () => {
     expect(portalAllows({ ...n, documents: { ...n.documents, enabled: false } }, 'documents')).toBe(false);
     expect(() => portalGrantsSchema.parse({ vault: true })).toThrow();
   });
-  it('OTP: expiry, attempts, lockout, hourly cap', () => {
+  it('OTP: several live codes, failures charged to the newest live one only, self-resetting identifier window, hourly cap', () => {
     const now = new Date('2026-10-15T10:00:00Z');
-    const ch = { attempts: 0, expiresAt: new Date(now.getTime() + 60_000), consumedAt: null };
-    expect(otpVerifyOutcome({ lockedUntil: null, failedLogins: 0, challenge: ch }, true, now)).toBe('ok');
-    expect(otpVerifyOutcome({ lockedUntil: null, failedLogins: 0, challenge: ch }, false, now)).toBe('invalid');
-    expect(otpVerifyOutcome({ lockedUntil: null, failedLogins: 0, challenge: { ...ch, expiresAt: now } }, true, now)).toBe('invalid');
-    expect(otpVerifyOutcome({ lockedUntil: null, failedLogins: 0, challenge: { ...ch, attempts: PORTAL_OTP.maxAttempts } }, true, now)).toBe('invalid');
-    expect(otpVerifyOutcome({ lockedUntil: null, failedLogins: 0, challenge: null }, true, now)).toBe('invalid');
-    expect(otpVerifyOutcome({ lockedUntil: new Date(now.getTime() + 1), failedLogins: 5, challenge: ch }, true, now)).toBe('locked');
-    expect(otpFailure(3, now).lockedUntil).toBeNull();
-    expect(otpFailure(4, now).lockedUntil).toEqual(new Date(now.getTime() + PORTAL_OTP.lockMinutes * 60_000));
-    expect(canIssueOtp(4, null, now)).toBe(true);
-    expect(canIssueOtp(5, null, now)).toBe(false);
-    expect(canIssueOtp(0, new Date(now.getTime() + 1), now)).toBe(false);
+    const c = (id: string, minsAgo: number, attempts = 0, consumed = false) => ({ id, attempts, createdAt: new Date(now.getTime() - minsAgo * 60_000),
+      expiresAt: new Date(now.getTime() + (PORTAL_OTP.ttlMinutes - minsAgo) * 60_000), consumedAt: consumed ? now : null });
+    const live = liveChallenges([c('old', 5), c('new', 1), c('used', 0, 0, true), c('dead', 2, PORTAL_OTP.maxAttempts), c('expired', 11)], now);
+    expect(live.map((x) => x.id)).toEqual(['new', 'old']);
+    expect(chargeFailureTo(live)!.id).toBe('new');
+    expect(chargeFailureTo([])).toBeNull(); // no live code → nothing counted
+    let w = { failures: 0, windowStart: null as Date | null };
+    for (let i = 0; i < PORTAL_OTP.verifyFailuresPerWindow; i++) w = recordVerifyFailure(w, now);
+    expect(verifyThrottled(w, now)).toBe(true);
+    const later = new Date(now.getTime() + PORTAL_OTP.verifyWindowMinutes * 60_000);
+    expect(verifyThrottled(w, later)).toBe(false); // resets by itself
+    expect(recordVerifyFailure(w, later)).toEqual({ failures: 1, windowStart: later });
+    expect(canIssueOtp(4, 0)).toBe(true);
+    expect(canIssueOtp(5, 0)).toBe(false);
+    expect(canIssueOtp(0, PORTAL_OTP.maxLive)).toBe(false);
+  });
+  it('engagement letter: user text is inserted raw after rendering (placeholders in it are never expanded)', () => {
+    const out = renderEngagementLetter('To {{client.name}}\n{{services}}\nTerms: {{terms}}\n{{firm.name}}',
+      { 'client.name': 'Evil {{firm.name}} Ltd', 'firm.name': 'Sharma & Co' }, { services: '- GST {{client.name}}', terms: 'Pay {{fees}} now' });
+    expect(out).toBe('To Evil firm.name Ltd\n- GST {{client.name}}\nTerms: Pay {{fees}} now\nSharma & Co');
   });
   it('identifiers and white-label settings', () => {
     expect(portalIdentifier(' Ravi@Example.IN ')).toEqual({ kind: 'email', value: 'ravi@example.in' });

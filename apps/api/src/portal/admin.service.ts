@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { can, clientCtx, normalizeEmail, normalizePhone, portalGrantsSchema, portalSettingsSchema, PROFILE_FIELDS, type CommChannel, type PortalGrants } from '@worko/domain';
+import { can, clientCtx, maskAddress, normalizeEmail, normalizePhone, portalGrantsSchema, portalSettingsSchema, PROFILE_FIELDS, type CommChannel, type PortalGrants } from '@worko/domain';
 import type { Readable } from 'node:stream';
 import { AuditService } from '../audit/audit.service.js';
 import type { RequestActor } from '../auth/context.js';
@@ -37,8 +37,8 @@ export class PortalAdminService {
     if (!r.success) throw new BadRequestException({ message: 'Invalid portal settings', issues: r.error.issues });
     return this.db.tenantTx(a.tenantId, async (tx) => {
       if (r.data.logoDocumentId) {
-        const d = (await tx.query('SELECT mime, client_id FROM document WHERE id = $1 AND deleted_at IS NULL', [r.data.logoDocumentId])).rows[0];
-        if (!d || d.client_id || !LOGO_MIME.has(d.mime)) throw new BadRequestException({ message: 'Logo must be a firm PNG/JPEG/WebP document', code: 'invalid:logoDocumentId' });
+        const d = (await tx.query('SELECT mime, client_id, scan_status FROM document WHERE id = $1 AND deleted_at IS NULL', [r.data.logoDocumentId])).rows[0];
+        if (!d || d.client_id || !LOGO_MIME.has(d.mime) || d.scan_status !== 'clean') throw new BadRequestException({ message: 'Logo must be a firm PNG/JPEG/WebP document', code: 'invalid:logoDocumentId' });
       }
       await tx.query(`INSERT INTO portal_settings (tenant_id, settings, updated_by) VALUES ($1,$2,$3)
         ON CONFLICT (tenant_id) DO UPDATE SET settings = EXCLUDED.settings, updated_by = EXCLUDED.updated_by, updated_at = now()`, [a.tenantId, JSON.stringify(r.data), a.userId]);
@@ -64,7 +64,7 @@ export class PortalAdminService {
     const d = await this.db.tenantTx(t.id, async (tx) => {
       const s = await loadPortalSettings(tx);
       if (!s.logoDocumentId) return null;
-      return (await tx.query('SELECT storage_key, mime, size FROM document WHERE id = $1 AND client_id IS NULL AND deleted_at IS NULL', [s.logoDocumentId])).rows[0] ?? null;
+      return (await tx.query(`SELECT storage_key, mime, size FROM document WHERE id = $1 AND client_id IS NULL AND deleted_at IS NULL AND scan_status = 'clean'`, [s.logoDocumentId])).rows[0] ?? null;
     });
     if (!d || !LOGO_MIME.has(d.mime)) throw new NotFoundException();
     return { mime: d.mime, size: Number(d.size), stream: await this.storage.get(d.storage_key) };
@@ -72,12 +72,15 @@ export class PortalAdminService {
 
   // ---------- Per-client switch ----------
   async setClientPortal(a: RequestActor, clientId: string, enabled: boolean) {
-    await this.db.tenantTx(a.tenantId, async (tx) => {
+    const cur = await this.db.tenantTx(a.tenantId, async (tx) => {
       await visibleClient(tx, a, clientId, 'edit', 'clients');
-      await tx.query('UPDATE client SET portal_enabled = $2 WHERE id = $1', [clientId, enabled]);
+      const r = await this.sync.serverPatch(tx, a, 'client', clientId, { portal_enabled: enabled });
       await this.rec(tx, a, enabled ? 'portal.client_enabled' : 'portal.client_disabled', 'client', clientId);
+      return r?.cursor ?? 0;
     });
+    this.publish(a.tenantId, cur);
   }
+  private publish(tenantId: string, cursor: number) { if (cursor) this.realtime.publish({ type: 'changed', tenantId, cursor }); }
 
   // ---------- Users, invitations, grants ----------
   users(a: RequestActor, q: { clientId?: string }) {
@@ -102,7 +105,7 @@ export class PortalAdminService {
    * Invites a client contact (or links an existing portal user — group companies share one login), with grants, and
    * sends the invitation through the communication pipeline (transactional; consent/opt-out and quiet hours apply).
    */
-  async invite(a: RequestActor, b: { clientId: string; contactId: string; grants?: unknown; channel?: CommChannel; send?: boolean }) {
+  async invite(a: RequestActor, b: { clientId: string; contactId: string; grants?: unknown; channel?: CommChannel; send?: boolean; linkExisting?: boolean }) {
     const now = this.clock.now();
     const out = await this.db.tenantTx(a.tenantId, async (tx) => {
       const client = await visibleClient(tx, a, b.clientId, 'edit', 'clients');
@@ -117,17 +120,20 @@ export class PortalAdminService {
       if (found.length > 1) throw new ConflictException({ message: 'Email and mobile belong to two different portal users', code: 'identity_conflict' });
       let user = found[0];
       if (user?.status === 'disabled') throw new ConflictException({ message: 'This portal user is disabled', code: 'portal_user_disabled' });
+      // Matching by email OR mobile could merge two people: staff must confirm explicitly, and identifiers are never added silently (D139).
+      if (user && !b.linkExisting) {
+        throw new ConflictException({ message: 'A portal login already uses this email or mobile', code: 'existing_portal_user',
+          match: { email: user.email && user.email === email ? maskAddress(user.email) : null, phone: user.phone && user.phone === phone ? maskAddress(user.phone) : null } });
+      }
       if (!user) {
         user = { id: uuidv7(), status: 'invited' };
         await tx.query('INSERT INTO portal_user (id, tenant_id, name, email, phone, invited_by) VALUES ($1,$2,$3,$4,$5,$6)', [user.id, a.tenantId, ct.name, email, phone, a.userId]);
-      } else {
-        await tx.query('UPDATE portal_user SET email = COALESCE(email, $2), phone = COALESCE(phone, $3), updated_at = now() WHERE id = $1', [user.id, email, phone]);
       }
       const accessId = (await tx.query(`INSERT INTO portal_access (id, tenant_id, portal_user_id, client_id, contact_id, grants, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7)
         ON CONFLICT (portal_user_id, client_id) DO UPDATE SET contact_id = EXCLUDED.contact_id, grants = EXCLUDED.grants, revoked_at = NULL, revoked_by = NULL, updated_at = now()
         RETURNING id`, [uuidv7(), a.tenantId, user.id, b.clientId, ct.id, JSON.stringify(g.data), a.userId])).rows[0].id as string;
       const wasEnabled = !!client.portal_enabled;
-      if (!wasEnabled) await tx.query('UPDATE client SET portal_enabled = true WHERE id = $1', [b.clientId]);
+      const enabledCur = wasEnabled ? 0 : (await this.sync.serverPatch(tx, a, 'client', b.clientId, { portal_enabled: true }))?.cursor ?? 0;
       await this.rec(tx, a, 'portal.invited', 'portal_access', accessId, { clientId: b.clientId, contactId: ct.id, portalUserId: user.id, newUser: user.status === 'invited' && found.length === 0, portalEnabled: !wasEnabled, grants: summary(g.data) });
       let invite: { status: string; reason?: string; messageId?: string } = { status: 'not_sent' };
       if (b.send !== false) {
@@ -143,10 +149,11 @@ export class PortalAdminService {
           invite = 'error' in q ? { status: 'refused', reason: q.error } : { status: 'queued', messageId: q.id };
         }
       }
-      return { portalUserId: user.id as string, accessId, invite };
+      return { portalUserId: user.id as string, accessId, invite, enabledCur };
     });
+    this.publish(a.tenantId, out.enabledCur);
     if (out.invite.messageId) out.invite.status = String(await this.comm.deliverNow(a.tenantId, out.invite.messageId, now));
-    return out;
+    return { portalUserId: out.portalUserId, accessId: out.accessId, invite: out.invite };
   }
 
   private async accessRow(tx: Tx, a: RequestActor, id: string) {
@@ -240,14 +247,16 @@ export class PortalAdminService {
   }
 
   async reply(a: RequestActor, clientId: string, body: string) {
-    return this.db.tenantTx(a.tenantId, async (tx) => {
+    const r = await this.db.tenantTx(a.tenantId, async (tx) => {
       await visibleClient(tx, a, clientId, 'create');
       const id = uuidv7();
       await tx.query(`INSERT INTO comm_message (id, tenant_id, client_id, direction, channel, body, status, created_by, occurred_at, device_id) VALUES ($1,$2,$3,'out','portal',$4,'sent',$5,$6,$7)`,
         [id, a.tenantId, clientId, body, a.userId, this.clock.now(), a.deviceId]);
       await this.rec(tx, a, 'portal.message_replied', 'comm_message', id, { clientId, length: body.length });
-      return { id };
+      return { id, cursor: Number((await tx.query('SELECT sync_cursor FROM comm_message WHERE id = $1', [id])).rows[0].sync_cursor) };
     });
+    this.publish(a.tenantId, r.cursor); // after commit
+    return { id: r.id };
   }
 }
 

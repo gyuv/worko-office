@@ -70,7 +70,7 @@ export class PortalService {
       }
       if (g.documents.enabled) {
         const pp = new Params([clientId]);
-        out.recentDocuments = (await tx.query(`SELECT d.id, d.name, d.category, d.fy, d.created_at AS "createdAt" FROM document d WHERE d.client_id = $1 AND ${portalDocSql(g, (v) => pp.add(v))}
+        out.recentDocuments = (await tx.query(`SELECT d.id, d.name, d.category, d.fy, d.created_at AS "createdAt" FROM document d WHERE d.client_id = $1 AND ${portalDocSql(g, (v) => pp.add(v), p.portalUserId)}
           ORDER BY d.created_at DESC LIMIT 5`, pp.values)).rows;
       }
       // Due dates of visible compliance items (statutory due only; no assignees, effort or internal status).
@@ -88,7 +88,7 @@ export class PortalService {
     return this.db.tenantTx(p.tenantId, async (tx) => {
       const acc = await loadAccess(tx, p, clientId, 'documents');
       const pp = new Params([clientId]);
-      const where = [`d.client_id = $1`, portalDocSql(acc.grants, (v) => pp.add(v))];
+      const where = [`d.client_id = $1`, portalDocSql(acc.grants, (v) => pp.add(v), p.portalUserId)];
       if (q.fy) where.push(`d.fy = ${pp.add(q.fy)}`);
       if (q.category) where.push(`lower(d.category) = lower(${pp.add(q.category)})`);
       return (await tx.query(`SELECT d.id, d.name, d.category, d.fy, d.mime, d.size, d.current_version AS "currentVersion", d.created_at AS "createdAt", d.source = 'portal' AS "fromClient"
@@ -96,9 +96,9 @@ export class PortalService {
     });
   }
 
-  private async visibleDoc(tx: Tx, acc: Access, docId: string) {
+  private async visibleDoc(tx: Tx, p: PortalActor, acc: Access, docId: string) {
     const pp = new Params([acc.clientId, docId]);
-    const d = (await tx.query(`SELECT d.* FROM document d WHERE d.client_id = $1 AND d.id = $2 AND ${portalDocSql(acc.grants, (v) => pp.add(v))}`, pp.values)).rows[0];
+    const d = (await tx.query(`SELECT d.* FROM document d WHERE d.client_id = $1 AND d.id = $2 AND ${portalDocSql(acc.grants, (v) => pp.add(v), p.portalUserId)}`, pp.values)).rows[0];
     if (!d) throw new NotFoundException();
     return d;
   }
@@ -107,8 +107,8 @@ export class PortalService {
   downloadUrl(p: PortalActor, clientId: string, docId: string) {
     return this.db.tenantTx(p.tenantId, async (tx) => {
       const acc = await loadAccess(tx, p, clientId, 'documents');
-      const d = await this.visibleDoc(tx, acc, docId);
-      const payload = Buffer.from(JSON.stringify({ t: p.tenantId, c: clientId, d: d.id, v: d.current_version, u: p.portalUserId, s: p.sessionId, e: Date.now() + 120_000 })).toString('base64url');
+      const d = await this.visibleDoc(tx, p, acc, docId);
+      const payload = Buffer.from(JSON.stringify({ t: p.tenantId, c: clientId, d: d.id, v: d.current_version, u: p.portalUserId, s: p.sessionId, e: this.clock.now().getTime() + 120_000 })).toString('base64url');
       return { url: `/v1/portal/files/${payload}.${createHmac('sha256', fileKey()).update(payload).digest('base64url')}`, expiresInSeconds: 120 };
     });
   }
@@ -118,17 +118,19 @@ export class PortalService {
     if (!payload || !sig) throw new NotFoundException();
     const expect = createHmac('sha256', fileKey()).update(payload).digest(); const got = Buffer.from(sig, 'base64url');
     if (got.length !== expect.length || !timingSafeEqual(got, expect)) throw new NotFoundException();
-    const t = JSON.parse(Buffer.from(payload, 'base64url').toString()) as { t: string; c: string; d: string; v: number; u: string; s: string; e: number };
-    if (t.e < Date.now()) throw new NotFoundException();
+    let t: { t: string; c: string; d: string; v: number; u: string; s: string; e: number };
+    try { t = JSON.parse(Buffer.from(payload, 'base64url').toString()); } catch { throw new NotFoundException(); }
+    if (!t || typeof t.e !== 'number' || t.e < this.clock.now().getTime() || ![t.t, t.c, t.d, t.u, t.s].every((x) => typeof x === 'string' && /^[0-9a-f-]{36}$/i.test(x))) throw new NotFoundException();
     return this.db.tenantTx(t.t, async (tx) => {
       const live = (await tx.query(`SELECT u.name, u.email, u.phone FROM portal_session s JOIN portal_user u ON u.id = s.portal_user_id WHERE s.id = $1 AND s.portal_user_id = $2 AND s.revoked_at IS NULL AND u.status = 'active'`, [t.s, t.u])).rows[0];
       if (!live) throw new NotFoundException();
       const p: PortalActor = { tenantId: t.t, portalUserId: t.u, sessionId: t.s, name: live.name, email: live.email, phone: live.phone };
       const acc = await loadAccess(tx, p, t.c, 'documents'); // grants re-checked at download time
-      await this.visibleDoc(tx, acc, t.d);
+      await this.visibleDoc(tx, p, acc, t.d);
       const v = (await tx.query(`SELECT d.name, v.storage_key, v.mime, v.size FROM document d JOIN document_version v ON v.document_id = d.id AND v.version = $2 WHERE d.id = $1`, [t.d, t.v])).rows[0];
       if (!v) throw new NotFoundException();
       await tx.query(`INSERT INTO document_access_log (tenant_id, document_id, user_id, action, ip) VALUES ($1,$2,NULL,'portal_download',$3)`, [t.t, t.d, ip]);
+      await this.rec(tx, p, 'portal.document_downloaded', 'document', t.d, { clientId: t.c, version: t.v }); // metadata only
       return { name: v.name, mime: v.mime, size: n(v.size), stream: await this.storage.get(v.storage_key) };
     });
   }
@@ -313,7 +315,10 @@ export class PortalService {
     if (!acc.contactId) return [];
     const rows = (await tx.query(`SELECT s.id, s.link_nonce, s.status, s.ord, r.title, r.mode, d.name AS document FROM esign_signer s JOIN esign_item i ON i.id = s.item_id
       JOIN esign_request r ON r.id = s.request_id JOIN document d ON d.id = i.document_id
-      WHERE s.contact_id = $1 AND i.client_id = $2 AND i.status = 'sent' AND s.status IN ('pending','notified') ORDER BY r.created_at`, [acc.contactId, acc.clientId])).rows;
+      WHERE s.contact_id = $1 AND i.client_id = $2 AND i.status = 'sent' AND s.status IN ('pending','notified')
+        AND (r.mode = 'parallel' OR NOT EXISTS (SELECT 1 FROM esign_signer e WHERE e.item_id = s.item_id AND e.ord < s.ord AND e.status NOT IN ('signed','cancelled')))
+      ORDER BY r.created_at`, [acc.contactId, acc.clientId])).rows;
+    // A sign link only when it is this signer's turn (same rule as EsignService.openLink, which also refuses out-of-turn links).
     return rows.map((r) => ({ id: r.id, title: r.title, document: r.document, status: r.status, signUrl: `${publicBase()}/esign/sign/${signerLink(p.tenantId, r.id, r.link_nonce)}` }));
   }
   esign(p: PortalActor, clientId: string) {
