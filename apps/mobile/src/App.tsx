@@ -88,7 +88,7 @@ function Tabs({ theme }: { theme: Theme }) {
   const s = styles(theme);
   const [tab, setTab] = useState<Tab>('home');
   const current = TABS.find((x) => x.key === tab)!;
-  const [sub, setSub] = useState<'registers' | 'collections' | 'hr' | 'chat' | 'calendar' | 'appointments' | null>(null);
+  const [sub, setSub] = useState<'registers' | 'collections' | 'hr' | 'chat' | 'calendar' | 'appointments' | 'practice' | null>(null);
   useSignatureRetry();
   return (
     <View style={{ flex: 1 }}>
@@ -197,7 +197,7 @@ function Home({ theme }: { theme: Theme }) {
   );
 }
 
-function More({ theme, onRegisters, onCollections, onHr, onOpen }: { theme: Theme; onRegisters(): void; onCollections(): void; onHr(): void; onOpen(x: 'chat' | 'calendar' | 'appointments'): void }) {
+function More({ theme, onRegisters, onCollections, onHr, onOpen }: { theme: Theme; onRegisters(): void; onCollections(): void; onHr(): void; onOpen(x: 'chat' | 'calendar' | 'appointments' | 'practice'): void }) {
   const s = styles(theme);
   const qcl = useQueryClient();
   const setTokens = useSession((x) => x.setTokens);
@@ -219,6 +219,11 @@ function More({ theme, onRegisters, onCollections, onHr, onOpen }: { theme: Them
           <Feather name="chevron-right" size={18} color={theme.textMuted} />
         </Pressable>
       ))}
+      <Pressable style={[s.row, { minHeight: 48 }]} onPress={() => onOpen('practice')} accessibilityRole="button">
+        <Feather name="file-text" size={18} color={theme.primary} style={{ marginRight: 10 }} />
+        <Text style={[s.text, { flex: 1 }]}>{t('m.notice.hub')}</Text>
+        <Feather name="chevron-right" size={18} color={theme.textMuted} />
+      </Pressable>
       {billing && <Pressable style={[s.row, { minHeight: 48 }]} onPress={onCollections} accessibilityRole="button">
         <Feather name="credit-card" size={18} color={theme.primary} style={{ marginRight: 10 }} />
         <Text style={[s.text, { flex: 1 }]}>{t('m.bill.collections')}</Text>

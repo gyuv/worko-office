@@ -238,7 +238,7 @@ function Bubble({ theme, m, me, people, onLongPress }: { theme: Theme; m: Messag
 
 // ---------- calendar ----------
 
-const KIND_KEY: Record<string, MessageKey> = { meeting: 'm.cal.kind.meeting', personal: 'm.cal.kind.personal', appointment: 'm.cal.kind.appointment', external: 'm.cal.kind.external' };
+const KIND_KEY: Record<string, MessageKey> = { meeting: 'm.cal.kind.meeting', personal: 'm.cal.kind.personal', appointment: 'm.cal.kind.appointment', external: 'm.cal.kind.external', hearing: 'm.cal.kind.hearing' };
 
 export function Calendar({ theme, nav, onBack }: { theme: Theme; nav: Nav; onBack?: () => void }) {
   const s = ui(theme);

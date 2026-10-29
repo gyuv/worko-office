@@ -140,7 +140,7 @@ export function parseNoticeText(text: string): FieldSuggestion[] {
   else if (has(/Income[- ]tax|\bITBA\b|Assessing Officer|\bPAN\b/i)) add('authority', 'income_tax', 0.85, 'Income-tax keywords');
   let r = /\b(?:u\/s|under section|section|sec\.?)\s*([0-9]{1,3}[A-Z]{0,3}(?:\s*\(\s*[0-9a-z]+\s*\))*)/i.exec(t);
   if (r) add('section', r[1]!.replace(/\s+/g, ''), 0.8, r[0]);
-  r = /\b(?:DIN|Document Identification Number)\s*[:\-]?\s*([A-Z0-9/]{10,40})/i.exec(t);
+  r = /\b(?:DIN|Document Identification Number)\s*[:\-]?\s*([A-Z0-9][A-Z0-9/().\-]{9,60})/i.exec(t);
   if (r) add('din', r[1]!, 0.9, r[0]);
   r = /\b(?:Reference|Ref\.?)\s*(?:No\.?|Number)?\s*[:\-]\s*([A-Za-z0-9/\-]{4,60})/i.exec(t);
   if (r) add('referenceNo', r[1]!, 0.7, r[0]);

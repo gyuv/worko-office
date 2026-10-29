@@ -1,6 +1,6 @@
 import type { MessageKey } from '@worko/i18n';
 import type { Action, Module } from '@worko/domain';
-import { BarChart3, Bell, Clock, Fingerprint, Plane, Receipt, Briefcase, CalendarCheck, FileText, Home, IndianRupee, ScrollText, Shield, Users, CheckSquare, ArrowLeftRight, ListTodo, Settings, Wallet, Megaphone, MessagesSquare, CalendarDays, CalendarClock, type LucideIcon } from 'lucide-react';
+import { BarChart3, Bell, Clock, Fingerprint, Plane, Receipt, Briefcase, CalendarCheck, FileText, Home, IndianRupee, ScrollText, Shield, Users, CheckSquare, ArrowLeftRight, ListTodo, Settings, Wallet, Megaphone, MessagesSquare, CalendarDays, CalendarClock, Gavel, ClipboardCheck, KeyRound, BadgeCheck, PenTool, type LucideIcon } from 'lucide-react';
 import type { Route } from '../lib/router';
 
 export type NavItem = { route: Route; label: MessageKey; icon: LucideIcon; phase?: number; perm?: [Module, Action]; shortcut?: string };
@@ -13,6 +13,11 @@ export const NAV: NavItem[] = [
   { route: 'compliance', label: 'nav.compliance', icon: CalendarCheck, perm: ['compliance', 'view'] },
   { route: 'billing', label: 'nav.billing', icon: IndianRupee, perm: ['billing', 'view'] },
   { route: 'receipts', label: 'nav.receipts', icon: Wallet, perm: ['receipts', 'view'] },
+  { route: 'notices', label: 'p8.nav.notices', icon: Gavel, perm: ['notices', 'view'] },
+  { route: 'engagements', label: 'p8.nav.engagements', icon: ClipboardCheck, perm: ['audit', 'view'] },
+  { route: 'dsc', label: 'p8.nav.dsc', icon: KeyRound, perm: ['dsc', 'view'] },
+  { route: 'licences', label: 'p8.nav.licences', icon: BadgeCheck, perm: ['compliance', 'view'] },
+  { route: 'esign', label: 'p8.nav.esign', icon: PenTool, perm: ['documents', 'view'] },
   { route: 'documents', label: 'nav.documents', icon: FileText, shortcut: 'g d' },
   { route: 'registers', label: 'nav.registers', icon: ArrowLeftRight, perm: ['registers', 'view'], shortcut: 'g r' },
   { route: 'time', label: 'p6.nav.time', icon: Clock, perm: ['time', 'view'] },

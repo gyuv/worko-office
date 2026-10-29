@@ -76,7 +76,7 @@ describe('mock notice parser', () => {
     const s = parseNoticeText(`INCOME TAX DEPARTMENT\nNotice under section 143(2) of the Income-tax Act\nDIN: ITBA/AST/S/143(2)/2026-27/1012345678(1)\nPAN: ABCDE1234F\nAssessment Year: 2025-26\nDated: 15/10/2026\nYou are requested to furnish the details on or before 20-11-2026.\nDemand of Rs. 1,25,000.50 is proposed.`);
     const m = Object.fromEntries(s.map((x) => [x.field, x.value]));
     expect(m).toMatchObject({ authority: 'income_tax', section: '143(2)', pan: 'ABCDE1234F', assessmentYear: '2025-26', issueDate: '2026-10-15', responseDue: '2026-11-20', demandPaise: 12500050 });
-    expect(String(m.din)).toMatch(/^ITBA\/AST/);
+    expect(String(m.din)).toBe('ITBA/AST/S/143(2)/2026-27/1012345678(1)');
     expect(s.every((x) => x.confidence > 0 && x.confidence <= 1)).toBe(true);
     expect(parseNoticeText('GSTIN: 27ABCDE1234F1Z5 show cause DRC-01 u/s 73').find((x) => x.field === 'authority')?.value).toBe('gst');
     expect(parseNoticeText('nothing here')).toEqual([]);

@@ -16,6 +16,7 @@ import { HrSettings } from '../hr/HrSettings';
 import { CommSettings } from '../comm/CommSettings';
 import { useServiceTypes } from '../tasks/shared';
 import { parseRupees, TALLY_ACCOUNT_KEYS } from './logic';
+import { PracticeSettings } from '../practice/PracticeSettings';
 import { download, MockBadge, Money, RupeeInput, useBillingSettings, useEntities } from './shared';
 
 const onErr = (e: unknown) => toast({ text: (e as Error).message, tone: 'error' });
@@ -26,13 +27,14 @@ export function SettingsRoute() {
   const params = useRoute((s) => s.params);
   const go = useRoute((s) => s.go);
   const can = useCan();
-  const view = params[0] === 'billing' && can('billing', 'view') ? 'billing' : params[0] === 'hr' && can('hr', 'view') ? 'hr' : params[0] === 'comm' && can('communication', 'view') ? 'comm' : 'services';
-  const tabs: Array<['services' | 'billing' | 'hr' | 'comm', string]> = [['services', t('svc.title')], ...(can('billing', 'view') ? [['billing', t('nav.billing')] as ['billing', string]] : []),
-    ...(can('hr', 'view') ? [['hr', t('p6.hs.tab')] as ['hr', string]] : []), ...(can('communication', 'view') ? [['comm', t('p7.cs.tab')] as ['comm', string]] : [])];
+  const view = params[0] === 'billing' && can('billing', 'view') ? 'billing' : params[0] === 'hr' && can('hr', 'view') ? 'hr' : params[0] === 'comm' && can('communication', 'view') ? 'comm' : params[0] === 'practice' ? 'practice' : 'services';
+  const tabs: Array<['services' | 'billing' | 'hr' | 'comm' | 'practice', string]> = [['services', t('svc.title')], ...(can('billing', 'view') ? [['billing', t('nav.billing')] as ['billing', string]] : []),
+    ...(can('hr', 'view') ? [['hr', t('p6.hs.tab')] as ['hr', string]] : []), ...(can('communication', 'view') ? [['comm', t('p7.cs.tab')] as ['comm', string]] : []),
+    ['practice', t('p8.ps.tab')]];
   return (
     <div className="space-y-3">
       {tabs.length > 1 && <Tabs label={t('nav.settings')} tabs={tabs} value={view} onChange={(v) => go(v === 'services' ? 'settings' : `settings/${v}`)} />}
-      {view === 'billing' ? <BillingSettings /> : view === 'hr' ? <HrSettings /> : view === 'comm' ? <CommSettings /> : <ServicesSettings />}
+      {view === 'billing' ? <BillingSettings /> : view === 'hr' ? <HrSettings /> : view === 'comm' ? <CommSettings /> : view === 'practice' ? <PracticeSettings /> : <ServicesSettings />}
     </div>
   );
 }

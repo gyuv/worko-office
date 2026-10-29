@@ -33,6 +33,19 @@ export async function uploadDocument(f: RNFile, meta: { clientId: string; catego
   }
 }
 
+/** Scan-a-notice (D115): same multipart upload path as documents; the server stores the file and returns field suggestions only. */
+export async function extractNotice(f: RNFile, meta: { clientId: string; noticeId?: string }): Promise<{ id: string; documentId: string; provider: string; suggestions: Array<{ field: string; value: string | number; confidence: number; source: string }> }> {
+  const res = await postMultipart('/notices/extract', () => {
+    const fd = new FormData();
+    fd.append('file', filePart(f)); fd.append('clientId', meta.clientId);
+    if (meta.noticeId) fd.append('noticeId', meta.noticeId);
+    return fd;
+  });
+  const body = (await res.json().catch(() => null)) as { message?: string; code?: string } | null;
+  if (!res.ok) throw Object.assign(new Error(body?.message ?? `HTTP ${res.status}`), { status: res.status, code: body?.code });
+  return body as never;
+}
+
 export async function openDocument(id: string): Promise<void> {
   const { url } = await unwrap(api.POST('/documents/{id}/download-url', { params: { path: { id } }, body: {} }));
   await Linking.openURL(new URL(url, apiBase.endsWith('/') ? apiBase : apiBase + '/').toString());

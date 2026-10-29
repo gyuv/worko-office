@@ -11,6 +11,7 @@ import { EntryDetail, RegisterForm, RegisterList } from './Registers';
 import { Approvals, Attendance, ExpenseForm, Expenses, HrHub, Leave, LeaveApply, MyTime, TimeEntryForm, Timer } from './Hr';
 import { Appointments, Calendar, ChatList, ChatThread, ClientTimeline, EventForm } from './Comm';
 import { Compliance, TaskDetail, TaskList, Todos } from './Tasks';
+import { AuditList, DscDetail, DscList, EngagementDetail, EsignDetail, EsignList, Hearings, NoticeDetail, NoticeList, NoticeScan, PracticeHub } from './Practice';
 
 export type Route =
   | { name: 'clients' } | { name: 'client'; id: string } | { name: 'upload'; clientId: string }
@@ -19,7 +20,9 @@ export type Route =
   | { name: 'collections' } | { name: 'invoices' } | { name: 'invoice'; id: string } | { name: 'outstanding'; clientId: string } | { name: 'receipt'; clientId: string }
   | { name: 'hr' } | { name: 'timer' } | { name: 'myTime' } | { name: 'timeEntry'; id?: string } | { name: 'attendance' } | { name: 'leave' } | { name: 'leaveApply' }
   | { name: 'expenses' } | { name: 'expenseForm' } | { name: 'approvals' }
-  | { name: 'chat' } | { name: 'chatThread'; id: string } | { name: 'calendar' } | { name: 'eventForm'; id?: string; date?: string } | { name: 'timeline'; clientId: string } | { name: 'appointments' };
+  | { name: 'chat' } | { name: 'chatThread'; id: string } | { name: 'calendar' } | { name: 'eventForm'; id?: string; date?: string } | { name: 'timeline'; clientId: string } | { name: 'appointments' }
+  | { name: 'practice' } | { name: 'notices' } | { name: 'notice'; id: string } | { name: 'noticeScan'; clientId?: string; noticeId?: string } | { name: 'hearings' }
+  | { name: 'dscList' } | { name: 'dsc'; id: string } | { name: 'audit' } | { name: 'engagement'; id: string } | { name: 'esignList' } | { name: 'esign'; id: string };
 export type Nav = { push(r: Route): void; pop(): void; replace(r: Route): void; reset(r?: Route): void };
 
 /** A tiny stack (no navigation library). On tablets the root list stays on the left and the top route shows on the right. */
@@ -85,5 +88,16 @@ function render(r: Route, nav: Nav, theme: Theme, isRoot: boolean, placeholder =
     case 'eventForm': return scroll(<EventForm key={r.id ?? 'new'} theme={theme} nav={nav} id={r.id} date={r.date} onBack={back} />);
     case 'timeline': return <ClientTimeline key={r.clientId} theme={theme} clientId={r.clientId} onBack={back} />;
     case 'appointments': return <Appointments theme={theme} onBack={back} />;
+    case 'practice': return scroll(<PracticeHub theme={theme} nav={nav} onBack={back} />);
+    case 'notices': return <NoticeList theme={theme} nav={nav} onBack={back} />;
+    case 'notice': return scroll(<NoticeDetail key={r.id} theme={theme} nav={nav} id={r.id} onBack={back} />);
+    case 'noticeScan': return scroll(<NoticeScan key={r.noticeId ?? r.clientId ?? 'new'} theme={theme} nav={nav} clientId={r.clientId} noticeId={r.noticeId} onBack={back} />);
+    case 'hearings': return <Hearings theme={theme} nav={nav} onBack={back} />;
+    case 'dscList': return <DscList theme={theme} nav={nav} onBack={back} />;
+    case 'dsc': return scroll(<DscDetail key={r.id} theme={theme} id={r.id} onBack={back} />);
+    case 'audit': return <AuditList theme={theme} nav={nav} onBack={back} />;
+    case 'engagement': return scroll(<EngagementDetail key={r.id} theme={theme} id={r.id} onBack={back} />);
+    case 'esignList': return <EsignList theme={theme} nav={nav} onBack={back} />;
+    case 'esign': return scroll(<EsignDetail key={r.id} theme={theme} id={r.id} onBack={back} />);
   }
 }
