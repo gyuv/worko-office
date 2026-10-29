@@ -63,7 +63,9 @@ describe('e-signature (M12)', () => {
     expect(signers.map((s) => s.status)).toEqual(['notified', 'pending']);
     expect((await t.http().get(`/v1/esign/sign/${signerLink(P.tenantId, staffSigner, signers[1]!.link_nonce)}`).expect(409)).body.code).toBe('not_your_turn');
     await t.http().get(`/v1/esign/sign/${signerLink(P.tenantId, staffSigner, 'wrong-nonce')}`).expect(404);
-    await t.http().get(`/v1/esign/sign/${token.slice(0, -2)}xx`).expect(404);
+    // Tamper inside the signature (trailing base64url chars carry padding bits).
+    const at = token.lastIndexOf('.') + 5;
+    await t.http().get(`/v1/esign/sign/${token.slice(0, at)}${token[at] === 'A' ? 'B' : 'A'}${token.slice(at + 1)}`).expect(404);
     txn = (await t.sql<{ provider_txn_id: string }>('SELECT provider_txn_id FROM esign_item WHERE id = $1', [itemId]))[0]!.provider_txn_id;
     const audit = await t.sql<{ diff: unknown }>(`SELECT diff FROM audit_log WHERE action = 'esign.requested'`);
     expect(JSON.stringify(audit)).not.toContain('esha@epsilon.example');
