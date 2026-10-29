@@ -2,7 +2,7 @@ import { CanActivate, ExecutionContext, ForbiddenException, Injectable, Unauthor
 import { Reflector } from '@nestjs/core';
 import { effectiveScope, type Action, type Module } from '@worko/domain';
 import { DbService } from '../db/db.service.js';
-import { EXTENSION_OK, IS_PUBLIC, PERM, type RequestActor } from './context.js';
+import { EXTENSION_OK, IS_PUBLIC, PERM, PORTAL_ALLOWED, type PortalActor, type RequestActor } from './context.js';
 import { loadTeamIds, loadUserRoles } from './roles.repo.js';
 import { TokenService } from './token.service.js';
 
@@ -17,6 +17,11 @@ export class AuthGuard implements CanActivate {
     const req = ctx.switchToHttp().getRequest();
     const h: string | undefined = req.headers.authorization;
     if (!h?.startsWith('Bearer ')) throw new UnauthorizedException();
+    // Portal routes accept portal sessions only; everything else accepts staff sessions only (D126).
+    if (this.reflector.getAllAndOverride<boolean>(PORTAL_ALLOWED, targets)) {
+      req.portal = await this.portal(h.slice(7));
+      return true;
+    }
     let claims;
     try { claims = await this.tokens.verify(h.slice(7)); } catch { throw new UnauthorizedException(); }
 
@@ -47,5 +52,17 @@ export class AuthGuard implements CanActivate {
       if (!g || g.scope === 'none') throw new ForbiddenException(`Missing permission ${perm.module}:${perm.action}`);
     }
     return true;
+  }
+
+  private async portal(token: string): Promise<PortalActor> {
+    let c;
+    try { c = await this.tokens.verifyPortal(token); } catch { throw new UnauthorizedException(); }
+    return this.db.tenantTx(c.tid, async (tx) => {
+      const s = (await tx.query(`SELECT s.revoked_at, u.status, u.name, u.email, u.phone FROM portal_session s JOIN portal_user u ON u.id = s.portal_user_id
+        WHERE s.id = $1 AND s.portal_user_id = $2`, [c.sid, c.sub])).rows[0];
+      if (!s || s.revoked_at || s.status !== 'active') throw new UnauthorizedException();
+      await tx.query(`UPDATE portal_session SET last_seen_at = now() WHERE id = $1 AND (last_seen_at IS NULL OR last_seen_at < now() - interval '1 minute')`, [c.sid]);
+      return { tenantId: c.tid, portalUserId: c.sub, sessionId: c.sid, name: s.name, email: s.email, phone: s.phone };
+    });
   }
 }

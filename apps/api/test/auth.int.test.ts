@@ -6,6 +6,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 import { Clock } from '../src/common/clock.js';
+import { MockChannelHub } from '../src/comm/channels.js';
 import { base32Decode, totp } from '../src/auth/crypto.js';
 import { type MockSmsProvider, SMS_PROVIDER } from '../src/auth/sms.provider.js';
 import { migrate } from '../src/db/migrate.js';
@@ -178,7 +179,7 @@ describe('demo seed', () => {
       expect((await http().get('/v1/me').set(bearer(r.body.accessToken))).body.roles).toEqual([u.role]);
       tok[u.role] = r.body.accessToken;
     }
-    expect((await http().get('/v1/clients?limit=500').set(bearer(tok.partner!))).body.total).toBe(50);
+    expect((await http().get('/v1/clients?limit=500').set(bearer(tok.partner!))).body.total).toBe(51); // 50 + one converted from an accepted proposal (Phase 9)
     expect((await http().get('/v1/clients?limit=500').set(bearer(tok.article!))).body.total).toBe(12);
     const [secret] = (await http().get('/v1/vault/secrets?portal=INCOME_TAX').set(bearer(tok.partner!)).expect(200)).body;
     await http().post('/v1/auth/step-up').set(bearer(tok.partner!)).send({ password: DEMO.password }).expect(200);
@@ -289,6 +290,42 @@ describe('demo seed', () => {
     expect((await http().get('/v1/licences').set(P).expect(200)).body).toHaveLength(6);
     const es = (await http().get('/v1/esign/requests').set(P).expect(200)).body.items as Array<{ status: string; bulk: boolean }>;
     expect(es.map((r) => `${r.status}:${r.bulk}`).sort()).toEqual(['completed:false', 'in_progress:true']);
+    // Phase 9: white-label portal, two portal users (group director: 2 companies; restricted accounts contact), leads in every stage, proposals.
+    app.get(Clock).set(new Date('2026-10-15T12:00:00+05:30'));
+    const { PORTAL_DEMO } = await import('../src/db/seed-portal.js');
+    const hub = app.get(MockChannelHub);
+    const portal = async (email: string) => {
+      await http().post('/v1/portal/auth/otp/request').send({ firm: 'demo', identifier: email }).expect(202);
+      const code = [...hub.outbox].reverse().find((m) => m.to === email)!.text.match(/\b(\d{6})\b/)![1];
+      return bearer((await http().post('/v1/portal/auth/otp/verify').send({ firm: 'demo', identifier: email, code, device: web }).expect(200)).body.accessToken);
+    };
+    expect((await http().get('/v1/portal/branding/demo').expect(200)).body).toMatchObject({ displayName: 'Sharma & Mehta Client Desk', accent: 'teal' });
+    const G = await portal(PORTAL_DEMO.group.email); const R = await portal(PORTAL_DEMO.restricted.email);
+    const gme = (await http().get('/v1/portal/me').set(G).expect(200)).body.clients as Array<{ id: string }>;
+    expect(gme).toHaveLength(2);
+    const rme = (await http().get('/v1/portal/me').set(R).expect(200)).body.clients as Array<{ id: string }>;
+    expect(rme).toHaveLength(1);
+    await http().get(`/v1/portal/clients/${rme[0]!.id}/invoices`).set(R).expect(404);
+    const rdocs = (await http().get(`/v1/portal/clients/${rme[0]!.id}/documents`).set(R).expect(200)).body as Array<{ name: string; fromClient: boolean }>;
+    expect(rdocs.some((d) => d.name === 'Computation of income AY 2026-27.pdf')).toBe(true);
+    expect(rdocs.some((d) => d.name === 'Internal review notes.pdf')).toBe(false);
+    expect(rdocs.some((d) => d.fromClient)).toBe(true);
+    expect((await http().get(`/v1/portal/clients/${rme[0]!.id}/requests`).set(R).expect(200)).body.some((x: { kind: string }) => x.kind === 'pbc')).toBe(true);
+    const dash = await Promise.all(gme.map(async (c) => (await http().get(`/v1/portal/clients/${c.id}/dashboard`).set(G).expect(200)).body));
+    expect(dash.some((d) => d.outstanding.invoices.length > 0 && d.recentDocuments.length > 0)).toBe(true);
+    expect(dash.reduce((n, d) => n + d.pendingSignatures, 0)).toBeGreaterThanOrEqual(1);
+    const payable = dash.find((d) => d.outstanding.invoices.length)!;
+    const inv0 = (await http().get(`/v1/portal/clients/${payable.client.id}/invoices/${payable.outstanding.invoices[0].id}`).set(G).expect(200)).body;
+    expect(inv0).toMatchObject({ payable: true, paymentUrl: 'https://pay.example.invalid/plink_demo_portal' });
+    expect((await http().get(`/v1/portal/clients/${payable.client.id}/messages`).set(G).expect(200)).body).toHaveLength(2);
+    const board = (await http().get('/v1/leads/board').set(P).expect(200)).body as Array<{ stage: string; count: number }>;
+    expect(board.every((c) => c.count > 0)).toBe(true);
+    const props = (await http().get('/v1/proposals').set(P).expect(200)).body as Array<{ status: string; currentVersion: number; convertedAt: string | null }>;
+    expect(props.map((x) => x.status).sort()).toEqual(['accepted', 'declined', 'draft', 'sent']);
+    expect(props.find((x) => x.status === 'sent')!.currentVersion).toBe(2);
+    expect(props.find((x) => x.status === 'accepted')!.convertedAt).toBeTruthy();
+    expect((await q<{ n: number }>(`SELECT count(*)::int AS n FROM client_service cs JOIN client c ON c.id = cs.client_id WHERE c.file_no = 'F-151' AND cs.billing_frequency = 'monthly'`))[0]!.n).toBe(2);
+    expect((await q<{ n: number }>(`SELECT count(*)::int AS n FROM document d JOIN client c ON c.id = d.client_id WHERE c.file_no = 'F-151' AND d.category = 'Engagement letters'`))[0]!.n).toBe(1);
     app.get(Clock).set(new Date('2026-10-15T12:00:00+05:30')); // slots depend on "now"
     try { expect((await http().get('/v1/book/demo/consult?from=2026-10-16&to=2026-10-22').expect(200)).body.slots.length).toBeGreaterThan(10); } finally { app.get(Clock).set(null); }
   });

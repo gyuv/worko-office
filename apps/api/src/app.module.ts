@@ -82,6 +82,13 @@ import { NOTICE_EXTRACTORS, noticeExtractorsFactory } from './practice/extractor
 import { NoticesService } from './practice/notices.service.js';
 import { AuditWorkController, DscController, EsignController, NoticesController } from './practice/practice.controller.js';
 import { PracticeService } from './practice/practice.service.js';
+import { PortalAdminService } from './portal/admin.service.js';
+import { PortalAuthService } from './portal/portal-auth.service.js';
+import { PortalAdminController, PortalController, PortalPublicController } from './portal/portal.controller.js';
+import { PortalService } from './portal/portal.service.js';
+import { LeadsController, ProposalsController } from './leads/leads.controller.js';
+import { LeadsService } from './leads/leads.service.js';
+import { ProposalsService } from './leads/proposals.service.js';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ limit: Number(process.env.RATE_LIMIT ?? 300), ttl: 60_000 }])],
@@ -90,7 +97,8 @@ import { PracticeService } from './practice/practice.service.js';
     ImportController, ClientsController, VaultController, DocumentsController, RegistersController,
     TasksController, ComplianceController, BillingController, TimeController, HrController,
     CommController, TimelineController, ChatController, CalendarController, BookingAdminController, BookingPublicController,
-    NoticesController, AuditWorkController, DscController, EsignController],
+    NoticesController, AuditWorkController, DscController, EsignController,
+    PortalPublicController, PortalController, PortalAdminController, LeadsController, ProposalsController],
   providers: [
     DbService, AuditService, TokenService, AuthService, TenancyService, UsersService, RulesService,
     RealtimeService, RealtimeGateway, JobQueueService, SyncService, NotificationsService,
@@ -102,6 +110,7 @@ import { PracticeService } from './practice/practice.service.js';
     TimeService, TimeReportsService, HrConfigService, AttendanceService, LeaveService, ExpensesService,
     CommService, BroadcastService, ChatService, CalendarService, ConnectionsService,
     NoticesService, AuditWorkService, DscService, EsignService, PracticeService,
+    PortalAuthService, PortalService, PortalAdminService, LeadsService, ProposalsService,
     { provide: NOTICE_EXTRACTORS, useFactory: noticeExtractorsFactory },
     { provide: ESIGN_PROVIDERS, useFactory: esignProvidersFactory },
     { provide: MockChannelHub, useFactory: () => new MockChannelHub() },

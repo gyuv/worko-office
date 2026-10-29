@@ -204,7 +204,8 @@ export const SYNC_TABLES: Record<string, SyncTableDef> = {
   document: {
     table: 'document',
     // Metadata only: file bytes are fetched on demand through signed download URLs.
-    columns: ['client_id', 'fy', 'category', 'name', 'mime', 'size', 'current_version', 'tags', 'permanent', 'expires_on', 'legal_hold', 'uploaded_by', 'created_at'],
+    columns: ['client_id', 'fy', 'category', 'name', 'mime', 'size', 'current_version', 'tags', 'permanent', 'expires_on', 'legal_hold', 'uploaded_by', 'created_at',
+      'client_visible', 'source'], // portal visibility is read-only on devices (REST toggle with audit)
     writable: { name: z.string().trim().min(1).max(300), category: z.string().trim().min(1).max(100), fy: z.string().regex(/^\d{4}-\d{2}$/).nullable(),
       tags: z.array(z.string().max(50)).max(30), permanent: z.boolean(), expires_on: date },
     ...childOf('documents'),

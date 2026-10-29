@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contrast, cssText, cssVariables, palette, status } from './index.js';
+import { contrast, cssText, cssVariables, palette, portalAccents, status } from './index.js';
 
 describe('tokens', () => {
   for (const t of ['light', 'dark'] as const) {
@@ -14,5 +14,9 @@ describe('tokens', () => {
   it('emits css variables', () => {
     expect(cssVariables('dark')['--w-text-muted']).toBe(palette.dark.textMuted);
     expect(cssText()).toContain('[data-theme=dark]');
+  });
+  it('portal accents meet AA on surface in both themes', () => {
+    expect(Object.keys(portalAccents)).toEqual(['blue', 'teal', 'green', 'indigo', 'maroon', 'slate']);
+    for (const a of Object.values(portalAccents)) for (const t of ['light', 'dark'] as const) expect(contrast(a[t], palette[t].surface)).toBeGreaterThan(4.5);
   });
 });

@@ -30,6 +30,7 @@ import { ReceiptsService } from '../billing/receipts.service.js';
 import { seedHr } from './seed-hr.js';
 import { seedComm } from './seed-comm.js';
 import { seedPractice8 } from './seed-practice.js';
+import { PORTAL_DEMO, seedPortalLeads } from './seed-portal.js';
 
 export const DEMO = { firm: 'demo', password: 'Demo@12345', users: [
   { name: 'Anita Sharma', email: 'partner@demo.worko.in', role: 'partner', phone: '+919800000001' },
@@ -77,6 +78,7 @@ export async function seedDemo(url: string, opts: { today?: string } = {}) {
     await seedHr(db, tenantId, today);
     await seedComm(db, tenantId, today);
     await seedPractice8(db, tenantId, today);
+    await seedPortalLeads(db, tenantId, today);
     return { created: true, tenantId };
   } finally {
     await db.pool.end();
@@ -296,5 +298,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   seedDemo(url).then((r) => {
     console.log(r.created ? `Demo firm created. Log in at firm "${DEMO.firm}" with any of:` : 'Demo firm already exists. Users:');
     for (const u of DEMO.users) console.log(`  ${u.role.padEnd(10)} ${u.email}  /  ${DEMO.password}`);
+    console.log(`Client portal (firm "${DEMO.firm}", one-time code login — POST /v1/portal/auth/otp/request):`);
+    for (const [k, p] of Object.entries(PORTAL_DEMO)) console.log(`  ${k.padEnd(10)} ${p.email}  or  ${p.phone}  → clients ${p.clients.join(', ')}`);
+    console.log('  Codes go through the mock channel: with NODE_ENV=development and PORTAL_DEV_LOG_OTP=1 the API logs them; with COMM_EMAIL_PROVIDER=smtp they land in Mailpit (http://localhost:8025).');
   }).catch((e) => { console.error(e); process.exit(1); });
 }

@@ -20,7 +20,7 @@ const listQ = z.object({
   trashed: z.enum(['true', 'false']).transform((v) => v === 'true').optional(), limit: z.coerce.number().int().min(1).max(500).default(100), offset: z.coerce.number().int().min(0).default(0),
 });
 const metaB = z.object({ name: z.string().trim().min(1).max(300).optional(), category: z.string().trim().min(1).max(100).optional(), fy: fy.nullable().optional(),
-  tags: z.array(z.string().max(50)).max(30).optional(), permanent: z.boolean().optional(), expiresOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(), legalHold: z.boolean().optional() });
+  tags: z.array(z.string().max(50)).max(30).optional(), permanent: z.boolean().optional(), expiresOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(), legalHold: z.boolean().optional(), clientVisible: z.boolean().optional() });
 const shareB = z.object({ expiresInHours: z.number().int().min(1).max(720), password: z.string().min(6).max(100).optional(), maxDownloads: z.number().int().min(1).max(1000).optional() });
 
 /** Streams a stored file as an attachment with headers that stop it rendering as active content in our origin. */

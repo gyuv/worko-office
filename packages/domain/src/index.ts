@@ -11,3 +11,5 @@ export * from './tally.js';
 export * from './hr.js';
 export * from './comm.js';
 export * from './practice.js';
+export * from './crm.js';
+export * from './client-portal.js';
