@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatDate, formatDateTime } from '@worko/i18n';
-import { Copy, Download, FilePlus2, History, Link2, RotateCcw, ScrollText, Trash2 } from 'lucide-react';
+import { Copy, Download, Eye, EyeOff, FilePlus2, History, Link2, RotateCcw, ScrollText, Trash2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { Dialog, Field } from '../../components/Dialog';
 import { absoluteUrl, multipart } from '../../lib/http';
 import { useT } from '../../lib/i18n';
 import { api, unwrap } from '../../lib/session';
+import { useCan } from '../../lib/me';
 import { fmtSize, type Doc } from './DocumentsPanel';
 
 async function download(id: string, version?: number) {
@@ -22,6 +23,11 @@ export function DocumentTable({ docs, loading, trashed, showClient }: { docs: Do
   const [err, setErr] = useState('');
   const refresh = () => { void qc.invalidateQueries({ queryKey: ['documents'] }); void qc.invalidateQueries({ queryKey: ['doc-tree'] }); };
   const trash = useMutation({ mutationFn: (id: string) => unwrap(api.DELETE('/documents/{id}', { params: { path: { id } } })), onSuccess: refresh });
+  const can = useCan();
+  const visible = useMutation({
+    mutationFn: ({ id, on }: { id: string; on: boolean }) => unwrap(api.PATCH('/documents/{id}', { params: { path: { id } }, body: { clientVisible: on } })),
+    onSuccess: refresh, onError: (e) => setErr((e as Error).message),
+  });
   const restore = useMutation({ mutationFn: (id: string) => unwrap(api.POST('/documents/{id}/restore', { params: { path: { id } } })), onSuccess: refresh });
   const newVersion = useMutation({
     mutationFn: ({ doc, f }: { doc: Doc; f: File }) => unwrap(api.POST('/documents', { body: multipart({ file: f, documentId: doc.id, clientId: doc.clientId ?? undefined }) })),
@@ -46,6 +52,8 @@ export function DocumentTable({ docs, loading, trashed, showClient }: { docs: Do
                   ? <button className="btn" onClick={() => restore.mutate(d.id)}><RotateCcw size={14} aria-hidden /> {t('docs.restore')}</button>
                   : <>
                     <IconBtn label={t('docs.download', { name: d.name })} onClick={() => void download(d.id).catch((e: Error) => setErr(e.message))}><Download size={14} /></IconBtn>
+                    {d.clientId && can('documents', 'edit') && (() => { const on = !!(d as Doc & { clientVisible?: boolean }).clientVisible; return (
+                      <IconBtn label={t(on ? 'p9.doc.hideFromClient' : 'p9.doc.showToClient', { name: d.name })} pressed={on} onClick={() => visible.mutate({ id: d.id, on: !on })}>{on ? <Eye size={14} /> : <EyeOff size={14} />}</IconBtn>); })()}
                     <IconBtn label={t('docs.newVersion', { name: d.name })} onClick={() => { setVersionFor(d); file.current?.click(); }}><FilePlus2 size={14} /></IconBtn>
                     <IconBtn label={t('docs.versions', { name: d.name })} onClick={() => setDlg({ kind: 'versions', doc: d })}><History size={14} /></IconBtn>
                     <IconBtn label={t('docs.share', { name: d.name })} onClick={() => setDlg({ kind: 'share', doc: d })}><Link2 size={14} /></IconBtn>
@@ -65,8 +73,8 @@ export function DocumentTable({ docs, loading, trashed, showClient }: { docs: Do
   );
 }
 
-function IconBtn({ label, onClick, children, danger }: { label: string; onClick(): void; children: React.ReactNode; danger?: boolean }) {
-  return <button className={`rounded p-1.5 hover:bg-surface-alt ${danger ? 'text-overdue' : 'text-muted hover:text-fg'}`} aria-label={label} title={label} onClick={onClick}>{children}</button>;
+function IconBtn({ label, onClick, children, danger, pressed }: { label: string; onClick(): void; children: React.ReactNode; danger?: boolean; pressed?: boolean }) {
+  return <button className={`rounded p-1.5 hover:bg-surface-alt ${danger ? 'text-overdue' : pressed ? 'text-primary' : 'text-muted hover:text-fg'}`} aria-label={label} aria-pressed={pressed} title={label} onClick={onClick}>{children}</button>;
 }
 
 function VersionsDialog({ doc, onClose }: { doc: Doc; onClose(): void }) {

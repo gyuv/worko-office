@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { PortalSettingsPanel } from '../portal-admin/PortalAdmin';
 import type { Schemas } from '@worko/api-client';
 import { GST_STATES } from '@worko/domain';
 import { Download, Pencil, Plus, Trash2 } from 'lucide-react';
@@ -27,14 +28,14 @@ export function SettingsRoute() {
   const params = useRoute((s) => s.params);
   const go = useRoute((s) => s.go);
   const can = useCan();
-  const view = params[0] === 'billing' && can('billing', 'view') ? 'billing' : params[0] === 'hr' && can('hr', 'view') ? 'hr' : params[0] === 'comm' && can('communication', 'view') ? 'comm' : params[0] === 'practice' ? 'practice' : 'services';
-  const tabs: Array<['services' | 'billing' | 'hr' | 'comm' | 'practice', string]> = [['services', t('svc.title')], ...(can('billing', 'view') ? [['billing', t('nav.billing')] as ['billing', string]] : []),
+  const view = params[0] === 'billing' && can('billing', 'view') ? 'billing' : params[0] === 'hr' && can('hr', 'view') ? 'hr' : params[0] === 'comm' && can('communication', 'view') ? 'comm' : params[0] === 'practice' ? 'practice' : params[0] === 'portal' ? 'portal' : 'services';
+  const tabs: Array<['services' | 'billing' | 'hr' | 'comm' | 'practice' | 'portal', string]> = [['services', t('svc.title')], ...(can('billing', 'view') ? [['billing', t('nav.billing')] as ['billing', string]] : []),
     ...(can('hr', 'view') ? [['hr', t('p6.hs.tab')] as ['hr', string]] : []), ...(can('communication', 'view') ? [['comm', t('p7.cs.tab')] as ['comm', string]] : []),
-    ['practice', t('p8.ps.tab')]];
+    ['practice', t('p8.ps.tab')], ['portal', t('p9.ps.tab')]];
   return (
     <div className="space-y-3">
       {tabs.length > 1 && <Tabs label={t('nav.settings')} tabs={tabs} value={view} onChange={(v) => go(v === 'services' ? 'settings' : `settings/${v}`)} />}
-      {view === 'billing' ? <BillingSettings /> : view === 'hr' ? <HrSettings /> : view === 'comm' ? <CommSettings /> : view === 'practice' ? <PracticeSettings /> : <ServicesSettings />}
+      {view === 'billing' ? <BillingSettings /> : view === 'hr' ? <HrSettings /> : view === 'comm' ? <CommSettings /> : view === 'practice' ? <PracticeSettings /> : view === 'portal' ? <PortalSettingsPanel /> : <ServicesSettings />}
     </div>
   );
 }

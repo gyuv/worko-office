@@ -10,6 +10,7 @@ import { DocUpload } from './DocUpload';
 import { EntryDetail, RegisterForm, RegisterList } from './Registers';
 import { Approvals, Attendance, ExpenseForm, Expenses, HrHub, Leave, LeaveApply, MyTime, TimeEntryForm, Timer } from './Hr';
 import { Appointments, Calendar, ChatList, ChatThread, ClientTimeline, EventForm } from './Comm';
+import { LeadBoard, LeadDetail } from './Leads';
 import { Compliance, TaskDetail, TaskList, Todos } from './Tasks';
 import { AuditList, DscDetail, DscList, EngagementDetail, EsignDetail, EsignList, Hearings, NoticeDetail, NoticeList, NoticeScan, PracticeHub } from './Practice';
 
@@ -22,7 +23,8 @@ export type Route =
   | { name: 'expenses' } | { name: 'expenseForm' } | { name: 'approvals' }
   | { name: 'chat' } | { name: 'chatThread'; id: string } | { name: 'calendar' } | { name: 'eventForm'; id?: string; date?: string } | { name: 'timeline'; clientId: string } | { name: 'appointments' }
   | { name: 'practice' } | { name: 'notices' } | { name: 'notice'; id: string } | { name: 'noticeScan'; clientId?: string; noticeId?: string } | { name: 'hearings' }
-  | { name: 'dscList' } | { name: 'dsc'; id: string } | { name: 'audit' } | { name: 'engagement'; id: string } | { name: 'esignList' } | { name: 'esign'; id: string };
+  | { name: 'dscList' } | { name: 'dsc'; id: string } | { name: 'audit' } | { name: 'engagement'; id: string } | { name: 'esignList' } | { name: 'esign'; id: string }
+  | { name: 'leads' } | { name: 'lead'; id: string };
 export type Nav = { push(r: Route): void; pop(): void; replace(r: Route): void; reset(r?: Route): void };
 
 /** A tiny stack (no navigation library). On tablets the root list stays on the left and the top route shows on the right. */
@@ -99,5 +101,7 @@ function render(r: Route, nav: Nav, theme: Theme, isRoot: boolean, placeholder =
     case 'engagement': return scroll(<EngagementDetail key={r.id} theme={theme} id={r.id} onBack={back} />);
     case 'esignList': return <EsignList theme={theme} nav={nav} onBack={back} />;
     case 'esign': return scroll(<EsignDetail key={r.id} theme={theme} id={r.id} onBack={back} />);
+    case 'leads': return <LeadBoard theme={theme} nav={nav} onBack={back} />;
+    case 'lead': return scroll(<LeadDetail key={r.id} theme={theme} id={r.id} onBack={back} />);
   }
 }

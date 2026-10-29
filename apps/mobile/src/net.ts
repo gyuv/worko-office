@@ -1,5 +1,4 @@
 import * as FileSystem from 'expo-file-system';
-import * as ImagePicker from 'expo-image-picker';
 import { Linking } from 'react-native';
 import { parseQueue, processQueue, enqueue, type PendingSig, type UploadOutcome } from './logic/sigQueue';
 import type { RegisterKind } from './logic/registers';
@@ -51,18 +50,7 @@ export async function openDocument(id: string): Promise<void> {
   await Linking.openURL(new URL(url, apiBase.endsWith('/') ? apiBase : apiBase + '/').toString());
 }
 
-/** Camera first; falls back to the gallery when camera permission is refused. */
-export async function pickImage(source: 'camera' | 'library'): Promise<RNFile | 'denied' | null> {
-  if (source === 'camera') {
-    const p = await ImagePicker.requestCameraPermissionsAsync();
-    if (!p.granted) return 'denied';
-  }
-  const opts: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], quality: 0.7 };
-  const r = source === 'camera' ? await ImagePicker.launchCameraAsync(opts) : await ImagePicker.launchImageLibraryAsync(opts);
-  const a = r.canceled ? null : r.assets[0];
-  if (!a) return null;
-  return { uri: a.uri, name: a.fileName ?? `scan-${Date.now()}.jpg`, type: a.mimeType ?? 'image/jpeg' };
-}
+export { pickImage } from './picker';
 
 // ---- pending signature queue (persisted in the encrypted local store's meta table) ----
 const QKEY = 'pending_signatures';

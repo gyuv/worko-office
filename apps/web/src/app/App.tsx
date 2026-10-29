@@ -38,6 +38,11 @@ import { AuditWorkScreen } from '../screens/practice/AuditWorkScreen';
 import { DscScreen, LicencesScreen } from '../screens/practice/DscScreen';
 import { EsignScreen, PublicEsign } from '../screens/practice/EsignScreen';
 import { esignPublicToken } from '../screens/practice/logic';
+import { LeadsRoute } from '../screens/leads/LeadsScreen';
+import { PublicProposal } from '../screens/leads/PublicProposal';
+import { proposalPublicToken } from '../screens/leads/logic';
+import { PortalRoot } from '../portal/PortalApp';
+import { parsePortalHash } from '../portal/logic';
 
 function Routes() {
   const t = useT();
@@ -71,6 +76,7 @@ function Routes() {
     case 'dsc': return <DscScreen />;
     case 'licences': return <LicencesScreen />;
     case 'esign': return <EsignScreen />;
+    case 'leads': return <LeadsRoute />;
     default: {
       const n = NAV.find((x) => x.route === route)!;
       return <ComingSoon module={t(n.label)} phase={n.phase ?? 0} />;
@@ -78,14 +84,16 @@ function Routes() {
   }
 }
 
-type PublicR = ReturnType<typeof publicRoute> | { kind: 'esign'; token: string };
+type PublicR = ReturnType<typeof publicRoute> | { kind: 'esign'; token: string } | { kind: 'proposal'; token: string };
 
 /** Public booking + e-sign signer pages (no login), decided from the hash (or path) before any session logic. */
 function usePublicRoute() {
   const read = (): PublicR => {
     if (typeof location === 'undefined') return null;
     const token = esignPublicToken(location.hash, location.pathname);
-    return token ? { kind: 'esign', token } : publicRoute(location.hash, location.pathname);
+    if (token) return { kind: 'esign', token };
+    const prop = proposalPublicToken(location.hash, location.pathname);
+    return prop ? { kind: 'proposal', token: prop } : publicRoute(location.hash, location.pathname);
   };
   const [r, setR] = useState(read);
   useEffect(() => { const on = () => setR(read()); addEventListener('hashchange', on); return () => removeEventListener('hashchange', on); }, []);
@@ -98,15 +106,24 @@ function PublicApp({ r }: { r: NonNullable<PublicR> }) {
   return (
     <I18nProvider>
       <QueryClientProvider client={qc}>
-        {r.kind === 'esign' ? <PublicEsign key={r.token} token={r.token} /> : r.kind === 'book' ? <PublicBook key={`${r.firm}/${r.slug}`} firm={r.firm} slug={r.slug} /> : <ManageBooking key={r.token} token={r.token} firmSlug={firm} />}
+        {r.kind === 'proposal' ? <PublicProposal key={r.token} token={r.token} /> : r.kind === 'esign' ? <PublicEsign key={r.token} token={r.token} /> : r.kind === 'book' ? <PublicBook key={`${r.firm}/${r.slug}`} firm={r.firm} slug={r.slug} /> : <ManageBooking key={r.token} token={r.token} firmSlug={firm} />}
       </QueryClientProvider>
     </I18nProvider>
   );
 }
 
+/** Client portal (`#/portal/{firm}/…`): its own tokens/http client; never touches the staff session. */
+function usePortalRoute() {
+  const read = () => (typeof location === 'undefined' ? null : parsePortalHash(location.hash));
+  const [r, setR] = useState(read);
+  useEffect(() => { const on = () => setR(read()); addEventListener('hashchange', on); return () => removeEventListener('hashchange', on); }, []);
+  return r;
+}
+
 export function App() {
+  const portal = usePortalRoute();
   const pub = usePublicRoute();
-  return pub ? <PublicApp r={pub} /> : <StaffApp />;
+  return portal ? <PortalRoot loc={portal} /> : pub ? <PublicApp r={pub} /> : <StaffApp />;
 }
 
 function StaffApp() {

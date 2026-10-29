@@ -18,9 +18,10 @@ import { useEntityLabel } from './labels';
 import { ClientBillingTab } from '../billing/ClientBillingTab';
 import { TimelineTab } from '../comm/TimelineTab';
 import { ClientNoticesTab } from '../practice/NoticesScreen';
+import { ClientPortalTab } from '../portal-admin/PortalAdmin';
 
 type Detail = Schemas['ClientDetail'];
-type Tab = 'overview' | 'notices' | 'timeline' | 'billing' | 'services' | 'documents' | 'credentials' | 'registers' | 'access' | 'merge';
+type Tab = 'overview' | 'notices' | 'timeline' | 'billing' | 'services' | 'documents' | 'credentials' | 'registers' | 'access' | 'merge' | 'portal';
 
 export const waLink = (phone: string) => `https://wa.me/${phone.replace(/\D/g, '').replace(/^(\d{10})$/, '91$1')}`;
 
@@ -53,6 +54,7 @@ export function Client360({ id }: { id: string }) {
     ...(c.can.vault ? [['credentials', `${t('client360.credentials')} (${c.counts.secrets})`] as [Tab, string]] : []),
     ...(c.counts.inward !== null ? [['registers', `${t('nav.registers')} (${c.counts.inward + (c.counts.outward ?? 0)})`] as [Tab, string]] : []),
     ...(c.can.edit ? [['access', t('client360.access')] as [Tab, string]] : []),
+    ...(can('clients', 'view') ? [['portal', t('p9.cp.tab')] as [Tab, string]] : []),
     ...(c.can.delete ? [['merge', t('client360.merge')] as [Tab, string]] : []),
   ];
   const panel = (k: Tab, node: ReactNode) => seen.has(k) && <div role="tabpanel" hidden={tab !== k} aria-label={tabs.find(([x]) => x === k)?.[1]}>{node}</div>;
@@ -90,6 +92,7 @@ export function Client360({ id }: { id: string }) {
       {panel('registers', <RegisterList clientId={c.id} />)}
       {panel('access', <AccessTab c={c} />)}
       {panel('merge', <MergeTab c={c} />)}
+      {panel('portal', <ClientPortalTab client={c} />)}
     </div>
   );
 }

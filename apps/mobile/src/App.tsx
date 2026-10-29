@@ -15,6 +15,9 @@ import { flushSignatures } from './net';
 import { useBillingPerms } from './screens/Billing';
 import { Stack } from './screens/Stack';
 import { useChatUnread } from './screens/Comm';
+import { useLeadPerms } from './screens/Leads';
+import { PortalRoot } from './portal/PortalApp';
+import { usePortal } from './portal/session';
 
 const t = createTranslator('en-IN', { product: PRODUCT.name });
 const qc = new QueryClient({ defaultOptions: { queries: { retry: 1 } } });
@@ -24,6 +27,13 @@ export function App() {
   const { tokens, ready, init } = useSession();
   useEffect(() => { void init(); }, [init]);
   useEffect(() => { if (!tokens) qc.clear(); }, [tokens]);
+  // Phase 9 design: client portal = a separate MODE of this app ("I'm a client" on the login screen), not a separate app.
+  // Portal mode has its own secure token key + HTTP client (./portal/session) and never starts the staff sync engine,
+  // realtime, notifications or remote-wipe paths: those run only while a STAFF session exists (sessionKey below).
+  const portal = usePortal();
+  const portalInit = portal.init;
+  useEffect(() => { void portalInit(); }, [portalInit]);
+  const [portalMode, setPortalMode] = useState(false);
   // Restart sync only when the signed-in session changes, not on every token refresh.
   const sessionKey = tokens ? `${tokens.tenantId}:${tokens.userId}:${tokens.sessionId}` : '';
   useEffect(() => {
@@ -35,14 +45,15 @@ export function App() {
       <QueryClientProvider client={qc}>
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }}>
           <StatusBar style={theme.name === 'dark' ? 'light' : 'dark'} />
-          {!ready ? <ActivityIndicator style={{ flex: 1 }} /> : tokens ? <Tabs theme={theme} /> : <Login theme={theme} />}
+          {!ready || !portal.ready ? <ActivityIndicator style={{ flex: 1 }} /> : tokens ? <Tabs theme={theme} />
+            : portalMode || portal.tokens ? <PortalRoot theme={theme} onStaff={() => setPortalMode(false)} /> : <Login theme={theme} onClient={() => setPortalMode(true)} />}
         </SafeAreaView>
       </QueryClientProvider>
     </SafeAreaProvider>
   );
 }
 
-function Login({ theme }: { theme: Theme }) {
+function Login({ theme, onClient }: { theme: Theme; onClient(): void }) {
   const s = styles(theme);
   const { setTokens, wiped } = useSession();
   const [firm, setFirm] = useState('');
@@ -80,6 +91,9 @@ function Login({ theme }: { theme: Theme }) {
       <Pressable style={[s.button, busy && { opacity: 0.5 }]} disabled={busy} onPress={submit} accessibilityRole="button">
         <Text style={s.buttonText}>{sent ? t('auth.signIn') : t('auth.sendOtp')}</Text>
       </Pressable>
+      <Pressable style={{ minHeight: 48, justifyContent: 'center', marginTop: 16 }} onPress={onClient} accessibilityRole="button" accessibilityHint={t('m.portal.clientEntryHint')}>
+        <Text style={{ color: theme.primary, textAlign: 'center', fontWeight: '600' }}>{t('m.portal.clientEntry')}</Text>
+      </Pressable>
     </View>
   );
 }
@@ -88,7 +102,7 @@ function Tabs({ theme }: { theme: Theme }) {
   const s = styles(theme);
   const [tab, setTab] = useState<Tab>('home');
   const current = TABS.find((x) => x.key === tab)!;
-  const [sub, setSub] = useState<'registers' | 'collections' | 'hr' | 'chat' | 'calendar' | 'appointments' | 'practice' | null>(null);
+  const [sub, setSub] = useState<'registers' | 'collections' | 'hr' | 'chat' | 'calendar' | 'appointments' | 'practice' | 'leads' | null>(null);
   useSignatureRetry();
   return (
     <View style={{ flex: 1 }}>
@@ -197,7 +211,7 @@ function Home({ theme }: { theme: Theme }) {
   );
 }
 
-function More({ theme, onRegisters, onCollections, onHr, onOpen }: { theme: Theme; onRegisters(): void; onCollections(): void; onHr(): void; onOpen(x: 'chat' | 'calendar' | 'appointments' | 'practice'): void }) {
+function More({ theme, onRegisters, onCollections, onHr, onOpen }: { theme: Theme; onRegisters(): void; onCollections(): void; onHr(): void; onOpen(x: 'chat' | 'calendar' | 'appointments' | 'practice' | 'leads'): void }) {
   const s = styles(theme);
   const qcl = useQueryClient();
   const setTokens = useSession((x) => x.setTokens);
@@ -209,6 +223,7 @@ function More({ theme, onRegisters, onCollections, onHr, onOpen }: { theme: Them
   const active = useMemo(() => (sessions.data ?? []).filter((x) => !x.revokedAt), [sessions.data]);
   const billing = useBillingPerms().view;
   const unread = useChatUnread();
+  const leads = useLeadPerms().view;
   return (
     <View style={{ flex: 1 }}>
       {([['chat', 'message-square', 'm.chat.title'], ['calendar', 'calendar', 'm.cal.title'], ['appointments', 'user-check', 'm.cal.appointments']] as const).map(([k, icon, label]) => (
@@ -219,6 +234,11 @@ function More({ theme, onRegisters, onCollections, onHr, onOpen }: { theme: Them
           <Feather name="chevron-right" size={18} color={theme.textMuted} />
         </Pressable>
       ))}
+      {leads && <Pressable style={[s.row, { minHeight: 48 }]} onPress={() => onOpen('leads')} accessibilityRole="button">
+        <Feather name="trending-up" size={18} color={theme.primary} style={{ marginRight: 10 }} />
+        <Text style={[s.text, { flex: 1 }]}>{t('m.lead.title')}</Text>
+        <Feather name="chevron-right" size={18} color={theme.textMuted} />
+      </Pressable>}
       <Pressable style={[s.row, { minHeight: 48 }]} onPress={() => onOpen('practice')} accessibilityRole="button">
         <Feather name="file-text" size={18} color={theme.primary} style={{ marginRight: 10 }} />
         <Text style={[s.text, { flex: 1 }]}>{t('m.notice.hub')}</Text>
