@@ -8,6 +8,7 @@ import { DbService, type Tx } from '../db/db.service.js';
 import { uuidv7 } from '../db/ids.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { SyncService } from '../sync/sync.service.js';
+import { udinGateError } from '../practice/udin-gate.js';
 import { actorChangeError, canTaskRow, checkPeopleAndRevoke, stateOf, taskScopeSql, ymd } from './scope.js';
 
 export type TaskListQ = {
@@ -117,6 +118,8 @@ export class TasksService {
       if (!(await canTaskRow(a, outcome === 'deleted' ? 'delete' : 'edit', cur, tx))) throw new ForbiddenException();
       const why = closeError(stateOf(cur), outcome);
       if (why) throw new BadRequestException({ message: 'Rejected', code: why });
+      // M8: closing an audit task as billed/free needs its UDIN recorded (D116).
+      if (outcome !== 'deleted') { const g = await udinGateError(tx, id); if (g) throw new BadRequestException({ message: 'Record the UDIN before closing this audit task', code: g }); }
       let res = await this.sync.serverPatch(tx, a, 'task', id, { outcome, outcome_note: note ?? null, closed_at: new Date().toISOString(), closed_by: a.userId });
       if (outcome === 'deleted') {
         res = { version: 0, cursor: Number((await tx.query('UPDATE task SET deleted_at = now(), updated_by = $2 WHERE id = $1 RETURNING sync_cursor', [id, a.userId])).rows[0].sync_cursor) };

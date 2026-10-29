@@ -3698,10 +3698,884 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/notices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description notices:view; client-scoped (clients:view AND notices:view). */
+        get: operations["listNotices"];
+        put?: never;
+        /** @description notices:create. Auto-creates the reply task (act-by = response due − buffer) unless createTask=false. */
+        post: operations["createNotice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notices/reports/ageing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Open notices by age bucket and authority/level with demand totals (visible clients only). */
+        get: operations["noticeAgeing"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notices/extract": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description notices:create. Uploads the notice (document, category Notices) and returns field suggestions with confidence. Nothing is applied until confirmed. */
+        post: operations["extractNotice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notices/extractions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description notices:view. */
+        get: operations["getNoticeExtraction"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notices/extractions/{id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Applies only the confirmed fields (values may be corrected); creates the notice if none linked. */
+        post: operations["confirmNoticeExtraction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notices/extractions/{id}/discard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description notices:create. */
+        post: operations["discardNoticeExtraction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notices/hearings/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description notices:edit. Prep done, held/cancelled, venue. */
+        patch: operations["updateHearing"];
+        trace?: never;
+    };
+    "/notices/hearings/{id}/adjourn": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Marks the hearing adjourned and schedules the next one (new calendar event + reminders). */
+        post: operations["adjournHearing"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notices/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description notices:view; 404 when invisible. */
+        get: operations["getNotice"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description notices:edit. Status changes go through /status. */
+        patch: operations["updateNotice"];
+        trace?: never;
+    };
+    "/notices/{id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Workflow received→under_review→drafting→submitted→hearing→closed; invalid moves 400 invalid_transition; closing needs an outcome. */
+        post: operations["setNoticeStatus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notices/{id}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Links a document of the same client (notice/reply/order/evidence/other). */
+        post: operations["linkNoticeDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notices/{id}/hearings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Creates a hearing, a calendar event (kind hearing) for the assignee and reminders. */
+        post: operations["addHearing"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/audit/programmes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description audit:view. */
+        get: operations["listAuditProgrammes"];
+        put?: never;
+        /** @description Firm-wide audit:create. Sections → procedures with required evidence (data). */
+        post: operations["createAuditProgramme"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/audit/programmes/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description Firm-wide audit:edit. Running engagements keep their snapshot. */
+        patch: operations["updateAuditProgramme"];
+        trace?: never;
+    };
+    "/audit/engagements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Client-scoped (clients:view AND audit:view). */
+        get: operations["listAuditEngagements"];
+        put?: never;
+        /** @description Client × FY × audit type; instantiates the programme procedures and a linked task (UDIN gate). */
+        post: operations["createAuditEngagement"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/audit/engagements/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Procedures with sign-off state, PBC list, UDINs, progress and the ICAI portal link. */
+        get: operations["getAuditEngagement"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description audit:edit. Closing needs the UDIN when required. */
+        patch: operations["updateAuditEngagement"];
+        trace?: never;
+    };
+    "/audit/engagements/{id}/pbc": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Items requested from the client. */
+        post: operations["addPbcItems"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/audit/engagements/{id}/pbc/remind": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Transactional reminder for open items through the comm pipeline (consent, quiet hours, caps). */
+        post: operations["remindPbc"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/audit/pbc/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description requested/received/accepted/rejected, linked client documents. */
+        patch: operations["updatePbcItem"];
+        trace?: never;
+    };
+    "/audit/procedures/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description N/A flag and conclusion; locked once reviewed. */
+        patch: operations["updateAuditProcedure"];
+        trace?: never;
+    };
+    "/audit/procedures/{id}/signoff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description preparer → reviewer (audit:approve, not the preparer) → partner (engagement partner or firm-wide audit:approve). Codes: self_review, preparer_signoff_required, reviewer_signoff_required, already_signed, evidence_changed (409). */
+        post: operations["signAuditProcedure"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/audit/procedures/{id}/reopen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Partner only; clears sign-offs with a reason (append-only trail). */
+        post: operations["reopenAuditProcedure"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/audit/procedures/{id}/trail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Sign-off history (signed/invalidated/reopened). */
+        get: operations["auditProcedureTrail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/audit/procedures/{id}/workpapers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Linked documents with linked vs current version. */
+        get: operations["listWorkpapers"];
+        put?: never;
+        /** @description Links (or refreshes) a client document as evidence; invalidates existing sign-offs. */
+        post: operations["linkWorkpaper"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/audit/workpapers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Unlinks evidence; invalidates sign-offs. */
+        delete: operations["unlinkWorkpaper"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/audit/udins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Client-scoped. */
+        get: operations["listUdins"];
+        put?: never;
+        /** @description Records a UDIN generated on the ICAI portal: format check, membership no. must match, unique per firm (409 udin_duplicate). */
+        post: operations["recordUdin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/audit/udins/{id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description audit:approve. Revoked UDINs no longer satisfy the close gate. */
+        post: operations["revokeUdin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/audit/udin-portal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Deep link to the official ICAI UDIN portal (never imitated). */
+        get: operations["udinPortal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dsc": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description dsc:view. Client-held: client-scoped; staff-held: firm-wide scope or holder/custodian. */
+        get: operations["listDsc"];
+        put?: never;
+        /** @description Metadata only. Any PIN/password-like field is refused (400 secret_not_allowed). */
+        post: operations["createDsc"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dsc/custody/{id}/acknowledge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Receiving staff acknowledges; for client/office hand-overs the recorder enters the receiver name. */
+        post: operations["acknowledgeDscCustody"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dsc/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description With custody log and days left. */
+        get: operations["getDsc"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description dsc:edit. A new valid-to restarts the alert cycle. */
+        patch: operations["updateDsc"];
+        trace?: never;
+    };
+    "/dsc/{id}/custody": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Custody movement (in office / with client / with staff). */
+        post: operations["moveDscCustody"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/licences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description compliance:view, client-scoped. */
+        get: operations["listLicences"];
+        put?: never;
+        /** @description compliance:create. Licence type is data (trade_licence, fssai, iec, udyam, professional_tax, shops_establishment…). */
+        post: operations["createLicence"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/licences/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description compliance:edit. New validity/renewal date restarts alerts. */
+        patch: operations["updateLicence"];
+        trace?: never;
+    };
+    "/practice/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description settings:view. */
+        get: operations["getPracticeSettings"];
+        /** @description Firm-wide settings:edit. Notice buffer/escalation, DSC/licence thresholds, PBC reminders, AI extraction opt-in. */
+        put: operations["putPracticeSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/practice/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Firm-wide settings:edit. Runs the daily job now (idempotent): notice escalations, expiry alerts + renewal tasks, PBC reminders. */
+        post: operations["runPracticeDaily"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/esign/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description documents:view; requests with at least one visible document. */
+        get: operations["listEsignRequests"];
+        put?: never;
+        /** @description documents:edit on every document. One or many documents (bulk), signers (client contacts/staff), parallel or sequential. */
+        post: operations["createEsignRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/esign/requests/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Per-item status, signers (masked ids only), signed version and certificate. */
+        get: operations["getEsignRequest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/esign/requests/{id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Re-sends failed items (new signer links). */
+        post: operations["retryEsignRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/esign/requests/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Cancels open items; links stop working. */
+        post: operations["cancelEsignRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/esign/sign/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Public signed signer link → provider signing URL. 409 not_your_turn in sequential mode. */
+        get: operations["openEsignLink"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/esign/webhooks/{provider}/{tenantId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Public. HMAC-SHA256 of the raw body (x-worko-signature / x-asp-signature); idempotent per event id; mock only outside production. */
+        post: operations["esignWebhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        Notice: {
+            id?: string;
+            clientId?: string;
+            clientName?: string | null;
+            authority?: string;
+            level?: string;
+            section?: string | null;
+            referenceNo?: string | null;
+            din?: string | null;
+            title?: string;
+            issueDate?: string | null;
+            receivedOn?: string;
+            responseDue?: string | null;
+            assessmentYear?: string | null;
+            financialYear?: string | null;
+            demandPaise?: number;
+            /** @enum {string} */
+            status?: "received" | "under_review" | "drafting" | "submitted" | "hearing" | "closed";
+            outcome?: string | null;
+            assigneeId?: string | null;
+            reviewerId?: string | null;
+            taskId?: string | null;
+            version?: number;
+            documents?: Record<string, never>[];
+            hearings?: Record<string, never>[];
+        };
+        NoticeIn: {
+            /** Format: uuid */
+            clientId: string;
+            /** @enum {string} */
+            authority: "income_tax" | "gst" | "tds" | "roc" | "customs" | "labour" | "other";
+            level?: string;
+            section?: string | null;
+            referenceNo?: string | null;
+            din?: string | null;
+            title: string;
+            description?: string | null;
+            /** Format: date */
+            issueDate?: string | null;
+            /** Format: date */
+            receivedOn?: string;
+            /** Format: date */
+            responseDue?: string | null;
+            assessmentYear?: string | null;
+            financialYear?: string | null;
+            period?: string | null;
+            demandPaise?: number;
+            assigneeId?: string | null;
+            reviewerId?: string | null;
+            createTask?: boolean;
+            appealOf?: string | null;
+        };
+        NoticeExtraction: {
+            id?: string;
+            documentId?: string;
+            provider?: string;
+            /** @enum {string} */
+            status?: "pending" | "confirmed" | "discarded";
+            suggestions?: {
+                field?: string;
+                value?: string | number;
+                confidence?: number;
+                source?: string;
+            }[];
+        };
+        ExtractionConfirm: {
+            fields: {
+                [key: string]: string | number;
+            };
+            title?: string;
+            level?: string;
+            assigneeId?: string | null;
+            reviewerId?: string | null;
+        };
+        NoticeAgeing: {
+            asOf?: string;
+            open?: number;
+            overdue?: number;
+            demandPaise?: number;
+            buckets?: {
+                bucket?: string;
+                count?: number;
+                demandPaise?: number;
+            }[];
+            byAuthority?: Record<string, never>[];
+        };
+        HearingIn: {
+            /** Format: date-time */
+            startsAt: string;
+            /** Format: date-time */
+            endsAt?: string | null;
+            venue?: string | null;
+            virtualLink?: string | null;
+            reason?: string | null;
+        };
+        Udin: {
+            id?: string;
+            clientId?: string;
+            engagementId?: string | null;
+            taskId?: string | null;
+            udin?: string;
+            documentType?: string;
+            generatedOn?: string;
+            membershipNo?: string;
+            revokedAt?: string | null;
+        };
+        /** @description Metadata only — there is no PIN/password field. */
+        Dsc: {
+            id?: string;
+            clientId?: string | null;
+            /** @enum {string} */
+            holderKind?: "client_contact" | "staff";
+            holderName?: string;
+            dscClass?: string;
+            /** @enum {string} */
+            dscType?: "sign" | "encrypt" | "combo";
+            issuer?: string;
+            serialNo?: string | null;
+            validFrom?: string;
+            validTo?: string;
+            /** @enum {string} */
+            custody?: "in_office" | "with_client" | "with_staff";
+            custodyUserId?: string | null;
+            renewalTaskId?: string | null;
+            custodyLog?: Record<string, never>[];
+        };
+        DscIn: {
+            clientId?: string | null;
+            /** @enum {string} */
+            holderKind: "client_contact" | "staff";
+            contactId?: string | null;
+            holderUserId?: string | null;
+            holderName?: string | null;
+            dscClass: string;
+            /** @enum {string} */
+            dscType: "sign" | "encrypt" | "combo";
+            issuer: string;
+            serialNo?: string | null;
+            /** Format: date */
+            validFrom: string;
+            /** Format: date */
+            validTo: string;
+            tokenLabel?: string | null;
+            /** @enum {string} */
+            custody?: "in_office" | "with_client" | "with_staff";
+            custodyUserId?: string | null;
+            notes?: string | null;
+        };
         /** @enum {string} */
         CommChannel: "email" | "whatsapp" | "sms";
         CommTemplate: {
@@ -12259,6 +13133,1296 @@ export interface operations {
         responses: {
             201: components["responses"]["Booking"];
             409: components["responses"]["Error"];
+        };
+    };
+    listNotices: {
+        parameters: {
+            query?: {
+                clientId?: string;
+                status?: string;
+                authority?: string;
+                open?: string;
+                overdue?: string;
+                assigneeId?: string;
+                q?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        total: number;
+                        items: components["schemas"]["Notice"][];
+                    };
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    createNotice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NoticeIn"];
+            };
+        };
+        responses: {
+            201: components["responses"]["Created"];
+            400: components["responses"]["Error"];
+        };
+    };
+    noticeAgeing: {
+        parameters: {
+            query?: {
+                asOf?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoticeAgeing"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    extractNotice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                    /** Format: uuid */
+                    clientId: string;
+                    /** Format: uuid */
+                    noticeId?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Suggestions */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoticeExtraction"];
+                };
+            };
+        };
+    };
+    getNoticeExtraction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoticeExtraction"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    confirmNoticeExtraction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExtractionConfirm"];
+            };
+        };
+        responses: {
+            /** @description Applied */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        noticeId?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    discardNoticeExtraction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Done */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    updateHearing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Done */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    adjournHearing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HearingIn"];
+            };
+        };
+        responses: {
+            201: components["responses"]["Created"];
+            400: components["responses"]["Error"];
+        };
+    };
+    getNotice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Notice"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    updateNotice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Done */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    setNoticeStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Done */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    linkNoticeDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Done */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    addHearing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HearingIn"];
+            };
+        };
+        responses: {
+            201: components["responses"]["Created"];
+            400: components["responses"]["Error"];
+        };
+    };
+    listAuditProgrammes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>[];
+                };
+            };
+        };
+    };
+    createAuditProgramme: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            201: components["responses"]["Created"];
+            400: components["responses"]["Error"];
+        };
+    };
+    updateAuditProgramme: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Done */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    listAuditEngagements: {
+        parameters: {
+            query?: {
+                clientId?: string;
+                fy?: string;
+                status?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    createAuditEngagement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            201: components["responses"]["Created"];
+            400: components["responses"]["Error"];
+        };
+    };
+    getAuditEngagement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    updateAuditEngagement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Done */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    addPbcItems: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ids?: string[];
+                    };
+                };
+            };
+        };
+    };
+    remindPbc: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Sent */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        sent?: number;
+                        skipped?: Record<string, never>[];
+                    };
+                };
+            };
+        };
+    };
+    updatePbcItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Done */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    updateAuditProcedure: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Done */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    signAuditProcedure: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Done */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    reopenAuditProcedure: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Done */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    auditProcedureTrail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>[];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    listWorkpapers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>[];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    linkWorkpaper: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Linked */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    unlinkWorkpaper: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Done */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    listUdins: {
+        parameters: {
+            query?: {
+                clientId?: string;
+                engagementId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Udin"][];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    recordUdin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            201: components["responses"]["Created"];
+            400: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    revokeUdin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Done */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    udinPortal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        url?: string;
+                        note?: string;
+                    };
+                };
+            };
+        };
+    };
+    listDsc: {
+        parameters: {
+            query?: {
+                clientId?: string;
+                custody?: string;
+                expiringWithinDays?: number;
+                firm?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dsc"][];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    createDsc: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DscIn"];
+            };
+        };
+        responses: {
+            201: components["responses"]["Created"];
+            400: components["responses"]["Error"];
+        };
+    };
+    acknowledgeDscCustody: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Done */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    getDsc: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dsc"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    updateDsc: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Done */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    moveDscCustody: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            201: components["responses"]["Created"];
+            400: components["responses"]["Error"];
+        };
+    };
+    listLicences: {
+        parameters: {
+            query?: {
+                clientId?: string;
+                status?: string;
+                dueWithinDays?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>[];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    createLicence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            201: components["responses"]["Created"];
+            400: components["responses"]["Error"];
+        };
+    };
+    updateLicence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Done */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    getPracticeSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    putPracticeSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    runPracticeDaily: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Ran */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    listEsignRequests: {
+        parameters: {
+            query?: {
+                status?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    createEsignRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            400: components["responses"]["Error"];
+        };
+    };
+    getEsignRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    retryEsignRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Retried */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            409: components["responses"]["Error"];
+        };
+    };
+    cancelEsignRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Done */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    openEsignLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        documentName?: string;
+                        signerName?: string;
+                        signingUrl?: string | null;
+                    };
+                };
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    esignWebhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: "mock" | "asp";
+                tenantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Processed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Error"];
         };
     };
 }

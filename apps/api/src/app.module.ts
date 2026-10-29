@@ -74,6 +74,14 @@ import { ChatService } from './comm/chat.service.js';
 import { CommController, TimelineController } from './comm/comm.controller.js';
 import { CommService } from './comm/comm.service.js';
 import { ConnectionsService } from './comm/connections.service.js';
+import { AuditWorkService } from './practice/audit.service.js';
+import { DscService } from './practice/dsc.service.js';
+import { ESIGN_PROVIDERS, esignProvidersFactory } from './practice/esign.provider.js';
+import { EsignService } from './practice/esign.service.js';
+import { NOTICE_EXTRACTORS, noticeExtractorsFactory } from './practice/extractor.js';
+import { NoticesService } from './practice/notices.service.js';
+import { AuditWorkController, DscController, EsignController, NoticesController } from './practice/practice.controller.js';
+import { PracticeService } from './practice/practice.service.js';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ limit: Number(process.env.RATE_LIMIT ?? 300), ttl: 60_000 }])],
@@ -81,7 +89,8 @@ import { ConnectionsService } from './comm/connections.service.js';
     SyncController, NotificationsController, TeamsController,
     ImportController, ClientsController, VaultController, DocumentsController, RegistersController,
     TasksController, ComplianceController, BillingController, TimeController, HrController,
-    CommController, TimelineController, ChatController, CalendarController, BookingAdminController, BookingPublicController],
+    CommController, TimelineController, ChatController, CalendarController, BookingAdminController, BookingPublicController,
+    NoticesController, AuditWorkController, DscController, EsignController],
   providers: [
     DbService, AuditService, TokenService, AuthService, TenancyService, UsersService, RulesService,
     RealtimeService, RealtimeGateway, JobQueueService, SyncService, NotificationsService,
@@ -92,6 +101,9 @@ import { ConnectionsService } from './comm/connections.service.js';
     BillingConfigService, InvoicesService, ReceiptsService, BillingAutoService, BillingReportsService, CollectionsService,
     TimeService, TimeReportsService, HrConfigService, AttendanceService, LeaveService, ExpensesService,
     CommService, BroadcastService, ChatService, CalendarService, ConnectionsService,
+    NoticesService, AuditWorkService, DscService, EsignService, PracticeService,
+    { provide: NOTICE_EXTRACTORS, useFactory: noticeExtractorsFactory },
+    { provide: ESIGN_PROVIDERS, useFactory: esignProvidersFactory },
     { provide: MockChannelHub, useFactory: () => new MockChannelHub() },
     { provide: COMM_CHANNELS_TOKEN, useFactory: channelAdaptersFactory, inject: [MockChannelHub] },
     { provide: INBOUND_PROVIDERS, useFactory: inboundProvidersFactory },

@@ -267,6 +267,28 @@ describe('demo seed', () => {
     expect((await http().get('/v1/notifications').set(A).expect(200)).body.some((n: { category: string }) => n.category === 'chat.mentioned')).toBe(true);
     expect((await http().get('/v1/calendar/events?from=2026-10-15&to=2026-10-31').set(M).expect(200)).body.filter((i: { source: string }) => i.source === 'event').length).toBeGreaterThanOrEqual(3);
     expect((await http().get('/v1/booking/appointments').set(P).expect(200)).body).toHaveLength(2);
+    // Phase 8: notices (overdue + hearing tomorrow + pending extraction), audit engagement with mixed sign-offs/PBC/UDIN gate, DSCs, licences, e-sign.
+    const nts = (await http().get('/v1/notices?limit=100').set(P).expect(200)).body.items as Array<{ authority: string; status: string; taskId: string | null }>;
+    expect(nts).toHaveLength(6);
+    expect(new Set(nts.map((n) => n.authority))).toEqual(new Set(['income_tax', 'gst', 'tds', 'roc']));
+    expect(new Set(nts.map((n) => n.status))).toEqual(new Set(['drafting', 'received', 'submitted', 'closed', 'hearing']));
+    expect((await http().get('/v1/notices/reports/ageing?asOf=2026-10-15').set(P).expect(200)).body).toMatchObject({ open: 4, overdue: 1 });
+    expect((await q<{ n: number }>(`SELECT count(*)::int AS n FROM notice_hearing WHERE starts_at::date = '2026-10-16'`))[0]!.n).toBe(1);
+    expect((await q<{ n: number }>(`SELECT count(*)::int AS n FROM notice_extraction WHERE status = 'pending'`))[0]!.n).toBe(1);
+    const engs = (await http().get('/v1/audit/engagements').set(P).expect(200)).body.items as Array<{ id: string; udinRecorded: boolean; taskId: string }>;
+    expect(engs.map((e) => e.udinRecorded).sort()).toEqual([false, true]);
+    const pending = engs.find((e) => !e.udinRecorded)!;
+    const eng = (await http().get(`/v1/audit/engagements/${pending.id}`).set(M).expect(200)).body;
+    expect(eng.progress).toEqual({ total: 8, prepared: 6, reviewed: 4, partner: 2 });
+    expect(new Set(eng.pbc.map((x: { status: string }) => x.status))).toEqual(new Set(['accepted', 'received', 'requested']));
+    expect((await http().post(`/v1/tasks/${pending.taskId}/close`).set(P).send({ outcome: 'billed' }).expect(400)).body.code).toBe('udin_required');
+    expect((await http().get('/v1/audit/udins').set(P).expect(200)).body).toHaveLength(1);
+    const dscs = (await http().get('/v1/dsc').set(P).expect(200)).body as Array<{ validTo: string; clientId: string | null }>;
+    expect(dscs.map((d) => d.validTo)).toEqual(['2026-10-10', '2026-10-22', '2026-11-14', '2026-12-14', '2027-11-19']);
+    expect((await http().post('/v1/practice/run').set(P).send({ asOf: '2026-10-15' }).expect(201)).body.expiryAlerts).toBeGreaterThanOrEqual(4);
+    expect((await http().get('/v1/licences').set(P).expect(200)).body).toHaveLength(6);
+    const es = (await http().get('/v1/esign/requests').set(P).expect(200)).body.items as Array<{ status: string; bulk: boolean }>;
+    expect(es.map((r) => `${r.status}:${r.bulk}`).sort()).toEqual(['completed:false', 'in_progress:true']);
     app.get(Clock).set(new Date('2026-10-15T12:00:00+05:30')); // slots depend on "now"
     try { expect((await http().get('/v1/book/demo/consult?from=2026-10-16&to=2026-10-22').expect(200)).body.slots.length).toBeGreaterThan(10); } finally { app.get(Clock).set(null); }
   });
