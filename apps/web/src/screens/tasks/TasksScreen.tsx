@@ -9,6 +9,7 @@ import { toast } from '../../components/Toast';
 import { todayIst, useDebounced } from '../../lib/http';
 import { useT } from '../../lib/i18n';
 import { useCan } from '../../lib/me';
+import { isUuid, useRoute } from '../../lib/router';
 import { api, unwrap } from '../../lib/session';
 import { AutoCreateWizard } from './AutoCreateWizard';
 import { BulkBar } from './BulkBar';
@@ -39,7 +40,9 @@ export function TasksScreen() {
   const [q, setQ] = useState('');
   const dq = useDebounced(q.trim(), 300);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [openId, setOpenId] = useState<string | null>(null);
+  // `#/tasks/<id>` (report drill-through) opens the task drawer.
+  const deepId = useRoute((s) => s.params[0]);
+  const [openId, setOpenId] = useState<string | null>(isUuid(deepId) ? deepId : null);
   const [creating, setCreating] = useState(false);
   const [auto, setAuto] = useState(false);
 

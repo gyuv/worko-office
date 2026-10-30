@@ -4,7 +4,6 @@ import { randomBytes } from 'node:crypto';
 import { AuditService } from '../audit/audit.service.js';
 import type { RequestActor } from '../auth/context.js';
 import { loadTeamIds, loadUserRoles } from '../auth/roles.repo.js';
-import { publicBase } from '../billing/providers.js';
 import { Params } from '../clients/scope.js';
 import { Clock } from '../common/clock.js';
 import { CommService } from '../comm/comm.service.js';
@@ -15,6 +14,8 @@ import { insertNotifications } from '../notifications/insert.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { renderRun, type ExportFormat } from './render.js';
 import { firmPublisher, ReportsService, tokenHash } from './reports.service.js';
+
+const webBase = () => (process.env.WEB_PUBLIC_URL ?? 'http://localhost:5173').replace(/\/+$/, '');
 
 export const SCHEDULE_JOB = 'reports.schedule';
 /** Consecutive failed periods before a schedule pauses itself (owner is told). */
@@ -214,7 +215,8 @@ export class ReportScheduleService implements OnModuleInit {
       const file = await renderRun(run, s.format as ExportFormat, String(s.name), run.definition.groupBy.length ? 'groups' : 'rows'); // name/mime/size; the file itself is re-rendered at download (D171)
       const token = randomBytes(32).toString('base64url');
       const expires = new Date(at.getTime() + Number(s.link_ttl_days) * 86_400_000);
-      const url = `${publicBase()}/reports/downloads/${token}`;
+      // Link to the web app's download page (it signs in and fetches with the user's session); the API path itself needs a bearer token.
+      const url = `${webBase()}/#/reports/download/${token}`;
       const sent = await this.db.tenantTx(tenantId, async (tx) => {
         const exportId = uuidv7();
         await tx.query(`INSERT INTO report_export (id, tenant_id, user_id, schedule_id, run_id, name, mime, size_bytes, row_count, token_hash, expires_at, format, period_key, device_id)

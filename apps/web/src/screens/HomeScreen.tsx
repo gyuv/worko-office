@@ -1,9 +1,11 @@
 import { useT } from '../lib/i18n';
-import { useMe } from '../lib/me';
+import { useCan, useMe } from '../lib/me';
+import { DashboardView } from './reports/Dashboard';
 
 export function HomeScreen() {
   const t = useT();
   const me = useMe().data;
+  const can = useCan();
   const h = Number(new Intl.DateTimeFormat('en-IN', { hour: 'numeric', hour12: false, timeZone: 'Asia/Kolkata' }).format(new Date()));
   const partOfDay = h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening';
   return (
@@ -13,6 +15,7 @@ export function HomeScreen() {
         <div className="card p-4"><div className="label">{t('home.firm')}</div><div className="text-lg">{me?.firmName}</div><div className="text-muted">{me?.firmSlug}</div></div>
         <div className="card p-4"><div className="label">{t('home.roles')}</div><div className="text-lg capitalize">{me?.roles.join(', ')}</div></div>
       </div>
+      {can('reports', 'view') && <DashboardView />}
     </div>
   );
 }

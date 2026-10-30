@@ -256,8 +256,8 @@ describe('scheduled reports', () => {
     const mails = hub.outbox.slice(before).filter((m) => m.subject === 'Report ready: Weekly open tasks');
     expect(mails.map((m) => m.to).sort()).toEqual(['manager@demo.worko.in', 'partner@demo.worko.in']);
     const titles = (await t.sql<{ title: string }>(`SELECT title FROM task WHERE tenant_id = $1 LIMIT 50`, [tenantId])).map((x) => x.title);
-    for (const m of mails) { expect(m.text).toMatch(/\/reports\/downloads\/[A-Za-z0-9_-]{40,}/); for (const ti of titles) expect(m.text).not.toContain(ti); }
-    const token = (u: string) => /\/reports\/downloads\/([A-Za-z0-9_-]+)/.exec(mails.find((m) => m.to === u)!.text)![1]!;
+    for (const m of mails) { expect(m.text).toMatch(/\/#\/reports\/download\/[A-Za-z0-9_-]{40,}/); for (const ti of titles) expect(m.text).not.toContain(ti); }
+    const token = (u: string) => /#\/reports\/download\/([A-Za-z0-9_-]+)/.exec(mails.find((m) => m.to === u)!.text)![1]!;
     const dl = await t.http().get(`/v1/reports/downloads/${token('partner@demo.worko.in')}`).set(H('partner')).expect(200);
     expect(dl.text.trim().split('\r\n')).toHaveLength(pr.groups.length + 2); // grouped report: header + one line per group + total
     await t.http().get(`/v1/reports/downloads/${token('partner@demo.worko.in')}`).set(H('manager')).expect(404); // recipient-bound

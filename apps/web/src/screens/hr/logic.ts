@@ -100,15 +100,17 @@ export const HEAT_STYLE: Record<HeatBucket, string> = {
 
 // ---------- Job P&L ----------
 
-export type PnlItem = { key: string; label: string; revenuePaise: number; costPaise: number | null; marginPaise: number | null; wipPaise: number; minutes: number; loss: boolean };
+/** revenue/WIP/margin/loss are null without fee visibility (`feesVisible: false`), cost/margin without cost visibility. */
+export type PnlItem = { key: string; label: string; revenuePaise: number | null; costPaise: number | null; marginPaise: number | null; wipPaise: number | null; minutes: number; loss: boolean | null };
 /** Column totals of the visible rows; cost/margin stay null when the API hides cost. */
 export function pnlTotals(items: PnlItem[]) {
   const costVisible = items.length > 0 && items.every((x) => x.costPaise !== null);
-  const revenuePaise = items.reduce((s, x) => s + x.revenuePaise, 0);
+  const feesVisible = items.every((x) => x.revenuePaise !== null);
+  const revenuePaise = feesVisible ? items.reduce((s, x) => s + (x.revenuePaise ?? 0), 0) : null;
   const costPaise = costVisible ? items.reduce((s, x) => s + (x.costPaise ?? 0), 0) : null;
-  const marginPaise = costPaise === null ? null : revenuePaise - costPaise;
-  return { revenuePaise, costPaise, marginPaise, marginPct: marginPaise === null || revenuePaise === 0 ? null : Math.round((marginPaise * 10_000) / revenuePaise) / 100,
-    wipPaise: items.reduce((s, x) => s + x.wipPaise, 0), minutes: items.reduce((s, x) => s + x.minutes, 0), losses: items.filter((x) => x.loss).length };
+  const marginPaise = costPaise === null || revenuePaise === null ? null : revenuePaise - costPaise;
+  return { revenuePaise, costPaise, marginPaise, marginPct: marginPaise === null || !revenuePaise ? null : Math.round((marginPaise * 10_000) / revenuePaise) / 100,
+    wipPaise: feesVisible ? items.reduce((s, x) => s + (x.wipPaise ?? 0), 0) : null, minutes: items.reduce((s, x) => s + x.minutes, 0), losses: items.filter((x) => x.loss).length };
 }
 
 // ---------- Expenses ----------

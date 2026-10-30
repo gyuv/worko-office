@@ -112,6 +112,24 @@ describe('phase 10 automation', () => {
     expect(b.definition.trigger).toEqual({ kind: 'event', event: 'invoice.issued' });
     expect(b.definition.conditions).toEqual({ all: [{ field: 'invoice.totalPaise', op: 'gt', value: 500000 }] });
   });
+
+  it('retry sends the attempts it saw; a second retry says "already retried" plainly', async () => {
+    const RUN = '0190a000-0000-7000-8000-0000000000b9';
+    const run = { id: RUN, ruleId: RID, ruleName: 'Overdue nudge', ruleVersion: 1, eventId: null, eventType: 'task.overdue', entityType: 'task', entityId: 't-1', subjectKey: null, step: 'first',
+      status: 'partial', skipReason: null, depth: 0, actionsTotal: 1, actionsDone: 0, costPaise: 0, error: null, attempts: 2, startedAt: '2026-10-29T05:00:00Z', finishedAt: null,
+      actions: [{ idx: 0, type: 'notify', status: 'failed', code: null, result: null, costPaise: 0, error: 'boom', attempts: 1, finishedAt: null }] };
+    routes[`GET /automation/runs/${RUN}`] = () => json(200, run);
+    let n = 0;
+    routes[`POST /automation/runs/${RUN}/retry`] = () => (++n === 1 ? json(200, { retried: 1, run }) : json(200, { retried: 0, skipped: 'already_retried', run }));
+    location.hash = `#/automation/runs/${RUN}`;
+    render(<App />);
+    const u = userEvent.setup();
+    await u.click(await screen.findByRole('button', { name: 'Retry failed actions' }));
+    await waitFor(() => expect(n).toBe(1));
+    expect(calls.find((c) => c.path.endsWith('/retry'))!.body).toEqual({ expectedAttempts: 2 });
+    await u.click(screen.getByRole('button', { name: 'Retry failed actions' }));
+    expect(await screen.findByText(/Already retried/)).toBeInTheDocument();
+  });
 });
 
 describe('phase 10 AI', () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { agentStates, aiFeatureVisible, allowedActions, approveBody, dryRunSummary, groupRunActions, routeForCategory, scheduleText, toRuleItem, toRunAction, toSuggestion, transition } from './automation';
+import { retryBody, retryOutcome } from './automation';
 
 const grants = [{ module: 'ai', action: 'create', scope: 'all' }];
 const on = { noAiMode: false, features: { draft_reply: 'ok', summarise: 'feature_disabled' }, firmCapReached: false, userCapReached: false, mock: true };
@@ -73,5 +74,14 @@ describe('rules, agents, schedule', () => {
     expect(routeForCategory('automation.alert', 'run1')).toEqual({ name: 'automation', runId: 'run1' });
     expect(routeForCategory('ai.suggestion')).toEqual({ name: 'aiInbox', id: undefined });
     expect(routeForCategory('task.due')).toBeNull();
+  });
+});
+
+describe('optimistic retry', () => {
+  it('sends attempts as last read and reports already_retried', () => {
+    expect(retryBody({ attempts: 2 })).toEqual({ expectedAttempts: 2 });
+    expect(retryBody(null)).toEqual({ expectedAttempts: 0 });
+    expect(retryOutcome({ retried: 0, skipped: 'already_retried' })).toEqual({ kind: 'already' });
+    expect(retryOutcome({ retried: 3 })).toEqual({ kind: 'retried', count: 3 });
   });
 });

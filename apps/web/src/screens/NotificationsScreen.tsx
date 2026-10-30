@@ -7,19 +7,21 @@ import { useEffect, useMemo, useState } from 'react';
 import { useT } from '../lib/i18n';
 import { desktop } from '../lib/platform';
 import { api, unwrap } from '../lib/session';
+import { ReportExportDownload } from './reports/Schedules';
 import { getEngine, getStore, syncNow, toReminder, useSync } from '../lib/sync';
 import type { LocalReminder } from '@worko/notify';
 
 /** Notifications from the local synced store — works offline and updates live across devices. */
 export function useNotifications() {
   const v = useSync((s) => s.versions.notification ?? 0);
-  const [rows, setRows] = useState<Array<LocalReminder & { requiresAck: boolean; escalationLevel: number }>>([]);
+  const [rows, setRows] = useState<Array<LocalReminder & { requiresAck: boolean; escalationLevel: number; entityType: string | null; entityId: string | null }>>([]);
   useEffect(() => {
     let live = true;
     void getStore()?.list('notification').then((list) => {
       if (!live) return;
       const now = new Date();
-      setRows(list.map((r) => ({ ...toReminder(r), requiresAck: !!r.fields.requires_ack, escalationLevel: Number(r.fields.escalation_level ?? 0) }))
+      setRows(list.map((r) => ({ ...toReminder(r), requiresAck: !!r.fields.requires_ack, escalationLevel: Number(r.fields.escalation_level ?? 0),
+        entityType: (r.fields.entity_type as string | null) ?? null, entityId: (r.fields.entity_id as string | null) ?? null }))
         .filter((r) => new Date(r.fireAt) <= now && !(r.snoozedUntil && new Date(r.snoozedUntil) > now))
         .sort((a, b) => b.fireAt.localeCompare(a.fireAt)));
     });
@@ -80,6 +82,7 @@ function Inbox() {
               <div className="min-w-0 flex-1">
                 <div className={`${n.readAt ? '' : 'font-semibold'}`}>{n.title}</div>
                 {n.body && <div className="text-muted">{n.body}</div>}
+                {n.category === 'report.ready' && n.entityType === 'report_export' && n.entityId && <ReportExportDownload id={n.entityId} />}
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
                   <span>{relativeTime(n.fireAt)}</span>
                   {n.escalationLevel > 0 && <span>· {t('notif.escalated', { level: n.escalationLevel })}</span>}

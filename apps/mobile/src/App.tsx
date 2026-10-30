@@ -20,6 +20,9 @@ import { PortalRoot } from './portal/PortalApp';
 import { usePortal } from './portal/session';
 import { routeForCategory, type Phase10Route } from './logic/automation';
 import { hasGrant } from './logic/billing';
+import { downloadToken } from './logic/reports';
+import { clearReportCache } from './reportCache';
+import { Linking } from 'react-native';
 
 const t = createTranslator('en-IN', { product: PRODUCT.name });
 const qc = new QueryClient({ defaultOptions: { queries: { retry: 1 } } });
@@ -29,6 +32,8 @@ export function App() {
   const { tokens, ready, init } = useSession();
   useEffect(() => { void init(); }, [init]);
   useEffect(() => { if (!tokens) qc.clear(); }, [tokens]);
+  // Signed out (logout, revoked, wiped): drop the offline dashboard copy too (D170).
+  useEffect(() => { if (ready && !tokens) void clearReportCache(); }, [ready, tokens]);
   // Phase 9 design: client portal = a separate MODE of this app ("I'm a client" on the login screen), not a separate app.
   // Portal mode has its own secure token key + HTTP client (./portal/session) and never starts the staff sync engine,
   // realtime, notifications or remote-wipe paths: those run only while a STAFF session exists (sessionKey below).
@@ -106,18 +111,20 @@ function Tabs({ theme }: { theme: Theme }) {
   const current = TABS.find((x) => x.key === tab)!;
   const [sub, setSub] = useState<'registers' | 'collections' | 'hr' | 'chat' | 'calendar' | 'appointments' | 'practice' | 'leads' | 'automation' | 'aiInbox' | null>(null);
   const [deep, setDeep] = useState<Phase10Route | null>(null);
+  const [homeRoot, setHomeRoot] = useState<{ name: 'dashboard' } | { name: 'reportDownloads'; token?: string; exportId?: string }>({ name: 'dashboard' });
+  useReportLinks((token) => { setHomeRoot({ name: 'reportDownloads', token }); setTab('home'); });
   const openLink = (r: Phase10Route) => { setDeep(r); setSub(r.name); setTab('more'); };
   useSignatureRetry();
   return (
     <View style={{ flex: 1 }}>
       <StatusStrip theme={theme} />
       <View style={{ flex: 1, padding: 16 }}>
-        {tab === 'home' ? <Home theme={theme} /> : tab === 'tasks' ? <Stack theme={theme} root={{ name: 'tasks' }} /> : tab === 'clients' ? <Stack theme={theme} root={{ name: 'clients' }} />
+        {tab === 'home' ? <Home theme={theme} root={homeRoot} /> : tab === 'tasks' ? <Stack theme={theme} root={{ name: 'tasks' }} /> : tab === 'clients' ? <Stack theme={theme} root={{ name: 'clients' }} />
           : tab === 'more' ? (sub ? <View style={{ flex: 1 }}>
             <Pressable onPress={() => { setSub(null); setDeep(null); }} accessibilityRole="button" style={{ minHeight: 48, justifyContent: 'center' }}>
               <Text style={{ color: theme.primary, fontWeight: '600' }}>{t('nav.more')}</Text></Pressable>
             <Stack key={deep ? JSON.stringify(deep) : sub} theme={theme} root={deep ?? { name: sub }} /></View>
-            : <More theme={theme} onRegisters={() => setSub('registers')} onCollections={() => setSub('collections')} onHr={() => setSub('hr')} onOpen={setSub} />) : tab === 'inbox' ? <Inbox theme={theme} onOpen={openLink} />
+            : <More theme={theme} onRegisters={() => setSub('registers')} onCollections={() => setSub('collections')} onHr={() => setSub('hr')} onOpen={setSub} />) : tab === 'inbox' ? <Inbox theme={theme} onOpen={openLink} onReport={(exportId) => { setHomeRoot({ name: 'reportDownloads', exportId }); setTab('home'); }} />
           : <Text style={s.muted}>{t('home.comingSoon', { module: t(current.label), phase: current.phase ?? 0 })}</Text>}
       </View>
       <View style={s.tabbar} accessibilityRole="tablist">
@@ -153,7 +160,7 @@ function StatusStrip({ theme }: { theme: Theme }) {
   );
 }
 
-type Item = ReturnType<typeof toReminder> & { requiresAck: boolean; escalationLevel: number };
+type Item = ReturnType<typeof toReminder> & { requiresAck: boolean; escalationLevel: number; entityId: string | null };
 
 function useInbox(): Item[] {
   const v = useSync((x) => x.versions.notification ?? 0);
@@ -163,7 +170,7 @@ function useInbox(): Item[] {
     void getStore()?.list('notification').then((list) => {
       if (!live) return;
       const now = new Date();
-      setRows(list.map((r) => ({ ...toReminder(r), requiresAck: !!r.fields.requires_ack, escalationLevel: Number(r.fields.escalation_level ?? 0) }))
+      setRows(list.map((r) => ({ ...toReminder(r), requiresAck: !!r.fields.requires_ack, escalationLevel: Number(r.fields.escalation_level ?? 0), entityId: typeof r.fields.entity_id === 'string' ? r.fields.entity_id : null }))
         .filter((r) => new Date(r.fireAt) <= now && !(r.snoozedUntil && new Date(r.snoozedUntil) > now))
         .sort((a, b) => b.fireAt.localeCompare(a.fireAt)));
     });
@@ -173,7 +180,7 @@ function useInbox(): Item[] {
 }
 
 /** Works offline: read/ack are local writes that sync when the connection returns. */
-function Inbox({ theme, onOpen }: { theme: Theme; onOpen(r: Phase10Route): void }) {
+function Inbox({ theme, onOpen, onReport }: { theme: Theme; onOpen(r: Phase10Route): void; onReport(exportId?: string): void }) {
   const s = styles(theme);
   const items = useInbox();
   const act = async (id: string, patch: Record<string, unknown>) => { await getEngine()?.write('notification', id, patch); void syncNow(); };
@@ -183,7 +190,7 @@ function Inbox({ theme, onOpen }: { theme: Theme; onOpen(r: Phase10Route): void 
       const urgent = item.priority === 'critical' || item.priority === 'high';
       const now = new Date().toISOString();
       return (
-        <Pressable style={s.row} onPress={() => { if (!item.readAt) void act(item.id, { read_at: now }); const link = routeForCategory(item.category); if (link) onOpen(link); }} accessibilityRole="button"
+        <Pressable style={s.row} onPress={() => { if (!item.readAt) void act(item.id, { read_at: now }); if (item.category === 'report.ready') { onReport(item.entityId ?? undefined); return; } const link = routeForCategory(item.category); if (link) onOpen(link); }} accessibilityRole="button"
           accessibilityHint={item.readAt ? undefined : t('notif.markRead')}>
           <Feather name={item.escalationLevel ? 'shield' : urgent ? 'alert-octagon' : 'bell'} size={18} color={urgent ? theme.status.overdue : theme.textMuted} style={{ marginRight: 10 }} />
           <View style={{ flex: 1 }}>
@@ -204,13 +211,26 @@ function Inbox({ theme, onOpen }: { theme: Theme; onOpen(r: Phase10Route): void 
 
 function useMe() { return useQuery({ queryKey: ['me'], queryFn: () => unwrap(api.GET('/me')) }); }
 
-function Home({ theme }: { theme: Theme }) {
+/** Scheduled-report links (https …/reports/downloads/{token} or worko://reports/downloads/{token}) open the download screen (D166). */
+function useReportLinks(onToken: (token: string) => void) {
+  useEffect(() => {
+    const handle = (url: string | null) => { const tok = downloadToken(url); if (tok) onToken(tok); };
+    void Linking.getInitialURL().then(handle).catch(() => undefined);
+    const sub = Linking.addEventListener('url', (e) => handle(e.url));
+    return () => sub.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+}
+
+function Home({ theme, root }: { theme: Theme; root: { name: 'dashboard' } | { name: 'reportDownloads'; token?: string; exportId?: string } }) {
   const s = styles(theme);
   const me = useMe().data;
   return (
-    <View>
+    <View style={{ flex: 1 }}>
       <Text style={s.h1}>{me ? t('home.greeting', { partOfDay: 'day', name: me.name.split(' ')[0] ?? '' }) : t('common.loading')}</Text>
-      <Text style={s.muted}>{me?.firmName}</Text>
+      <Text style={[s.muted, { marginBottom: 8 }]}>{me?.firmName}</Text>
+      {/* Phase 11: dashboard (cached for offline KPIs), catalogue, Ask and scheduled-report links. */}
+      <Stack key={JSON.stringify(root)} theme={theme} root={root} />
     </View>
   );
 }

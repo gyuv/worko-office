@@ -210,8 +210,12 @@ function RunView({ id }: { id: string }) {
   const label = useAutoLabel();
   const q = useQuery({ queryKey: ['automation', 'run', id], retry: false, queryFn: () => asFull<RunDetail>(api.GET('/automation/runs/{id}', { params: { path: { id } } })) });
   const retry = useMutation({
-    mutationFn: () => asFull<{ retried: number }>(api.POST('/automation/runs/{id}/retry', { params: { path: { id } } })),
-    onSuccess: (r) => { void qc.invalidateQueries({ queryKey: ['automation'] }); toast({ text: t('p10.runs.retried', { n: r.retried }), tone: 'ok' }, 3000); },
+    // Generation token = the attempts we saw: a double click / second tab answers `skipped: already_retried` instead of re-running.
+    mutationFn: (expectedAttempts: number) => asFull<{ retried: number; skipped?: string }>(api.POST('/automation/runs/{id}/retry', { params: { path: { id } }, body: body({ expectedAttempts }) })),
+    onSuccess: (r) => {
+      void qc.invalidateQueries({ queryKey: ['automation'] });
+      toast(r.skipped === 'already_retried' ? { text: t('p11.runs.alreadyRetried') } : { text: t('p10.runs.retried', { n: r.retried }), tone: 'ok' }, 3000);
+    },
     onError: (e) => toast({ text: err(e), tone: 'error' }),
   });
   if (q.isError) return <p role="alert" className="card p-6">{t('p10.notFound')}</p>;
@@ -232,7 +236,7 @@ function RunView({ id }: { id: string }) {
           {a.error && <span className="text-muted">{a.error}</span>}
           {a.costPaise > 0 && <span className="ml-auto tabular-nums">{formatINR(a.costPaise)}</span>}
         </li>); })}</ol>
-      {canRetry(r.actions) && can('automation', 'edit') && <button className="btn btn-primary" disabled={retry.isPending} onClick={() => retry.mutate()}>{t('p10.runs.retry')}</button>}
+      {canRetry(r.actions) && can('automation', 'edit') && <button className="btn btn-primary" disabled={retry.isPending} onClick={() => retry.mutate(r.attempts)}>{t('p10.runs.retry')}</button>}
     </div>
   );
 }

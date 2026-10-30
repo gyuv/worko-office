@@ -11,6 +11,8 @@ import { EntryDetail, RegisterForm, RegisterList } from './Registers';
 import { Approvals, Attendance, ExpenseForm, Expenses, HrHub, Leave, LeaveApply, MyTime, TimeEntryForm, Timer } from './Hr';
 import { Appointments, Calendar, ChatList, ChatThread, ClientTimeline, EventForm } from './Comm';
 import { LeadBoard, LeadDetail } from './Leads';
+import { Dashboard, ReportAsk, ReportCatalogue, ReportDownloads, ReportView } from './Reports';
+import type { RunSource } from '../logic/reports';
 import { AiInbox, AutomationHub, RunDetail, SuggestionDetail } from './Automation';
 import { Compliance, TaskDetail, TaskList, Todos } from './Tasks';
 import { AuditList, DscDetail, DscList, EngagementDetail, EsignDetail, EsignList, Hearings, NoticeDetail, NoticeList, NoticeScan, PracticeHub } from './Practice';
@@ -26,7 +28,8 @@ export type Route =
   | { name: 'practice' } | { name: 'notices' } | { name: 'notice'; id: string } | { name: 'noticeScan'; clientId?: string; noticeId?: string } | { name: 'hearings' }
   | { name: 'dscList' } | { name: 'dsc'; id: string } | { name: 'audit' } | { name: 'engagement'; id: string } | { name: 'esignList' } | { name: 'esign'; id: string }
   | { name: 'leads' } | { name: 'lead'; id: string }
-  | { name: 'automation'; runId?: string } | { name: 'autoRun'; id: string } | { name: 'aiInbox'; id?: string } | { name: 'aiSuggestion'; id: string };
+  | { name: 'automation'; runId?: string } | { name: 'autoRun'; id: string } | { name: 'aiInbox'; id?: string } | { name: 'aiSuggestion'; id: string }
+  | { name: 'dashboard' } | { name: 'reportCatalogue' } | { name: 'report'; source: RunSource; title: string; drill?: Record<string, unknown> } | { name: 'reportDownloads'; token?: string; exportId?: string } | { name: 'reportAsk' };
 export type Nav = { push(r: Route): void; pop(): void; replace(r: Route): void; reset(r?: Route): void };
 
 /** A tiny stack (no navigation library). On tablets the root list stays on the left and the top route shows on the right. */
@@ -108,6 +111,11 @@ function render(r: Route, nav: Nav, theme: Theme, isRoot: boolean, placeholder =
     case 'automation': return <AutomationHub theme={theme} nav={nav} onBack={back} />;
     case 'autoRun': return scroll(<RunDetail key={r.id} theme={theme} id={r.id} onBack={back} />);
     case 'aiInbox': return <AiInbox theme={theme} nav={nav} onBack={back} />;
+    case 'dashboard': return <Dashboard theme={theme} nav={nav} />;
+    case 'reportCatalogue': return <ReportCatalogue theme={theme} nav={nav} onBack={back} />;
+    case 'report': return <ReportView key={JSON.stringify([r.source, r.drill ?? null])} theme={theme} nav={nav} source={r.source} title={r.title} drill={r.drill} onBack={back} />;
+    case 'reportDownloads': return <ReportDownloads key={r.token ?? r.exportId ?? 'list'} theme={theme} token={r.token} exportId={r.exportId} onBack={back} />;
+    case 'reportAsk': return <ReportAsk theme={theme} nav={nav} onBack={back} />;
     case 'aiSuggestion': return scroll(<SuggestionDetail key={r.id} theme={theme} id={r.id} onBack={back} />);
   }
 }
@@ -115,6 +123,7 @@ function render(r: Route, nav: Nav, theme: Theme, isRoot: boolean, placeholder =
 /** Notification deep links: a root carrying an id opens its detail on top (back returns to the list). */
 function initialStack(root: Route): Route[] {
   if (root.name === 'automation' && root.runId) return [{ name: 'automation' }, { name: 'autoRun', id: root.runId }];
+  if (root.name === 'reportDownloads' && (root.token || root.exportId)) return [{ name: 'dashboard' }, root];
   if (root.name === 'aiInbox' && root.id) return [{ name: 'aiInbox' }, { name: 'aiSuggestion', id: root.id }];
   return [root];
 }

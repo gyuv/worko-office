@@ -11,6 +11,7 @@ import { planTaskReminders, toTaskItem } from './logic/tasks';
 import { createTranslator } from '@worko/i18n';
 import { PRODUCT } from '@worko/domain';
 import { api, apiBase, setWipeHandler, useSession } from './session';
+import { clearReportCache } from './reportCache';
 
 type MobileSync = SyncState & { versions: Record<string, number>; online: boolean; connected: boolean };
 export const useSync = create<MobileSync>(() => ({ status: 'idle', pending: 0, rejected: [], lastSyncedAt: null, versions: {}, online: true, connected: false }));
@@ -116,7 +117,7 @@ export async function startSync(tenantId: string, userId: string, sessionId: str
 export async function stopSync(wipe: boolean) {
   generation++;
   realtime?.stop(); realtime = null; unsubNet?.(); unsubNet = null;
-  if (wipe) { await engine?.wipe(); await cancelAllScheduled(); }
+  if (wipe) { await engine?.wipe(); await cancelAllScheduled(); await clearReportCache(); }
   await db?.closeAsync().catch(() => undefined);
   if (wipe && current) {
     const [tenantId, userId] = current.split(':');

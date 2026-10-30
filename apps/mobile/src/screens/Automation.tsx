@@ -5,7 +5,7 @@ import { relativeTime, type MessageKey } from '@worko/i18n';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
 import {
-  agentStates, aiErrorCode, aiFeatureVisible, allowedActions, approveBody, dryRunSummary, groupRunActions, rejectBody, runRetryable, scheduleText,
+  agentStates, aiErrorCode, aiFeatureVisible, allowedActions, approveBody, dryRunSummary, groupRunActions, rejectBody, retryBody, retryOutcome, runRetryable, scheduleText,
   toRuleItem, toRunAction, toSuggestion, type AiAvailability, type RuleItem, type Suggestion,
 } from '../logic/automation';
 import { api, unwrap } from '../session';
@@ -160,8 +160,8 @@ export function RunDetail({ theme, id, onBack }: { theme: Theme; id: string; onB
   const q = useQuery({ queryKey: ['auto', 'run', id], queryFn: async () => (await unwrap(api.GET('/automation/runs/{id}', { params: { path: { id } } }))) as Obj });
   const [msg, setMsg] = useState<string | null>(null);
   const retry = useMutation({
-    mutationFn: async () => (await unwrap(api.POST('/automation/runs/{id}/retry', { params: { path: { id } } }))) as Obj,
-    onSuccess: (r) => { setMsg(t('m.auto.retried', { count: Number(r.retried ?? 0) })); void qcl.invalidateQueries({ queryKey: ['auto'] }); },
+    mutationFn: async () => (await unwrap(api.POST('/automation/runs/{id}/retry', { params: { path: { id } }, body: retryBody(q.data) } as never))) as Obj,
+    onSuccess: (r) => { const o = retryOutcome(r); setMsg(o.kind === 'already' ? t('m.rep.retry.already') : t('m.auto.retried', { count: o.count })); void qcl.invalidateQueries({ queryKey: ['auto'] }); },
     onError: (e) => setMsg(t('m.auto.failed', { reason: (e as Error).message })),
   });
   const r = q.data;

@@ -95,6 +95,11 @@ export function groupRunActions(actions: RunAction[]): { groups: Array<{ status:
   const groups = ACTION_STATUSES.map((status) => ({ status, items: actions.filter((a) => a.status === status).sort((a, b) => a.idx - b.idx) })).filter((g) => g.items.length);
   return { groups, retryable: actions.some((a) => a.status === 'failed'), costPaise: actions.reduce((n, a) => n + a.costPaise, 0) };
 }
+/** Retry is optimistic: send the run's `attempts` as last read; a concurrent retry answers 200 { retried: 0, skipped: 'already_retried' }. */
+export const retryBody = (run: Record<string, unknown> | null | undefined) => ({ expectedAttempts: Number(run?.attempts ?? 0) || 0 });
+export function retryOutcome(r: Record<string, unknown> | null | undefined): { kind: 'already' } | { kind: 'retried'; count: number } {
+  return r?.skipped === 'already_retried' ? { kind: 'already' } : { kind: 'retried', count: Number(r?.retried ?? 0) || 0 };
+}
 export const runRetryable = (status: string) => status === 'failed' || status === 'partial';
 
 // ---------- Rules / schedule ----------
