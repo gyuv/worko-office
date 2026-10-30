@@ -27,7 +27,7 @@ export class PortalAuthService {
     @Inject(COMM_CHANNELS_TOKEN) private adapters: ChannelAdapters) {}
 
   async tenantBySlug(firm: string): Promise<{ id: string; name: string; slug: string } | null> {
-    const r = await this.db.systemTx((tx) => tx.query('SELECT id, name, slug FROM tenant WHERE slug = $1', [firm.toLowerCase()]));
+    const r = await this.db.systemTx((tx) => tx.query(`SELECT id, name, slug FROM tenant WHERE slug = $1 AND status = 'active' AND sub_status NOT IN ('suspended','cancelled')`, [firm.toLowerCase()]));
     return r.rows[0] ?? null;
   }
 

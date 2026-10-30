@@ -11,7 +11,8 @@ export type AuditEntry = {
 export function canonical(v: unknown): string {
   if (v === null || typeof v !== 'object') return JSON.stringify(v ?? null);
   if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
-  return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonical((v as Record<string, unknown>)[k])}`).join(',')}}`;
+  // Keys whose value is undefined are dropped, exactly as JSON.stringify drops them when the diff is stored (D200).
+  return `{${Object.keys(v).filter((k) => (v as Record<string, unknown>)[k] !== undefined).sort().map((k) => `${JSON.stringify(k)}:${canonical((v as Record<string, unknown>)[k])}`).join(',')}}`;
 }
 
 const REDACT = /password|secret|token|otp|code_hash|totp/i;

@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { CurrentActor, Perm, Public, type RequestActor } from '../auth/context.js';
 import { ZodPipe } from '../common/zod.pipe.js';
 import { DocumentsService, MAX_UPLOAD } from './documents.service.js';
+import { PublicApi } from '../publicapi/decorators.js';
 
 const fy = z.string().regex(/^\d{4}-\d{2}$/);
 const uploadB = z.object({
@@ -38,13 +39,13 @@ function send(res: Response, f: { name: string; mime: string; size: number; stre
 export class DocumentsController {
   constructor(private docs: DocumentsService) {}
 
-  @Post('documents') @Perm('documents', 'create')
+  @Post('documents') @Perm('documents', 'create') @PublicApi()
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD, files: 1 } }))
   upload(@CurrentActor() a: RequestActor, @UploadedFile() file: Express.Multer.File, @Body(new ZodPipe(uploadB)) b: z.infer<typeof uploadB>, @Req() req: Request) {
     return this.docs.upload(a, file, b, req.ip ?? null);
   }
 
-  @Get('documents') @Perm('documents', 'view')
+  @Get('documents') @Perm('documents', 'view') @PublicApi()
   list(@CurrentActor() a: RequestActor, @Query(new ZodPipe(listQ)) q: z.infer<typeof listQ>) { return this.docs.list(a, q); }
 
   @Get('clients/:id/document-tree') @Perm('documents', 'view')

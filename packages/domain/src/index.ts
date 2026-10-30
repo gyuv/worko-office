@@ -16,3 +16,6 @@ export * from './client-portal.js';
 export * from './automation.js';
 export * from './ai.js';
 export * from './reports.js';
+export * from './publicapi.js';
+export * from './saas.js';
+export * from './dpdp.js';

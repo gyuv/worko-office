@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Headers, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
 import { z } from 'zod';
-import { CurrentActor, Perm, type RequestActor } from '../auth/context.js';
+import { CurrentActor, Perm, type RequestActor, Feature } from '../auth/context.js';
 import { ZodPipe } from '../common/zod.pipe.js';
 import { AutomationService } from './automation.service.js';
 
@@ -22,6 +22,7 @@ const agentKey = new ZodPipe(z.string().regex(/^[a-z_]{2,40}$/));
 
 /** M15 automation (REST-only). Row-level rules (firm vs personal, owner) are checked in the service (D142). */
 @Controller('automation')
+@Feature('automation') // switchable module (M22, D182)
 export class AutomationController {
   constructor(private svc: AutomationService) {}
   @Get('rules') @Perm('automation', 'view') list(@CurrentActor() a: RequestActor, @Query(new ZodPipe(listQ)) q: z.infer<typeof listQ>) { return this.svc.list(a, q); }

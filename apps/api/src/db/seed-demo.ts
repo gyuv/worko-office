@@ -3,10 +3,11 @@ import { gstinCheckChar, type EntityType } from '@worko/domain';
 import { createHash } from 'node:crypto';
 import { AuditService } from '../audit/audit.service.js';
 import { KeyService, LocalKms } from '../crypto/key.service.js';
+import { MockBreachedPasswords, PasswordPolicyService } from '../auth/password-policy.js';
 import { LocalStorage } from '../storage/storage.js';
 import { hint } from '../vault/vault.service.js';
 import type { Tx } from './db.service.js';
-import { hashPassword } from '../auth/crypto.js';
+import { base32Encode, hashPassword } from '../auth/crypto.js';
 import { TenancyService } from '../tenancy/tenancy.service.js';
 import { DbService } from './db.service.js';
 import { uuidv7 } from './ids.js';
@@ -33,6 +34,8 @@ import { seedPractice8 } from './seed-practice.js';
 import { PORTAL_DEMO, seedPortalLeads } from './seed-portal.js';
 import { seedAutomationAi } from './seed-automation.js';
 import { seedReports } from './seed-reports.js';
+import { seedPublicApi } from './seed-publicapi.js';
+import { PLATFORM_DEMO, seedPlatform } from './seed-platform.js';
 
 export const DEMO = { firm: 'demo', password: 'Demo@12345', users: [
   { name: 'Anita Sharma', email: 'partner@demo.worko.in', role: 'partner', phone: '+919800000001' },
@@ -56,7 +59,7 @@ export async function seedDemo(url: string, opts: { today?: string } = {}) {
     const exists = await db.systemTx((tx) => tx.query("SELECT id FROM tenant WHERE slug = $1", [DEMO.firm]));
     if (exists.rowCount) return { created: false };
     const [partner, ...rest] = DEMO.users;
-    const { tenantId } = await new TenancyService(db, new AuditService()).signup({
+    const { tenantId } = await new TenancyService(db, new AuditService(), new PasswordPolicyService(new MockBreachedPasswords())).signup({
       firmName: 'Sharma & Mehta, Chartered Accountants', slug: DEMO.firm, stateCode: '27',
       partner: { name: partner.name, email: partner.email, password: DEMO.password, phone: partner.phone },
     });
@@ -83,7 +86,10 @@ export async function seedDemo(url: string, opts: { today?: string } = {}) {
     await seedPortalLeads(db, tenantId, today);
     await seedAutomationAi(db, tenantId, today);
     await seedReports(db, tenantId, today);
-    return { created: true, tenantId };
+    const partnerId = (await db.tenantTx(tenantId, (tx) => tx.query('SELECT id FROM app_user WHERE email = $1', [partner.email]))).rows[0].id as string;
+    const api = await seedPublicApi(db, tenantId, partnerId);
+    await seedPlatform(db, tenantId, today); // phase12 A: platform admin, subscription, usage, DPDP
+    return { created: true, tenantId, apiKey: api.apiKey, apiKeyPrefix: api.prefix };
   } finally {
     await db.pool.end();
   }
@@ -305,5 +311,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     console.log(`Client portal (firm "${DEMO.firm}", one-time code login — POST /v1/portal/auth/otp/request):`);
     for (const [k, p] of Object.entries(PORTAL_DEMO)) console.log(`  ${k.padEnd(10)} ${p.email}  or  ${p.phone}  → clients ${p.clients.join(', ')}`);
     console.log('  Codes go through the mock channel: with NODE_ENV=development and PORTAL_DEV_LOG_OTP=1 the API logs them; with COMM_EMAIL_PROVIDER=smtp they land in Mailpit (http://localhost:8025).');
+    console.log(`Platform console (#/platform; DEV ONLY): ${PLATFORM_DEMO.email}  /  ${PLATFORM_DEMO.password}  + authenticator secret ${base32Encode(Buffer.from(PLATFORM_DEMO.totpSecretHex, 'hex'))}`);
+    if (r.created && 'apiKey' in r) console.log(`Public API key (prefix ${r.apiKeyPrefix}; dev seed only — shown once): ${r.apiKey}\n  curl -H "Authorization: Bearer ${r.apiKey}" http://localhost:3000/v1/clients`);
   }).catch((e) => { console.error(e); process.exit(1); });
 }

@@ -3,7 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { NOTICE_AUTHORITY_KEYS, NOTICE_OUTCOMES, NOTICE_STATUSES, SIGNOFF_LEVELS, udinSchema } from '@worko/domain';
 import type { Request } from 'express';
 import { z } from 'zod';
-import { CurrentActor, Perm, Public, type RequestActor } from '../auth/context.js';
+import { CurrentActor, Perm, Public, type RequestActor, Feature } from '../auth/context.js';
 import { ZodPipe } from '../common/zod.pipe.js';
 import { MAX_UPLOAD } from '../documents/documents.service.js';
 import { AuditWorkService } from './audit.service.js';
@@ -182,6 +182,7 @@ const esignIn = z.object({ title: txt(200), mode: z.enum(['parallel', 'sequentia
   items: z.array(z.object({ documentId: uuid, version: z.number().int().min(1).optional(), signers: z.array(signerIn).min(1).max(10) }).strict()).min(1).max(200) }).strict();
 
 @Controller('esign')
+@Feature('esign') // switchable module (M22, D182)
 export class EsignController {
   constructor(private esign: EsignService) {}
   @Get('requests') @Perm('documents', 'view')

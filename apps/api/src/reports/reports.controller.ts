@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Post, Pu
 import { dashboardWidgetsSchema } from '@worko/domain';
 import type { Response } from 'express';
 import { z } from 'zod';
-import { CurrentActor, Perm, type RequestActor } from '../auth/context.js';
+import { CurrentActor, Perm, type RequestActor, Feature } from '../auth/context.js';
 import { ZodPipe } from '../common/zod.pipe.js';
 import { NlQueryService } from './nlquery.service.js';
 import { EXPORT_FORMATS } from './render.js';
@@ -32,6 +32,7 @@ const token = z.string().regex(/^[A-Za-z0-9_-]{20,100}$/);
 
 /** M17 dashboards & reports + M21 NL query. Every run applies the VIEWER's scope (D161); datasets also need their source module's view. */
 @Controller('reports')
+@Feature('reports') // switchable module (M22, D182)
 export class ReportsController {
   constructor(private reports: ReportsService, private schedules: ReportScheduleService, private nl: NlQueryService) {}
 

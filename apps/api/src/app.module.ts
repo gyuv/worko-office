@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AuditController } from './audit/audit.controller.js';
 import { AuditService } from './audit/audit.service.js';
@@ -101,6 +101,21 @@ import { ActionRunner } from './automation/actions.js';
 import { AutomationController } from './automation/automation.controller.js';
 import { AutomationService } from './automation/automation.service.js';
 import { AutomationEngine } from './automation/engine.js';
+// phase12 B — public API, webhooks, hardening
+import { BREACHED_PASSWORDS, breachedPasswordsFactory, PasswordPolicyService } from './auth/password-policy.js';
+import { ApiKeysService } from './publicapi/api-keys.service.js';
+import { DevelopersController, PublicApiDocsController } from './publicapi/developers.controller.js';
+import { PublicApiInterceptor } from './publicapi/interceptor.js';
+import { NodeWebhookTransport, WEBHOOK_TRANSPORT } from './publicapi/transport.js';
+import { WebhooksService } from './publicapi/webhooks.service.js';
+// phase12 A — super-admin, SaaS billing, impersonation, DPDP
+import { DpdpController, PortalPrivacyController } from './dpdp/dpdp.controller.js';
+import { DpdpService } from './dpdp/dpdp.service.js';
+import { ImpersonationService } from './platform/impersonation.service.js';
+import { PlatformAuditService } from './platform/platform-audit.service.js';
+import { PlatformAuthService } from './platform/platform-auth.service.js';
+import { PlatformController, SaasWebhookController, SubscriptionController } from './platform/platform.controller.js';
+import { SaasService } from './platform/saas.service.js';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ limit: Number(process.env.RATE_LIMIT ?? 300), ttl: 60_000 }])],
@@ -110,7 +125,9 @@ import { AutomationEngine } from './automation/engine.js';
     TasksController, ComplianceController, BillingController, TimeController, HrController,
     CommController, TimelineController, ChatController, CalendarController, BookingAdminController, BookingPublicController,
     NoticesController, AuditWorkController, DscController, EsignController,
-    PortalPublicController, PortalController, PortalAdminController, LeadsController, ProposalsController, AutomationController, AiController, ReportsController],
+    PortalPublicController, PortalController, PortalAdminController, LeadsController, ProposalsController, AutomationController, AiController, ReportsController,
+    PlatformController, SaasWebhookController, SubscriptionController, DpdpController, PortalPrivacyController,
+    DevelopersController, PublicApiDocsController],
   providers: [
     DbService, AuditService, TokenService, AuthService, TenancyService, UsersService, RulesService,
     RealtimeService, RealtimeGateway, JobQueueService, SyncService, NotificationsService,
@@ -139,6 +156,9 @@ import { AutomationEngine } from './automation/engine.js';
     { provide: GSTIN_LOOKUP, useClass: MockGstinLookup },
     { provide: PUSH_PROVIDERS, useFactory: pushProvidersFactory },
     { provide: SMS_PROVIDER, useClass: MockSmsProvider },
+    PlatformAuditService, PlatformAuthService, SaasService, ImpersonationService, DpdpService,
+    ApiKeysService, WebhooksService, PasswordPolicyService, { provide: BREACHED_PASSWORDS, useFactory: breachedPasswordsFactory },
+    { provide: WEBHOOK_TRANSPORT, useFactory: () => new NodeWebhookTransport() }, { provide: APP_INTERCEPTOR, useClass: PublicApiInterceptor },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_FILTER, useClass: ErrorFilter },

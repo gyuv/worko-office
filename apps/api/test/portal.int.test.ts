@@ -180,7 +180,7 @@ describe('session separation (global guard)', () => {
     }
     const staff = routes.filter((r) => !r.portal); const portalRoutes = routes.filter((r) => r.portal);
     expect(staff.length).toBeGreaterThan(300);
-    expect(portalRoutes.length).toBe(20);
+    expect(portalRoutes.length).toBe(22); // + Phase 12 privacy requests (GET/POST /portal/privacy-requests)
     expect(portalRoutes.every((r) => r.path.startsWith('/v1/portal/'))).toBe(true);
     const call = (r: { method: string; path: string }, tok: string) => (t.http() as unknown as Record<string, (p: string) => { set: (h: Record<string, string>) => Promise<{ status: number }> }>)[r.method.toLowerCase()]!(r.path).set(bearer(tok));
     const failures: string[] = [];

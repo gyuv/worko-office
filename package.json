@@ -10,7 +10,8 @@
     "lint": "turbo run lint",
     "desktop:dev": "pnpm --filter @worko/desktop dev",
     "mobile:dev": "pnpm --filter @worko/mobile dev",
-    "seed:demo": "pnpm --filter @worko/api seed:demo"
+    "seed:demo": "pnpm --filter @worko/api seed:demo",
+    "scan:secrets": "node scripts/scan-secrets.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",

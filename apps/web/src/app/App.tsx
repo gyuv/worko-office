@@ -45,6 +45,8 @@ import { AutomationScreen } from '../screens/automation/AutomationScreen';
 import { SuggestionsScreen } from '../screens/ai/SuggestionsScreen';
 import { PortalRoot } from '../portal/PortalApp';
 import { parsePortalHash } from '../portal/logic';
+import { PlatformRoot } from '../platform/PlatformApp';
+import { ImpersonationBanner, isPlatformHash } from '../platform/banner';
 
 function Routes() {
   const t = useT();
@@ -124,10 +126,19 @@ function usePortalRoute() {
   return r;
 }
 
+/** Super-admin console (`#/platform`): separate login + token; never the firm session (D178). */
+function usePlatformRoute() {
+  const read = () => typeof location !== 'undefined' && isPlatformHash(location.hash);
+  const [r, setR] = useState(read);
+  useEffect(() => { const on = () => setR(read()); addEventListener('hashchange', on); return () => removeEventListener('hashchange', on); }, []);
+  return r;
+}
+
 export function App() {
+  const platform = usePlatformRoute();
   const portal = usePortalRoute();
   const pub = usePublicRoute();
-  return portal ? <PortalRoot loc={portal} /> : pub ? <PublicApp r={pub} /> : <StaffApp />;
+  return platform ? <PlatformRoot /> : portal ? <PortalRoot loc={portal} /> : pub ? <PublicApp r={pub} /> : <StaffApp />;
 }
 
 function StaffApp() {
@@ -149,7 +160,7 @@ function StaffApp() {
   return (
     <I18nProvider>
       <QueryClientProvider client={qc}>
-        {tokens ? <Shell onSignOut={signOut}><Routes /><ToastHost /></Shell> : <LoginScreen />}
+        {tokens ? <><ImpersonationBanner /><Shell onSignOut={signOut}><Routes /><ToastHost /></Shell></> : <LoginScreen />}
       </QueryClientProvider>
     </I18nProvider>
   );

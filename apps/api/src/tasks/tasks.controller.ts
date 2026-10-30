@@ -7,6 +7,7 @@ import { checkSchema, SYNC_TABLES } from '../sync/registry.js';
 import { AutoTaskService } from './auto.service.js';
 import { CatalogueService, type ClientServiceIn, type ServiceTypeIn } from './catalogue.service.js';
 import { TasksService } from './tasks.service.js';
+import { PublicApi } from '../publicapi/decorators.js';
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((s) => !Number.isNaN(Date.parse(s)), 'Invalid date');
 const month = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
@@ -75,13 +76,13 @@ export class TasksController {
   }
 
   // ---------- Tasks ----------
-  @Get('tasks') @Perm('tasks', 'view')
+  @Get('tasks') @Perm('tasks', 'view') @PublicApi()
   list(@CurrentActor() a: RequestActor, @Query(new ZodPipe(listQ)) q: z.infer<typeof listQ>) { return this.tasks.list(a, q); }
 
   @Get('tasks/calendar') @Perm('tasks', 'view')
   calendar(@CurrentActor() a: RequestActor, @Query(new ZodPipe(calQ)) q: z.infer<typeof calQ>) { return this.tasks.calendar(a, q.from, q.to, q.field); }
 
-  @Post('tasks') @Perm('tasks', 'create')
+  @Post('tasks') @Perm('tasks', 'create') @PublicApi()
   create(@CurrentActor() a: RequestActor, @Body(new ZodPipe(taskCreate)) b: Record<string, unknown>) { return this.tasks.create(a, b); }
 
   @Post('tasks/bulk') @HttpCode(200) @Perm('tasks', 'edit')
@@ -96,10 +97,10 @@ export class TasksController {
   @Post('tasks/auto/commit') @HttpCode(200) @Perm('tasks', 'create')
   autoCommit(@CurrentActor() a: RequestActor, @Body(new ZodPipe(autoB)) b: { month: string }) { return this.auto.commit(a, b.month); }
 
-  @Get('tasks/:id') @Perm('tasks', 'view')
+  @Get('tasks/:id') @Perm('tasks', 'view') @PublicApi()
   get(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string) { return this.tasks.get(a, id); }
 
-  @Patch('tasks/:id') @HttpCode(204) @Perm('tasks', 'edit')
+  @Patch('tasks/:id') @HttpCode(204) @Perm('tasks', 'edit') @PublicApi()
   async update(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(taskPatch)) b: Record<string, unknown>) { await this.tasks.update(a, id, b); }
 
   @Post('tasks/:id/checks') @HttpCode(204) @Perm('tasks', 'edit')

@@ -172,7 +172,8 @@ describe('rules endpoints', () => {
 describe('demo seed', () => {
   it('creates the demo firm once and every demo user can log in', async () => {
     const { seedDemo, DEMO } = await import('../src/db/seed-demo.js');
-    expect((await seedDemo(db.url, { today: '2026-10-15' })).created).toBe(true);
+    const seeded = await seedDemo(db.url, { today: '2026-10-15' });
+    expect(seeded.created).toBe(true);
     expect((await seedDemo(db.url, { today: '2026-10-15' })).created).toBe(false);
     const tok: Record<string, string> = {};
     for (const u of DEMO.users) {
@@ -182,6 +183,26 @@ describe('demo seed', () => {
     }
     expect((await http().get('/v1/clients?limit=500').set(bearer(tok.partner!))).body.total).toBe(51); // 50 + one converted from an accepted proposal (Phase 9)
     expect((await http().get('/v1/clients?limit=500').set(bearer(tok.article!))).body.total).toBe(12);
+    // Phase 12 B: one API key (works, read-mostly) and one webhook subscription with delivery history.
+    const apiKey = (seeded as { apiKey?: string }).apiKey!;
+    expect(apiKey).toMatch(/^wk_demo/);
+    expect((await http().get('/v1/clients?limit=5').set(bearer(apiKey)).expect(200)).body.nextCursor).toBeTruthy();
+    expect((await http().get('/v1/developers/api-keys').set(bearer(tok.partner!)).expect(200)).body.items).toHaveLength(1);
+    const [hook] = (await http().get('/v1/developers/webhooks').set(bearer(tok.partner!)).expect(200)).body.items;
+    expect((await http().get(`/v1/developers/webhooks/${hook.id}/deliveries`).set(bearer(tok.partner!)).expect(200)).body.items.map((d: { status: string }) => d.status).sort()).toEqual(['failed', 'succeeded', 'succeeded']);
+    // Phase 12 A: platform admin (MFA), demo firm active on Professional with a paid SaaS invoice + usage, one DPDP request, one breach.
+    {
+      const { PLATFORM_DEMO } = await import('../src/db/seed-platform.js');
+      const { totp } = await import('../src/auth/crypto.js');
+      await http().post('/v1/platform/auth/login').send({ email: PLATFORM_DEMO.email, password: PLATFORM_DEMO.password }).expect(401);
+      const pa = (await http().post('/v1/platform/auth/login').send({ email: PLATFORM_DEMO.email, password: PLATFORM_DEMO.password, totp: totp(Buffer.from(PLATFORM_DEMO.totpSecretHex, 'hex')) }).expect(200)).body.accessToken;
+      expect((await http().get('/v1/platform/tenants?q=demo').set(bearer(pa)).expect(200)).body[0]).toMatchObject({ slug: 'demo', plan: 'professional', subStatus: 'active' });
+      const subn = (await http().get('/v1/subscription').set(bearer(tok.partner!)).expect(200)).body;
+      expect(subn.invoices.map((i: { status: string }) => i.status)).toEqual(['paid']);
+      expect(subn.usage.seatsUsed).toBe(5);
+      expect((await http().get('/v1/privacy/requests').set(bearer(tok.partner!)).expect(200)).body).toHaveLength(1);
+      expect((await http().get('/v1/privacy/breaches').set(bearer(tok.partner!)).expect(200)).body).toHaveLength(1);
+    }
     const [secret] = (await http().get('/v1/vault/secrets?portal=INCOME_TAX').set(bearer(tok.partner!)).expect(200)).body;
     await http().post('/v1/auth/step-up').set(bearer(tok.partner!)).send({ password: DEMO.password }).expect(200);
     expect((await http().post(`/v1/vault/secrets/${secret.id}/reveal`).set(bearer(tok.partner!)).send({ purpose: 'view' }).expect(200)).body.password).toMatch(/^Demo#/);

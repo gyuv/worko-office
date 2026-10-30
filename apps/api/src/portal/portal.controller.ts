@@ -5,7 +5,7 @@ import { COMM_CHANNELS, PROFILE_FIELDS } from '@worko/domain';
 import type { Request, Response } from 'express';
 import type { Readable } from 'node:stream';
 import { z } from 'zod';
-import { CurrentActor, CurrentPortal, Perm, PortalAllowed, Public, type PortalActor, type RequestActor } from '../auth/context.js';
+import { CurrentActor, CurrentPortal, Perm, PortalAllowed, Public, type PortalActor, type RequestActor, Feature } from '../auth/context.js';
 import { ZodPipe } from '../common/zod.pipe.js';
 import { MAX_UPLOAD } from '../documents/documents.service.js';
 import { PortalAdminService } from './admin.service.js';
@@ -66,6 +66,7 @@ export class PortalPublicController {
 /** Client-facing portal API. Every route is portal-session only; tenant and client scope come from the session + grants, never from input alone. */
 @Controller('portal')
 @PortalAllowed()
+@Feature('portal') // switchable module (M22, D182)
 export class PortalController {
   constructor(private auth: PortalAuthService, private portal: PortalService) {}
 
@@ -121,6 +122,7 @@ const inviteB = z.object({ clientId: z.string().uuid(), contactId: z.string().uu
 
 /** Staff administration of the portal (staff sessions only). */
 @Controller('portal-admin')
+@Feature('portal') // switchable module (M22, D182)
 export class PortalAdminController {
   constructor(private admin: PortalAdminService) {}
 

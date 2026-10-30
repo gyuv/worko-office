@@ -3,7 +3,8 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:
 import type { Tx } from '../db/db.service.js';
 
 /** Wraps/unwraps per-tenant data keys. Local impl for dev/tests; AWS KMS (ap-south-1) adapter slot for prod. */
-export interface KmsProvider { readonly kekId: string; wrap(dek: Buffer): Promise<Buffer>; unwrap(wrapped: Buffer): Promise<Buffer> }
+/** `unwrap` gets the stored `kekId` so a provider holding previous key-encryption keys can open data keys wrapped before a rotation (D199). */
+export interface KmsProvider { readonly kekId: string; wrap(dek: Buffer): Promise<Buffer>; unwrap(wrapped: Buffer, kekId?: string): Promise<Buffer> }
 export const KMS_PROVIDER = 'KMS_PROVIDER';
 
 const gcm = {
@@ -20,17 +21,29 @@ const gcm = {
   },
 };
 
-/** Master key from env (dev/test). Production must use a managed KMS — refuse to start without a key. */
+const localKey = (secret: string) => createHash('sha256').update(secret).digest();
+const localKekId = (key: Buffer) => `local:${createHash('sha256').update(key).digest('hex').slice(0, 12)}`;
+/**
+ * Master key from env (dev/test). Production must use a managed KMS — refuse to start without a key.
+ * Rotation: set the new secret as KMS_LOCAL_MASTER_KEY and the old one(s) in KMS_LOCAL_PREVIOUS_KEYS (comma-separated),
+ * run `pnpm --filter @worko/api rotate-kek`, then drop the previous keys.
+ */
 export class LocalKms implements KmsProvider {
   private readonly key: Buffer;
+  private readonly previous = new Map<string, Buffer>();
   readonly kekId: string;
-  constructor(secret = process.env.KMS_LOCAL_MASTER_KEY ?? process.env.FIELD_ENCRYPTION_KEY) {
+  constructor(secret = process.env.KMS_LOCAL_MASTER_KEY ?? process.env.FIELD_ENCRYPTION_KEY, previous: string[] = (process.env.KMS_LOCAL_PREVIOUS_KEYS ?? '').split(',').filter(Boolean)) {
     if (!secret && process.env.NODE_ENV === 'production') throw new Error('KMS master key required');
-    this.key = createHash('sha256').update(secret ?? 'worko-dev-only-master-key').digest();
-    this.kekId = `local:${createHash('sha256').update(this.key).digest('hex').slice(0, 12)}`;
+    this.key = localKey(secret ?? 'worko-dev-only-master-key');
+    this.kekId = localKekId(this.key);
+    for (const p of previous) { const k = localKey(p); this.previous.set(localKekId(k), k); }
   }
   async wrap(dek: Buffer) { return gcm.seal(this.key, dek, 'dek'); }
-  async unwrap(w: Buffer) { return gcm.open(this.key, w, 'dek'); }
+  async unwrap(w: Buffer, kekId?: string) {
+    const k = !kekId || kekId === this.kekId ? this.key : this.previous.get(kekId);
+    if (!k) throw new Error(`KEK ${kekId} not available — add it to KMS_LOCAL_PREVIOUS_KEYS`);
+    return gcm.open(k, w, 'dek');
+  }
 }
 
 /**
@@ -46,13 +59,13 @@ export class KeyService {
   private async dek(tx: Tx, tenantId: string): Promise<Buffer> {
     const hit = this.cache.get(tenantId);
     if (hit && Date.now() - hit.at < 10 * 60_000) return hit.dek;
-    let row = (await tx.query('SELECT wrapped_dek FROM tenant_key WHERE tenant_id = $1', [tenantId])).rows[0];
+    let row = (await tx.query('SELECT kek_id, wrapped_dek FROM tenant_key WHERE tenant_id = $1', [tenantId])).rows[0];
     if (!row) {
       const dek = randomBytes(32);
       await tx.query('INSERT INTO tenant_key (tenant_id, kek_id, wrapped_dek) VALUES ($1,$2,$3) ON CONFLICT (tenant_id) DO NOTHING', [tenantId, this.kms.kekId, await this.kms.wrap(dek)]);
-      row = (await tx.query('SELECT wrapped_dek FROM tenant_key WHERE tenant_id = $1', [tenantId])).rows[0];
+      row = (await tx.query('SELECT kek_id, wrapped_dek FROM tenant_key WHERE tenant_id = $1', [tenantId])).rows[0];
     }
-    const dek = await this.kms.unwrap(row.wrapped_dek);
+    const dek = await this.kms.unwrap(row.wrapped_dek, row.kek_id);
     this.cache.set(tenantId, { dek, at: Date.now() });
     return dek;
   }
@@ -62,5 +75,19 @@ export class KeyService {
   }
   async decrypt(tx: Tx, tenantId: string, blob: Buffer, aad: string): Promise<string> {
     return gcm.open(await this.dek(tx, tenantId), blob, `${tenantId}:${aad}`).toString('utf8');
+  }
+
+  /**
+   * KEK rotation: re-wraps the tenant's data key under the provider's CURRENT key-encryption key. The data key itself is
+   * unchanged, so every existing ciphertext still decrypts; only `tenant_key` changes. Idempotent.
+   */
+  async rewrap(tx: Tx, tenantId: string): Promise<'rewrapped' | 'current' | 'none'> {
+    const row = (await tx.query('SELECT kek_id, wrapped_dek FROM tenant_key WHERE tenant_id = $1 FOR UPDATE', [tenantId])).rows[0];
+    if (!row) return 'none';
+    if (row.kek_id === this.kms.kekId) return 'current';
+    const dek = await this.kms.unwrap(row.wrapped_dek, row.kek_id);
+    await tx.query('UPDATE tenant_key SET kek_id = $2, wrapped_dek = $3 WHERE tenant_id = $1', [tenantId, this.kms.kekId, await this.kms.wrap(dek)]);
+    this.cache.delete(tenantId);
+    return 'rewrapped';
   }
 }

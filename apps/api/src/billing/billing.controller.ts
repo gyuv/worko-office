@@ -13,6 +13,7 @@ import { InvoicesService } from './invoices.service.js';
 import { verifyInvoiceLink } from './providers.js';
 import { ReceiptsService } from './receipts.service.js';
 import { BillingReportsService } from './reports.service.js';
+import { PublicApi } from '../publicapi/decorators.js';
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((s) => !Number.isNaN(Date.parse(s)), 'Invalid date');
 const month = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
@@ -124,7 +125,7 @@ export class BillingController {
   async putLedgers(@CurrentActor() a: RequestActor, @Body(new ZodPipe(ledgersB)) b: z.infer<typeof ledgersB>) { await this.config.putLedgers(a, b); }
 
   // ---------- Invoices ----------
-  @Get('invoices') @Perm('billing', 'view')
+  @Get('invoices') @Perm('billing', 'view') @PublicApi()
   list(@CurrentActor() a: RequestActor, @Query(new ZodPipe(listQ)) q: z.infer<typeof listQ>) { return this.invoices.list(a, q); }
 
   @Get('invoices/export') @Perm('billing', 'export')
@@ -133,7 +134,7 @@ export class BillingController {
   @Post('invoices') @Perm('billing', 'create')
   create(@CurrentActor() a: RequestActor, @Body(new ZodPipe(draftB)) b: z.infer<typeof draftB>) { return this.invoices.create(a, b); }
 
-  @Get('invoices/:id') @Perm('billing', 'view')
+  @Get('invoices/:id') @Perm('billing', 'view') @PublicApi()
   get(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string) { return this.invoices.get(a, id); }
 
   @Patch('invoices/:id') @HttpCode(204) @Perm('billing', 'edit')
@@ -183,7 +184,7 @@ export class BillingController {
   @Get('receipts/export') @Perm('receipts', 'export')
   async exportReceipts(@CurrentActor() a: RequestActor, @Query(new ZodPipe(fmt)) q: z.infer<typeof fmt>, @Res() res: Response) { sendFile(res, await this.reports.exportReceipts(a, q)); }
 
-  @Post('receipts') @Perm('receipts', 'create')
+  @Post('receipts') @Perm('receipts', 'create') @PublicApi()
   createReceipt(@CurrentActor() a: RequestActor, @Body(new ZodPipe(receiptB)) b: z.infer<typeof receiptB>) { return this.receipts.create(a, b); }
 
   @Get('receipts/:id') @Perm('receipts', 'view')

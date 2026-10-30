@@ -5,3 +5,8 @@ coverage
 .env
 *.sqlite
 .storage
+apps/desktop/release
+apps/mobile/secrets/
+*.jks
+*.keystore
+credentials.json

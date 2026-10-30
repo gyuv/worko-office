@@ -5,10 +5,39 @@ info:
   description: Contract for web, desktop, Android and the public API. Source of truth for @worko/api-client.
 servers: [{ url: /v1 }]
 security: [{ bearer: [] }]
-tags: [{ name: comm }, { name: chat }, { name: calendar }, { name: time }, { name: hr }, { name: billing }, { name: tasks }, { name: compliance }, { name: clients }, { name: vault }, { name: documents }, { name: registers }, { name: auth }, { name: tenancy }, { name: users }, { name: audit }, { name: rules }, { name: sync }, { name: notifications }, { name: system }, { name: notices }, { name: dsc }, { name: portal, description: 'Client portal. Routes under /portal (except auth/branding/files) accept PORTAL sessions only; every other route refuses them (D126). Bearer tokens only — no cookies, so CSRF does not apply.' }, { name: leads }, { name: automation, description: 'M15 automation: rules (trigger → conditions → actions), prebuilt agents, dry-runs, run history, cost meter. REST-only (D147).' }, { name: ai, description: 'M21 AI: off until a firm opts in; redaction before any call; every output is a suggestion that needs human approval (D148–D152).' }, { name: reports, description: 'M17 dashboards & reports + M21 NL query: definitions compiled server-side over a whitelist; every run applies the VIEWER''s scope (D160–D169). REST-only.' }]
+tags: [{ name: comm }, { name: chat }, { name: calendar }, { name: time }, { name: hr }, { name: billing }, { name: tasks }, { name: compliance }, { name: clients }, { name: vault }, { name: documents }, { name: registers }, { name: auth }, { name: tenancy }, { name: users }, { name: audit }, { name: rules }, { name: sync }, { name: notifications }, { name: system }, { name: notices }, { name: dsc }, { name: portal, description: 'Client portal. Routes under /portal (except auth/branding/files) accept PORTAL sessions only; every other route refuses them (D126). Bearer tokens only — no cookies, so CSRF does not apply.' }, { name: leads }, { name: automation, description: 'M15 automation: rules (trigger → conditions → actions), prebuilt agents, dry-runs, run history, cost meter. REST-only (D147).' }, { name: ai, description: 'M21 AI: off until a firm opts in; redaction before any call; every output is a suggestion that needs human approval (D148–D152).' }, { name: platform, description: 'M22 super-admin console: platform tokens only (password + TOTP), hash-chained platform audit (D178–D179).' }, { name: subscription, description: 'M22 firm subscription + support-access consent (D180–D185).' }, { name: privacy, description: 'M22 DPDP tooling — not legal advice; sample periods to verify (D186–D189).' }, { name: reports, description: 'M17 dashboards & reports + M21 NL query: definitions compiled server-side over a whitelist; every run applies the VIEWER''s scope (D160–D169). REST-only.' }, { name: developers, description: 'M18 Settings → Developers: API keys (shown once, SHA-256 stored) and outbound webhook subscriptions (D190–D197).' }, { name: public, description: 'M18 public API: operations an API key (`Bearer wk_…`) may call — every other route refuses keys (default deny, D190). Cursor pagination (`cursor`/`limit` → `nextCursor`), `Idempotency-Key` on POST/PATCH (D191). Served alone at /public-api/openapi.json.' }]
 paths:
   /health:
     get: { tags: [system], operationId: health, security: [], responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { status: { type: string }, product: { type: string } } } } } } } }
+  /health/live:
+    get: { tags: [system], operationId: healthLive, security: [], description: 'Liveness: the process answers (no dependencies).', responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { status: { type: string } } } } } } } }
+  /health/ready:
+    get: { tags: [system], operationId: healthReady, security: [], description: 'Readiness: database reachable and not draining for shutdown; 503 DRAINING | DB_UNAVAILABLE otherwise (D199).', responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { status: { type: string } } } } } }, '503': { $ref: '#/components/responses/Error' } } }
+  /public-api/openapi.json:
+    get: { tags: [developers], operationId: publicApiSpec, security: [], description: 'OpenAPI document of the public API (operations tagged `public`, generated from this spec by `pnpm --filter @worko/api gen:public-openapi`).', responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } } } }
+  /developers/catalogue:
+    get: { tags: [developers], operationId: developersCatalogue, description: 'settings:view. Scopes (module:action) the caller holds and may grant to a key; webhook event types; docs URL.', responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { scopes: { type: array, items: { type: string } }, events: { type: array, items: { type: string } }, docsUrl: { type: string } } } } } }, '403': { $ref: '#/components/responses/Error' } } }
+  /developers/api-keys:
+    get: { tags: [developers], operationId: listApiKeys, description: 'settings:view. Keys (prefix, scopes, restrictions, last use, status active|revoked|expired|creator_inactive) — never secrets.', responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/ApiKey' } } } } } } }, '403': { $ref: '#/components/responses/Error' } } }
+    post: { tags: [developers], operationId: createApiKey, description: 'settings:edit. Scopes must be rights the caller holds (400 scope_not_held). The full key `wk_<prefix>_<secret>` is returned ONCE.', requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ApiKeyIn' } } } }, responses: { '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/ApiKeySecret' } } } }, '400': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' } } }
+  /developers/api-keys/{id}/rotate:
+    post: { tags: [developers], operationId: rotateApiKey, description: 'settings:edit. New prefix + secret, returned once; the old key stops immediately.', parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ApiKeySecret' } } } }, '400': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } } }
+  /developers/api-keys/{id}:
+    delete: { tags: [developers], operationId: revokeApiKey, description: 'settings:edit. Revokes (idempotent).', parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '204': { description: Revoked }, '404': { $ref: '#/components/responses/Error' } } }
+  /developers/webhooks:
+    get: { tags: [developers], operationId: listWebhooks, description: 'settings:view.', responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/WebhookSubscription' } } } } } } } } }
+    post: { tags: [developers], operationId: createWebhook, description: 'settings:edit. HTTPS only; the host must resolve to public addresses only (400 blocked_address | dns_failed). Signing secret returned ONCE.', requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/WebhookIn' } } } }, responses: { '201': { description: Created, content: { application/json: { schema: { type: object, required: [subscription, secret], properties: { subscription: { $ref: '#/components/schemas/WebhookSubscription' }, secret: { type: string } } } } } }, '400': { $ref: '#/components/responses/Error' } } }
+  /developers/webhooks/{id}:
+    patch: { tags: [developers], operationId: updateWebhook, description: 'settings:edit. Name/url/events; `active: true` re-enables an auto-disabled subscription and resets its failure count.', parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { name: { type: string }, url: { type: string }, events: { type: array, items: { type: string } }, active: { type: boolean } } } } } }, responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/WebhookSubscription' } } } }, '400': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } } }
+    delete: { tags: [developers], operationId: deleteWebhook, description: 'settings:edit.', parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '204': { description: Deleted }, '404': { $ref: '#/components/responses/Error' } } }
+  /developers/webhooks/{id}/rotate-secret:
+    post: { tags: [developers], operationId: rotateWebhookSecret, description: 'settings:edit. New signing secret, returned once.', parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { secret: { type: string } } } } } }, '404': { $ref: '#/components/responses/Error' } } }
+  /developers/webhooks/{id}/ping:
+    post: { tags: [developers], operationId: pingWebhook, description: 'settings:edit. Queues a signed `ping` delivery.', parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '202': { description: Queued, content: { application/json: { schema: { type: object, properties: { id: { type: string, format: uuid } } } } } }, '404': { $ref: '#/components/responses/Error' } } }
+  /developers/webhooks/{id}/deliveries:
+    get: { tags: [developers], operationId: listWebhookDeliveries, description: 'settings:view. Delivery log: status, attempts, response code, short error code — no payload bodies.', parameters: [{ $ref: '#/components/parameters/Id' }, { name: limit, in: query, schema: { type: integer } }, { name: offset, in: query, schema: { type: integer } }], responses: { '200': { description: OK, content: { application/json: { schema: { type: object, properties: { total: { type: integer }, items: { type: array, items: { $ref: '#/components/schemas/WebhookDelivery' } } } } } } }, '404': { $ref: '#/components/responses/Error' } } }
+  /developers/webhook-deliveries/{id}/redeliver:
+    post: { tags: [developers], operationId: redeliverWebhook, description: 'settings:edit. Queues a new delivery of the same envelope (redeliveryOf set).', parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '202': { description: Queued, content: { application/json: { schema: { type: object, properties: { id: { type: string, format: uuid } } } } } }, '404': { $ref: '#/components/responses/Error' } } }
   /tenants/signup:
     post:
       tags: [tenancy]
@@ -243,7 +272,7 @@ paths:
       responses: { '204': { description: Saved }, '403': { $ref: '#/components/responses/Error' } }
   /clients:
     get:
-      tags: [clients]
+      tags: [clients, public]
       operationId: listClients
       parameters:
         - { name: q, in: query, schema: { type: string } }
@@ -253,7 +282,7 @@ paths:
         - { name: offset, in: query, schema: { type: integer } }
       responses: { '200': { description: Clients the caller may see, content: { application/json: { schema: { type: object, required: [total, items], properties: { total: { type: integer }, items: { type: array, items: { $ref: '#/components/schemas/Client' } } } } } } } }
     post:
-      tags: [clients]
+      tags: [clients, public]
       operationId: createClient
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ClientCreate' } } } }
       responses: { '201': { $ref: '#/components/responses/Created' }, '400': { $ref: '#/components/responses/Error' }, '409': { $ref: '#/components/responses/Error' } }
@@ -283,7 +312,7 @@ paths:
       responses: { '200': { description: File download } }
   /clients/{id}:
     get:
-      tags: [clients]
+      tags: [clients, public]
       operationId: getClient
       parameters: [{ $ref: '#/components/parameters/Id' }]
       responses: { '200': { description: Client 360, content: { application/json: { schema: { $ref: '#/components/schemas/ClientDetail' } } } }, '404': { $ref: '#/components/responses/Error' } }
@@ -402,7 +431,7 @@ paths:
       responses: { '201': { description: One-time code (5 min), content: { application/json: { schema: { type: object, required: [code, expiresInSeconds], properties: { code: { type: string }, expiresInSeconds: { type: integer } } } } } } }
   /documents:
     get:
-      tags: [documents]
+      tags: [documents, public]
       operationId: listDocuments
       parameters:
         - { name: clientId, in: query, schema: { type: string } }
@@ -414,7 +443,7 @@ paths:
         - { name: offset, in: query, schema: { type: integer } }
       responses: { '200': { description: Documents, content: { application/json: { schema: { type: object, required: [total, items], properties: { total: { type: integer }, items: { type: array, items: { $ref: '#/components/schemas/Document' } } } } } } } }
     post:
-      tags: [documents]
+      tags: [documents, public]
       operationId: uploadDocument
       description: 25 MB max; executables/scripts/HTML refused; virus-scanned. Pass documentId to add a new version.
       requestBody: { required: true, content: { multipart/form-data: { schema: { type: object, required: [file], properties: { file: { type: string, format: binary }, clientId: { type: string }, fy: { type: string }, category: { type: string }, name: { type: string }, tags: { type: string }, permanent: { type: string }, expiresOn: { type: string }, documentId: { type: string }, note: { type: string } } } } } }
@@ -551,7 +580,7 @@ paths:
       responses: { '200': { description: Saved, content: { application/json: { schema: { type: object, required: [id], properties: { id: { type: string } } } } } } }
   /tasks:
     get:
-      tags: [tasks]
+      tags: [tasks, public]
       operationId: listTasks
       description: List / kanban / gantt / sprint views all read this. Visible = clients:view on the client AND tasks:view (task people count as owners).
       parameters:
@@ -571,7 +600,7 @@ paths:
         - { name: offset, in: query, schema: { type: integer } }
       responses: { '200': { description: Tasks, content: { application/json: { schema: { type: object, required: [total, items], properties: { total: { type: integer }, items: { type: array, items: { $ref: '#/components/schemas/Task' } } } } } } } }
     post:
-      tags: [tasks]
+      tags: [tasks, public]
       operationId: createTask
       description: Manual task (client or firm). Checks default from the service type.
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TaskIn' } } } }
@@ -615,12 +644,12 @@ paths:
       responses: { '200': { description: Result, content: { application/json: { schema: { type: object, required: [month, created, skipped, ids], properties: { month: { type: string }, created: { type: integer }, skipped: { type: integer }, ids: { type: array, items: { type: string } } } } } } } }
   /tasks/{id}:
     get:
-      tags: [tasks]
+      tags: [tasks, public]
       operationId: getTask
       parameters: [{ $ref: '#/components/parameters/Id' }]
       responses: { '200': { description: Task, content: { application/json: { schema: { $ref: '#/components/schemas/Task' } } } }, '404': { $ref: '#/components/responses/Error' } }
     patch:
-      tags: [tasks]
+      tags: [tasks, public]
       operationId: updateTask
       description: "Rule codes (400 `code`): required_checks_pending, reviewer_required, pending_issue_required, act_by_after_due, task_closed, person_cannot_see_task:*."
       parameters: [{ $ref: '#/components/parameters/Id' }]
@@ -730,7 +759,7 @@ paths:
       responses: { '200': { description: Approved, content: { application/json: { schema: { type: object, required: [tasksMoved], properties: { tasksMoved: { type: integer } } } } } }, '403': { $ref: '#/components/responses/Error' } }
   /compliance/matrix:
     get:
-      tags: [compliance]
+      tags: [compliance, public]
       operationId: complianceMatrix
       description: Visible clients × rules → due items with task state (not_created, open, done, overdue).
       parameters:
@@ -768,7 +797,7 @@ paths:
     post: { tags: [billing], operationId: tallyExport, description: 'Records exported vouchers (sync log); re-export skips them unless force. 400 tally_validation with issues.', requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TallyExportIn' } } } }, responses: { '200': { description: Exported, content: { application/json: { schema: { $ref: '#/components/schemas/TallyResult' } } } }, '400': { $ref: '#/components/responses/Error' } } }
   /billing/invoices:
     get:
-      tags: [billing]
+      tags: [billing, public]
       operationId: listInvoices
       parameters:
         - { name: status, in: query, schema: { type: string }, description: comma-separated }
@@ -785,7 +814,7 @@ paths:
   /billing/invoices/export:
     get: { tags: [billing], operationId: exportInvoices, description: 'Invoice register (audited, formula-safe).', parameters: [{ name: format, in: query, schema: { type: string, enum: [csv, xlsx] } }, { name: from, in: query, schema: { type: string, format: date } }, { name: to, in: query, schema: { type: string, format: date } }], responses: { '200': { description: File } } }
   /billing/invoices/{id}:
-    get: { tags: [billing], operationId: getInvoice, parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '200': { description: Invoice, content: { application/json: { schema: { $ref: '#/components/schemas/InvoiceDetail' } } } }, '404': { $ref: '#/components/responses/Error' } } }
+    get: { tags: [billing, public], operationId: getInvoice, parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '200': { description: Invoice, content: { application/json: { schema: { $ref: '#/components/schemas/InvoiceDetail' } } } }, '404': { $ref: '#/components/responses/Error' } } }
     patch: { tags: [billing], operationId: updateInvoice, description: 'Drafts only (409 invoice_immutable after issue).', parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { entityId: { type: [string, 'null'] }, notes: { type: [string, 'null'] }, lines: { type: array, items: { $ref: '#/components/schemas/InvoiceLineIn' } } } } } } }, responses: { '204': { description: Updated }, '409': { $ref: '#/components/responses/Error' } } }
     delete: { tags: [billing], operationId: deleteInvoice, description: 'Drafts only; its tasks become unbilled.', parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '204': { description: Deleted }, '409': { $ref: '#/components/responses/Error' } } }
   /billing/invoices/{id}/issue:
@@ -812,7 +841,7 @@ paths:
     post: { tags: [billing], operationId: commitRetainers, description: One draft per subscription × period (idempotent)., requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AutoTasksIn' } } } }, responses: { '200': { description: Result, content: { application/json: { schema: { type: object, properties: { month: { type: string }, created: { type: integer }, ids: { type: array, items: { type: string } }, skipped: { type: integer } } } } } } } }
   /billing/receipts:
     get: { tags: [billing], operationId: listReceipts, parameters: [{ name: clientId, in: query, schema: { type: string } }, { name: from, in: query, schema: { type: string, format: date } }, { name: to, in: query, schema: { type: string, format: date } }, { name: limit, in: query, schema: { type: integer } }, { name: offset, in: query, schema: { type: integer } }], responses: { '200': { description: Page, content: { application/json: { schema: { type: object, required: [total, items], properties: { total: { type: integer }, items: { type: array, items: { $ref: '#/components/schemas/Receipt' } } } } } } } } }
-    post: { tags: [billing], operationId: createReceipt, description: 'receipts:create. Allocations omitted = FIFO (TDS first); [] = all advance. Online-only from mobile.', requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ReceiptIn' } } } }, responses: { '201': { description: Recorded, content: { application/json: { schema: { type: object, required: [id, number, allocations], properties: { id: { type: string }, number: { type: string }, allocations: { type: array, items: { $ref: '#/components/schemas/Allocation' } } } } } } } } }
+    post: { tags: [billing, public], operationId: createReceipt, description: 'receipts:create. Allocations omitted = FIFO (TDS first); [] = all advance. Online-only from mobile.', requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ReceiptIn' } } } }, responses: { '201': { description: Recorded, content: { application/json: { schema: { type: object, required: [id, number, allocations], properties: { id: { type: string }, number: { type: string }, allocations: { type: array, items: { $ref: '#/components/schemas/Allocation' } } } } } } } } }
   /billing/receipts/export:
     get: { tags: [billing], operationId: exportReceipts, parameters: [{ name: format, in: query, schema: { type: string, enum: [csv, xlsx] } }, { name: from, in: query, schema: { type: string, format: date } }, { name: to, in: query, schema: { type: string, format: date } }], responses: { '200': { description: File } } }
   /billing/receipts/{id}:
@@ -834,7 +863,7 @@ paths:
   /billing/public/{token}:
     get: { tags: [billing], operationId: publicInvoice, security: [], description: Signed 30-day invoice link sent to clients (PDF)., parameters: [{ name: token, in: path, required: true, schema: { type: string } }], responses: { '200': { description: PDF }, '404': { $ref: '#/components/responses/Error' } } }
   /time/entries:
-    get: { tags: [time], operationId: listTimeEntries, description: 'time:view. Own entries, plus people in scope (manager by reporting line, or time:view scope over the person) whose client — if any — the caller can see (D84).', parameters: [{ name: userId, in: query, schema: { type: string, format: uuid } }, { name: from, in: query, schema: { type: string, format: date } }, { name: to, in: query, schema: { type: string, format: date } }, { name: status, in: query, schema: { type: string, enum: [draft, submitted, approved, rejected] } }, { name: limit, in: query, schema: { type: integer } }, { name: offset, in: query, schema: { type: integer } }], responses: { '200': { description: Entries, content: { application/json: { schema: { type: object, required: [total, totalMinutes, items], properties: { total: { type: integer }, totalMinutes: { type: integer }, items: { type: array, items: { $ref: '#/components/schemas/TimeEntry' } } } } } } } } }
+    get: { tags: [time, public], operationId: listTimeEntries, description: 'time:view. Own entries, plus people in scope (manager by reporting line, or time:view scope over the person) whose client — if any — the caller can see (D84).', parameters: [{ name: userId, in: query, schema: { type: string, format: uuid } }, { name: from, in: query, schema: { type: string, format: date } }, { name: to, in: query, schema: { type: string, format: date } }, { name: status, in: query, schema: { type: string, enum: [draft, submitted, approved, rejected] } }, { name: limit, in: query, schema: { type: integer } }, { name: offset, in: query, schema: { type: integer } }], responses: { '200': { description: Entries, content: { application/json: { schema: { type: object, required: [total, totalMinutes, items], properties: { total: { type: integer }, totalMinutes: { type: integer }, items: { type: array, items: { $ref: '#/components/schemas/TimeEntry' } } } } } } } } }
     post: { tags: [time], operationId: createTimeEntry, description: 'time:edit (own). Client is taken from the task; no future dates; ≤ 24 h per day.', requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TimeEntryIn' } } } }, responses: { '201': { $ref: '#/components/responses/Created' }, '400': { $ref: '#/components/responses/Error' } } }
   /time/entries/{id}:
     get: { tags: [time], operationId: getTimeEntry, parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '200': { description: Entry, content: { application/json: { schema: { $ref: '#/components/schemas/TimeEntry' } } } }, '404': { $ref: '#/components/responses/Error' } } }
@@ -1363,6 +1392,93 @@ paths:
     post: { tags: [reports], operationId: askReport, description: 'reports:view + ai:create; AI gate feature nl_query (off by default; 403 no_ai_mode|ai_disabled|feature_disabled|ai_cap). The model gets only the dataset/column catalogue the caller may use plus the redacted question — never rows — and must return a report definition; it is validated (422 invalid_model_output) and run read-only with the ASKER''s scope (run=false to only get the definition). The response shows the definition, an explanation and the sources.', requestBody: { required: true, content: { application/json: { schema: { type: object, required: [question], properties: { question: { type: string, maxLength: 500 }, run: { type: boolean } } } } } }, responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '400': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' }, '422': { $ref: '#/components/responses/Error' } } }
   /reports/ask/{id}/save:
     post: { tags: [reports], operationId: saveReportAsk, description: 'reports:create. Accepts an answer by saving its definition as the caller''s own report (404 for other users'' questions).', parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [name], properties: { name: { type: string } } } } } }, responses: { '201': { description: OK, content: { application/json: { schema: { type: object } } } }, '400': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } } }
+# phase12 A — begin (super-admin platform, SaaS subscription, impersonation consent, DPDP privacy)
+  /platform/auth/login:
+    post: { tags: [platform], operationId: platformLogin, description: 'Platform operator sign-in: password AND authenticator code always (401 code MFA_REQUIRED without it). Returns a platform token (own issuer/audience; refused on every tenant route). Rate-limited; lockout after 5 wrong secrets.', security: [], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [email, password], properties: { email: { type: string }, password: { type: string }, totp: { type: string } } } } } }, responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '400': { $ref: '#/components/responses/Error' }, '401': { $ref: '#/components/responses/Error' }, '429': { $ref: '#/components/responses/Error' } } }
+  /platform/auth/logout:
+    post: { tags: [platform], operationId: platformLogout, description: 'Ends the platform session (impersonation tokens issued from it stop working).', responses: { '204': { description: OK }, '401': { $ref: '#/components/responses/Error' } } }
+  /platform/me:
+    get: { tags: [platform], operationId: platformMe, description: 'Current platform operator.', responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Error' } } }
+  /platform/tenants:
+    get: { tags: [platform], operationId: platformTenants, description: 'Firms list/search (q matches name/slug; status = active|suspended|trial|past_due|cancelled).', parameters: [{ name: q, in: query, schema: { type: string } }, { name: status, in: query, schema: { type: string } }, { name: limit, in: query, schema: { type: integer } }], responses: { '200': { description: OK, content: { application/json: { schema: { type: array, items: { type: object } } } } }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' } } }
+  /platform/tenants/{id}:
+    get: { tags: [platform], operationId: platformTenant, description: 'Firm detail: subscription, usage (seats, storage, messages, AI), effective features, usage history, SaaS invoices, impersonation grants, upgrade requests. Audited.', parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } } }
+  /platform/tenants/{id}/suspend:
+    post: { tags: [platform], operationId: platformSuspendTenant, description: 'Suspends a firm: logins, API and jobs blocked (403 TENANT_SUSPENDED), data kept. Audited in platform AND tenant logs.', parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [reason], properties: { reason: { type: string } } } } } }, responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '400': { $ref: '#/components/responses/Error' }, '401': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } } }
+  /platform/tenants/{id}/reactivate:
+    post: { tags: [platform], operationId: platformReactivateTenant, description: 'Lifts a platform suspension.', parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } } }
+  /platform/tenants/{id}/flags:
+    put: { tags: [platform], operationId: platformTenantFlags, description: 'Per-firm feature overrides (portal, automation, ai, payments, whatsapp, esign, leads, reports); null removes an override (plan default applies).', parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [overrides], properties: { overrides: { type: object, additionalProperties: { type: [boolean, 'null'] } } } } } } }, responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '400': { $ref: '#/components/responses/Error' }, '401': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } } }
+  /platform/tenants/{id}/plan:
+    put: { tags: [platform], operationId: platformTenantPlan, description: 'Assign plan, billing cycle and an optional seat-limit override.', parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [planKey], properties: { planKey: { type: string }, cycle: { type: string, enum: [monthly, annual] }, seatLimit: { type: [integer, 'null'] } } } } } }, responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '400': { $ref: '#/components/responses/Error' }, '401': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } } }
+  /platform/tenants/{id}/lifecycle/run:
+    post: { tags: [platform], operationId: platformRunLifecycle, description: 'Runs the daily subscription lifecycle (invoice at trial/period end, past_due → suspended → cancelled, dunning, metering). `today` override only outside production.', parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { content: { application/json: { schema: { type: object, properties: { today: { type: string, format: date } } } } } }, responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '400': { $ref: '#/components/responses/Error' }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } } }
+  /platform/tenants/{id}/meter:
+    post: { tags: [platform], operationId: platformMeterTenant, description: 'Recomputes this months usage snapshot.', parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } } }
+  /platform/tenants/{id}/invoices/{invoiceId}/mark-paid:
+    post: { tags: [platform], operationId: platformMarkInvoicePaid, description: 'Records an offline payment of a SaaS invoice (activates the subscription for its period).', parameters: [{ $ref: '#/components/parameters/Id' }, { name: invoiceId, in: path, required: true, schema: { type: string } }], responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } } }
+  /platform/tenants/{id}/impersonations:
+    get: { tags: [platform], operationId: platformImpersonations, description: 'Support-access requests for a firm.', parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '200': { description: OK, content: { application/json: { schema: { type: array, items: { type: object } } } } }, '401': { $ref: '#/components/responses/Error' } } }
+    post: { tags: [platform], operationId: platformRequestImpersonation, description: 'Requests support access (reason ≥ 10 chars; read-only unless write=true; ≤ 240 minutes). Nothing is usable until a firm partner approves.', parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [reason], properties: { reason: { type: string }, write: { type: boolean }, minutes: { type: integer } } } } } }, responses: { '201': { description: OK, content: { application/json: { schema: { type: object } } } }, '400': { $ref: '#/components/responses/Error' }, '401': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } } }
+  /platform/tenants/{id}/impersonations/{grantId}/start:
+    post: { tags: [platform], operationId: platformStartImpersonation, description: 'Issues an impersonation token (distinct issuer/audience; expires with the grant; dies with the platform session). Every request with it is audited in the tenant AND platform logs; non-GET is refused (403 IMPERSONATION_READ_ONLY) unless the firm consented to write; /auth, /users, /impersonation, reveal and erasure routes are always refused.', parameters: [{ $ref: '#/components/parameters/Id' }, { name: grantId, in: path, required: true, schema: { type: string } }], responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } } }
+  /platform/tenants/{id}/impersonations/{grantId}/end:
+    post: { tags: [platform], operationId: platformEndImpersonation, description: 'Ends (revokes) a grant from the platform side.', parameters: [{ $ref: '#/components/parameters/Id' }, { name: grantId, in: path, required: true, schema: { type: string } }], responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } } }
+  /platform/plans:
+    get: { tags: [platform], operationId: platformPlans, description: 'Plans with their price rows (rate table; sample prices flagged unverified).', responses: { '200': { description: OK, content: { application/json: { schema: { type: array, items: { type: object } } } } }, '401': { $ref: '#/components/responses/Error' } } }
+  /platform/plans/{key}:
+    put: { tags: [platform], operationId: platformSavePlan, description: 'Create/update a plan (seats null = unlimited, storage, portalUsersCountAsSeats, module defaults).', parameters: [{ name: key, in: path, required: true, schema: { type: string } }], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [name, seats, storageGb], properties: { name: { type: string }, seats: { type: [integer, 'null'] }, storageGb: { type: [integer, 'null'] }, portalUsersCountAsSeats: { type: boolean }, modules: { type: object }, active: { type: boolean } } } } } }, responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '400': { $ref: '#/components/responses/Error' }, '401': { $ref: '#/components/responses/Error' } } }
+  /platform/plans/{key}/prices:
+    post: { tags: [platform], operationId: platformAddPrice, description: 'Adds a price row (paise per cycle, effective from a date). Prices are data; never hard-coded.', parameters: [{ name: key, in: path, required: true, schema: { type: string } }], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [cycle, pricePaise, effectiveFrom], properties: { cycle: { type: string, enum: [monthly, annual] }, pricePaise: { type: integer }, effectiveFrom: { type: string, format: date }, notes: { type: string }, unverified: { type: boolean } } } } } }, responses: { '201': { description: OK, content: { application/json: { schema: { type: object } } } }, '400': { $ref: '#/components/responses/Error' }, '401': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } } }
+  /platform/audit:
+    get: { tags: [platform], operationId: platformAudit, description: 'Platform audit log (hash-chained).', parameters: [{ name: tenantId, in: query, schema: { type: string, format: uuid } }, { name: limit, in: query, schema: { type: integer } }], responses: { '200': { description: OK, content: { application/json: { schema: { type: array, items: { type: object } } } } }, '401': { $ref: '#/components/responses/Error' } } }
+  /platform/audit/verify:
+    get: { tags: [platform], operationId: platformAuditVerify, description: 'Recomputes the platform audit hash chain.', responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Error' } } }
+  /saas/webhooks/{provider}:
+    post: { tags: [platform], operationId: saasWebhook, description: 'SaaS payment webhook (signature over the raw body; deduplicated by event id). Public.', security: [], parameters: [{ name: provider, in: path, required: true, schema: { type: string, enum: [mock, razorpay] } }], requestBody: { content: { application/json: { schema: { type: object } } } }, responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Error' } } }
+  /subscription:
+    get: { tags: [subscription], operationId: getSubscription, description: 'settings:view. Plan, status, seats, usage, effective modules, SaaS invoices (with payment links), upgrade requests and available plans.', responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' } } }
+  /subscription/upgrade-requests:
+    post: { tags: [subscription], operationId: requestUpgrade, description: 'settings:edit. Asks Worko to move the firm to another plan/cycle.', requestBody: { required: true, content: { application/json: { schema: { type: object, required: [planKey, cycle], properties: { planKey: { type: string }, cycle: { type: string, enum: [monthly, annual] }, note: { type: string } } } } } }, responses: { '201': { description: OK, content: { application/json: { schema: { type: object } } } }, '400': { $ref: '#/components/responses/Error' }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' } } }
+  /impersonation/grants:
+    get: { tags: [subscription], operationId: impersonationGrants, description: 'settings:view. Support-access requests and consent records (retained).', responses: { '200': { description: OK, content: { application/json: { schema: { type: array, items: { type: object } } } } }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' } } }
+  /impersonation/grants/{id}/approve:
+    post: { tags: [subscription], operationId: approveImpersonation, description: 'Partner only. Approves time-boxed support access; writeConsent=true only when support asked for write. Audited in both logs.', parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { writeConsent: { type: boolean }, minutes: { type: integer } } } } } }, responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '400': { $ref: '#/components/responses/Error' }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } } }
+  /impersonation/grants/{id}/deny:
+    post: { tags: [subscription], operationId: denyImpersonation, description: 'Partner only.', parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '400': { $ref: '#/components/responses/Error' }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } } }
+  /impersonation/grants/{id}/revoke:
+    post: { tags: [subscription], operationId: revokeImpersonation, description: 'Partner or firm-wide settings:edit. Ends access immediately.', parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } } }
+  /privacy/inventory:
+    get: { tags: [privacy], operationId: privacyInventory, description: 'settings:view. Data inventory (tables/fields holding personal data, purpose, retention category) + effective retention rules. Tooling, not legal advice.', responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' } } }
+  /privacy/settings:
+    get: { tags: [privacy], operationId: privacySettings, description: 'settings:view. SLA days per request kind, breach reporting hours, export link days, retention overrides (sample defaults — verify).', responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' } } }
+    put: { tags: [privacy], operationId: putPrivacySettings, description: 'Firm-wide settings:edit. Retention overrides cannot go below a statutory minimum in the rule table.', requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { settings: { type: object, additionalProperties: true }, retention: { type: object, additionalProperties: { type: object, required: [days], properties: { days: { type: integer } } } } } } } } }, responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '400': { $ref: '#/components/responses/Error' }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' } } }
+  /privacy/consents:
+    get: { tags: [privacy], operationId: privacyConsents, description: 'settings:view. Consent registry (messaging consents incl. portal-recorded), addresses masked.', parameters: [{ name: clientId, in: query, schema: { type: string, format: uuid } }, { name: limit, in: query, schema: { type: integer } }], responses: { '200': { description: OK, content: { application/json: { schema: { type: array, items: { type: object } } } } }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' } } }
+  /privacy/requests:
+    get: { tags: [privacy], operationId: privacyRequests, description: 'settings:view. Data-principal requests with SLA state (on_track/due_soon/overdue/closed).', parameters: [{ name: status, in: query, schema: { type: string } }, { name: overdue, in: query, schema: { type: string, enum: ['true', 'false'] } }], responses: { '200': { description: OK, content: { application/json: { schema: { type: array, items: { type: object } } } } }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' } } }
+    post: { tags: [privacy], operationId: createPrivacyRequest, description: 'settings:edit. Staff intake (access, correction, erasure, grievance) for a client, contact, lead, portal user or staff member; due date from the SLA settings. Details are encrypted.', requestBody: { required: true, content: { application/json: { schema: { type: object, required: [kind, principalType, principalId], properties: { kind: { type: string, enum: [access, correction, erasure, grievance] }, principalType: { type: string, enum: [client, contact, lead, portal_user, staff] }, principalId: { type: string, format: uuid }, details: { type: string } } } } } }, responses: { '201': { description: OK, content: { application/json: { schema: { type: object } } } }, '400': { $ref: '#/components/responses/Error' }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' } } }
+  /privacy/requests/{id}:
+    patch: { tags: [privacy], operationId: updatePrivacyRequest, description: 'Firm-wide settings:edit. Workflow transition / assignment / resolution note.', parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { status: { type: string }, assignedTo: { type: [string, 'null'] }, resolution: { type: string } } } } } }, responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '400': { $ref: '#/components/responses/Error' }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } } }
+  /privacy/requests/{id}/export:
+    post: { tags: [privacy], operationId: exportPrivacyRequest, description: 'Firm-wide settings:export. Builds the principals JSON bundle (inventory columns + documents list) and returns an expiring link path /privacy/exports/{token}.', parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '400': { $ref: '#/components/responses/Error' }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } } }
+  /privacy/requests/{id}/erase:
+    post: { tags: [privacy], operationId: erasePrivacyRequest, description: 'Firm-wide settings:approve. dryRun (default true) shows the plan; otherwise anonymises / crypto-shreds PII fields, keeping what retention holds require (tax records, consent proofs, employment); accounting rows are never changed. Outcome full/partial/blocked with reasons.', parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { dryRun: { type: boolean } } } } } }, responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '400': { $ref: '#/components/responses/Error' }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } } }
+  /privacy/breaches:
+    get: { tags: [privacy], operationId: privacyBreaches, description: 'settings:view. Breach register.', responses: { '200': { description: OK, content: { application/json: { schema: { type: array, items: { type: object } } } } }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' } } }
+    post: { tags: [privacy], operationId: createPrivacyBreach, description: 'Firm-wide settings:edit. Records an incident; report due = aware time + configured hours.', requestBody: { required: true, content: { application/json: { schema: { type: object, required: [title, severity, awareAt, affectedCount], properties: { title: { type: string }, description: { type: string }, severity: { type: string, enum: [low, medium, high, critical] }, occurredAt: { type: string, format: date-time }, awareAt: { type: string, format: date-time }, affectedCount: { type: integer }, dataCategories: { type: array, items: { type: string } } } } } } }, responses: { '201': { description: OK, content: { application/json: { schema: { type: object } } } }, '400': { $ref: '#/components/responses/Error' }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' } } }
+  /privacy/breaches/{id}:
+    patch: { tags: [privacy], operationId: updatePrivacyBreach, description: 'Firm-wide settings:edit. Status and notification tracking (Board / principals).', parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { status: { type: string }, affectedCount: { type: integer }, boardNotifiedAt: { type: [string, 'null'] }, principalsNotifiedAt: { type: [string, 'null'] }, principalsNotifiedCount: { type: integer } } } } } }, responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '400': { $ref: '#/components/responses/Error' }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } } }
+  /privacy/purge:
+    post: { tags: [privacy], operationId: privacyPurge, description: 'Firm-wide settings:approve. Retention purge: dryRun (default) counts in a read-only transaction; a real run needs a dry-run in the last 24 h (409 dry_run_required).', requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { dryRun: { type: boolean } } } } } }, responses: { '200': { description: OK, content: { application/json: { schema: { type: object } } } }, '400': { $ref: '#/components/responses/Error' }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' }, '409': { $ref: '#/components/responses/Error' } } }
+  /privacy/purge-runs:
+    get: { tags: [privacy], operationId: privacyPurgeRuns, description: 'settings:view. Dry-run and purge history.', responses: { '200': { description: OK, content: { application/json: { schema: { type: array, items: { type: object } } } } }, '401': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' } } }
+  /privacy/exports/{token}:
+    get: { tags: [privacy], operationId: privacyExportDownload, description: 'Public expiring link to an access-request bundle (410 after expiry). Audited.', security: [], parameters: [{ $ref: '#/components/parameters/Token' }], responses: { '200': { description: JSON bundle, content: { application/json: { schema: { type: object } } } }, '404': { $ref: '#/components/responses/Error' }, '410': { $ref: '#/components/responses/Error' } } }
+  /portal/privacy-requests:
+    get: { tags: [portal], operationId: portalPrivacyRequests, description: 'PORTAL session. Your data-principal requests and their status.', responses: { '200': { description: OK, content: { application/json: { schema: { type: array, items: { type: object } } } } }, '401': { $ref: '#/components/responses/Error' } } }
+    post: { tags: [portal], operationId: portalCreatePrivacyRequest, description: 'PORTAL session. Raise a request about yourself, or (clientId) a client you can access.', requestBody: { required: true, content: { application/json: { schema: { type: object, required: [kind], properties: { kind: { type: string, enum: [access, correction, erasure, grievance] }, clientId: { type: string, format: uuid }, details: { type: string } } } } } }, responses: { '201': { description: OK, content: { application/json: { schema: { type: object } } } }, '400': { $ref: '#/components/responses/Error' }, '401': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } } }
+# phase12 A — end
 components:
   securitySchemes:
     bearer: { type: http, scheme: bearer, bearerFormat: JWT }
@@ -1379,6 +1495,27 @@ components:
     PortalTokens: { description: Portal tokens (separate issuer/audience — never valid on staff routes), content: { application/json: { schema: { $ref: '#/components/schemas/PortalTokenPair' } } } }
     Created: { description: Created, content: { application/json: { schema: { type: object, required: [id], properties: { id: { type: string } } } } } }
   schemas:
+    ApiKey:
+      type: object
+      properties: { id: { type: string, format: uuid }, name: { type: string }, prefix: { type: string }, scopes: { type: array, items: { type: string } }, clientGroupIds: { type: [array, 'null'], items: { type: string, format: uuid } }, ipAllowlist: { type: array, items: { type: string } }, ratePerMin: { type: integer }, expiresAt: { type: [string, 'null'], format: date-time }, createdBy: { type: string, format: uuid }, createdByName: { type: [string, 'null'] }, createdAt: { type: string, format: date-time }, rotatedAt: { type: [string, 'null'] }, revokedAt: { type: [string, 'null'] }, lastUsedAt: { type: [string, 'null'] }, lastUsedIp: { type: [string, 'null'] }, status: { type: string, enum: [active, revoked, expired, creator_inactive] } }
+    ApiKeyIn:
+      type: object
+      required: [name, scopes]
+      properties: { name: { type: string }, scopes: { type: array, items: { type: string, description: 'module:action' } }, clientGroupIds: { type: [array, 'null'], items: { type: string, format: uuid } }, ipAllowlist: { type: array, items: { type: string, description: CIDR } }, expiresAt: { type: [string, 'null'], format: date-time }, ratePerMin: { type: integer } }
+    ApiKeySecret:
+      type: object
+      required: [key, secret]
+      properties: { key: { $ref: '#/components/schemas/ApiKey' }, secret: { type: string, description: 'wk_<prefix>_<secret> — shown once' } }
+    WebhookIn:
+      type: object
+      required: [name, url, events]
+      properties: { name: { type: string }, url: { type: string }, events: { type: array, items: { type: string } } }
+    WebhookSubscription:
+      type: object
+      properties: { id: { type: string, format: uuid }, name: { type: string }, url: { type: string }, events: { type: array, items: { type: string } }, status: { type: string, enum: [active, disabled] }, disabledReason: { type: [string, 'null'] }, consecutiveFailures: { type: integer }, createdBy: { type: string, format: uuid }, createdAt: { type: string }, lastDeliveryAt: { type: [string, 'null'] } }
+    WebhookDelivery:
+      type: object
+      properties: { id: { type: string, format: uuid }, subscriptionId: { type: string, format: uuid }, eventId: { type: [string, 'null'] }, eventType: { type: string }, redeliveryOf: { type: [string, 'null'] }, status: { type: string, enum: [pending, retrying, succeeded, failed, skipped] }, attempts: { type: integer }, nextAttemptAt: { type: [string, 'null'] }, lastStatusCode: { type: [integer, 'null'] }, lastError: { type: [string, 'null'] }, lastDurationMs: { type: [integer, 'null'] }, createdAt: { type: string }, deliveredAt: { type: [string, 'null'] } }
     ReportDefinition:
       type: object
       description: 'M17 report definition (data, never SQL): a catalogue dataset, typed columns, filters (ops per type; fy = Indian FY like 2025-26; period = this_month / this_fy / last_30_days / month:YYYY-MM …, IST), ≤2 group-by levels, aggregates (count/sum/avg/min/max; paise stay integers), sort, limit, params, chart hint.'
@@ -1547,7 +1684,7 @@ components:
     Me:
       type: object
       required: [id, name, email, firmName, firmSlug, roles, grants, totpEnabled]
-      properties: { id: { type: string }, name: { type: string }, email: { type: string }, phone: { type: [string, 'null'] }, totpEnabled: { type: boolean }, firmName: { type: string }, firmSlug: { type: string }, roles: { type: array, items: { type: string } }, grants: { type: array, items: { $ref: '#/components/schemas/Grant' } } }
+      properties: { id: { type: string }, name: { type: string }, email: { type: string }, phone: { type: [string, 'null'] }, totpEnabled: { type: boolean }, firmName: { type: string }, firmSlug: { type: string }, roles: { type: array, items: { type: string } }, grants: { type: array, items: { $ref: '#/components/schemas/Grant' } }, impersonation: { type: ['object', 'null'], description: 'Set during support impersonation (show a banner).', required: [grantId, adminId, write, expiresAt], properties: { grantId: { type: string }, adminId: { type: string }, write: { type: boolean }, expiresAt: { type: string } } } }
     User:
       type: object
       required: [id, name, email, status, roles, totpEnabled]

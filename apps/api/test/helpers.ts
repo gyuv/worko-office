@@ -4,6 +4,8 @@ import { Test, type TestingModuleBuilder } from '@nestjs/testing';
 import pg from 'pg';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
+import { applyHttpHardening } from '../src/common/hardening.js';
+import { RedactingLogger } from '../src/common/logger.js';
 import { freshDatabase } from './db.js';
 
 export const PW = 'correct horse battery';
@@ -18,6 +20,7 @@ export async function bootApp(opts: { listen?: boolean; override?: (b: TestingMo
   if (opts.override) builder = opts.override(builder);
   const app: INestApplication = (await builder.compile()).createNestApplication({ rawBody: true });
   app.setGlobalPrefix('v1');
+  applyHttpHardening(app, { logger: new RedactingLogger(undefined, ['error', 'fatal']) });
   if (opts.listen) await app.listen(0, '127.0.0.1'); else await app.init();
   const http = () => request(app.getHttpServer());
   const sql = async <T = Record<string, unknown>>(q: string, p: unknown[] = []) => {

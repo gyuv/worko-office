@@ -8,12 +8,19 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "pnpm --filter @worko/web build && tsc -p tsconfig.json && electron .",
     "test": "vitest run",
-    "lint": "eslint . --max-warnings=0"
+    "lint": "eslint . --max-warnings=0",
+    "dist:prepare": "pnpm --filter @worko/web build && tsc -p tsconfig.json",
+    "dist:linux": "pnpm run dist:prepare && pnpm dlx electron-builder@26.0.12 --linux AppImage --publish never",
+    "dist:linux:dir": "pnpm run dist:prepare && WORKO_UPDATE_URL=${WORKO_UPDATE_URL:-https://updates.invalid/desktop} pnpm dlx electron-builder@26.0.12 --linux --dir --publish never -c.electronDist=node_modules/electron/dist",
+    "dist:win": "pnpm run dist:prepare && pnpm dlx electron-builder@26.0.12 --win nsis --publish never",
+    "dist:mac": "pnpm run dist:prepare && pnpm dlx electron-builder@26.0.12 --mac dmg --publish never"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
     "electron": "^33.4.11",
     "typescript": "^5.9.3",
     "vitest": "^2.1.9"
-  }
+  },
+  "description": "Worko desktop (Electron) \u2014 offline-capable office app with tray reminders",
+  "author": "Worko"
 }

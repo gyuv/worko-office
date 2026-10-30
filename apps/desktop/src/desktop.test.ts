@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { isAllowedExternal, isAppUrl, isTokenPair, loadSettings } from './settings';
+import { deepLinkHash, isAllowedExternal, isAppUrl, isTokenPair, loadSettings } from './settings';
 import { randomBytes } from 'node:crypto';
 import { DbKeyStore, TokenStore, type SafeStorage } from './token-store';
 import { trayMenu } from './tray-menu';
@@ -79,5 +79,14 @@ describe('local DB key', () => {
     expect(again.get().equals(k1)).toBe(true);
     again.destroy();
     expect(new DbKeyStore(join(dir, 'k.bin'), fakeSafe(), randomBytes).get().equals(k1)).toBe(false);
+  });
+});
+
+describe('deep links', () => {
+  it('maps worko:// paths to hash routes and refuses anything else', () => {
+    expect(deepLinkHash('worko://tasks/01a1-b2')).toBe('#/tasks/01a1-b2');
+    expect(deepLinkHash('worko:///reports/download/x.pdf')).toBe('#/reports/download/x.pdf');
+    for (const bad of ['https://evil.example/tasks', 'worko://tasks/../../etc', 'worko://u:p@tasks/1', 'worko://', 'worko://tasks/<script>', 'javascript:alert(1)', 'worko://a/b?x=1#y'.replace('?x=1#y', '/%2e%2e')])
+      expect(deepLinkHash(bad), bad).toBeNull();
   });
 });

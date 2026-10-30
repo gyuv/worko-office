@@ -1,7 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { COMM_CHANNELS, SUGGESTION_KINDS } from '@worko/domain';
 import { z } from 'zod';
-import { CurrentActor, Perm, type RequestActor } from '../auth/context.js';
+import { CurrentActor, Perm, type RequestActor, Feature } from '../auth/context.js';
 import { ZodPipe } from '../common/zod.pipe.js';
 import { AiService } from './ai.service.js';
 
@@ -19,6 +19,7 @@ const rejectIn = z.object({ reason: z.string().trim().max(500).optional() }).str
 
 /** M21 AI. Generating needs `ai:create` + the underlying data permission; approving needs what doing it by hand needs (D149). */
 @Controller('ai')
+@Feature('ai') // switchable module (M22, D182)
 export class AiController {
   constructor(private ai: AiService) {}
   @Get('settings') @Perm('settings', 'view') settings(@CurrentActor() a: RequestActor) { return this.ai.getSettings(a); }

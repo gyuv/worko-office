@@ -3,7 +3,7 @@ import { Throttle } from '@nestjs/throttler';
 import { COMM_CHANNELS, ENTITY_TYPES, gstinSchema, LEAD_ACTIVITY_KINDS, LEAD_SOURCES, LEAD_STAGES, panSchema, PROPOSAL_FREQUENCIES, PROPOSAL_STATUSES } from '@worko/domain';
 import type { Request } from 'express';
 import { z } from 'zod';
-import { CurrentActor, Perm, Public, type RequestActor } from '../auth/context.js';
+import { CurrentActor, Perm, Public, type RequestActor, Feature } from '../auth/context.js';
 import { ZodPipe } from '../common/zod.pipe.js';
 import { LeadsService } from './leads.service.js';
 import { ProposalsService } from './proposals.service.js';
@@ -43,6 +43,7 @@ const PUBLIC_LIMIT = { default: { limit: Number(process.env.PUBLIC_PAGE_RATE_LIM
 const uuid = new ParseUUIDPipe();
 
 @Controller('leads')
+@Feature('leads') // switchable module (M22, D182)
 export class LeadsController {
   constructor(private leads: LeadsService, private proposals: ProposalsService) {}
 
@@ -64,6 +65,7 @@ export class LeadsController {
 }
 
 @Controller('proposals')
+@Feature('leads') // switchable module (M22, D182)
 export class ProposalsController {
   constructor(private proposals: ProposalsService) {}
 

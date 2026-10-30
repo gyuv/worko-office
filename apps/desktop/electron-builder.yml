@@ -1,0 +1,47 @@
+# Desktop installers (Phase 12, D203). Build with `pnpm --filter @worko/desktop dist:<platform>` after `pnpm build`.
+# Windows NSIS · macOS dmg · Linux AppImage. Code signing / notarisation need certificates: see docs/RELEASE.md and KNOWN_GAPS.
+appId: in.worko.desktop            # matches app.setAppUserModelId in src/main.ts (Windows toasts)
+productName: Worko
+executableName: worko
+copyright: Copyright © Worko
+directories:
+  output: release
+  buildResources: build             # icon.png (512×512) is a PLACEHOLDER — replace with branded icon.png/.ico/.icns
+files:
+  - dist/**/*.js
+  - "!dist/**/*.test.js"
+  - package.json
+extraResources:
+  # The renderer: main.ts loads ../../web/dist/index.html relative to resources/app.asar/dist → resources/web/dist.
+  - from: ../web/dist
+    to: web/dist
+protocols:
+  - name: Worko
+    schemes: [worko]                # deep links worko://tasks/<id> (src/settings.ts deepLinkHash)
+asar: true
+npmRebuild: false                   # no native modules yet (SQLCipher store will need this back on)
+publish:
+  # Update metadata (latest.yml / latest-mac.yml / latest-linux.yml) is generated for a generic HTTPS server.
+  # WORKO_UPDATE_URL e.g. https://updates.example.in/desktop/stable — the channel is the last path segment.
+  - provider: generic
+    url: ${env.WORKO_UPDATE_URL}
+    channel: latest
+win:
+  target: [{ target: nsis, arch: [x64] }]
+  artifactName: Worko-Setup-${version}.${ext}
+  # signtool / Azure Trusted Signing: set CSC_LINK + CSC_KEY_PASSWORD (or WIN_CSC_*) in CI only. Unsigned → SmartScreen warning.
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  runAfterFinish: true
+mac:
+  target: [{ target: dmg, arch: [x64, arm64] }]
+  category: public.app-category.business
+  hardenedRuntime: true
+  # Notarisation needs APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID (CI secrets). Unsigned dmg won't auto-update.
+linux:
+  target: [{ target: AppImage, arch: [x64] }]
+  category: Office
+  artifactName: Worko-${version}-${arch}.${ext}

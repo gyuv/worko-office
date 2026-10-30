@@ -12,7 +12,10 @@ export type Tx = pg.PoolClient;
 export class DbService implements OnModuleDestroy {
   readonly pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: Number(process.env.DB_POOL ?? 10),
     // Fail fast instead of hanging when the pool is exhausted (D173).
-    connectionTimeoutMillis: Number(process.env.DB_CONNECT_TIMEOUT_MS ?? 10_000) });
+    connectionTimeoutMillis: Number(process.env.DB_CONNECT_TIMEOUT_MS ?? 10_000),
+    // Default ceilings for every pooled statement / idle transaction (D199); report runs set a tighter LOCAL timeout.
+    statement_timeout: Number(process.env.DB_STATEMENT_TIMEOUT_MS ?? 60_000),
+    idle_in_transaction_session_timeout: Number(process.env.DB_IDLE_TX_TIMEOUT_MS ?? 120_000) });
 
   async tenantTx<T>(tenantId: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
     const c = await this.pool.connect();
