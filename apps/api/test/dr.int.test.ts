@@ -8,18 +8,20 @@ import { bearer, bootApp } from './helpers.js';
 
 /**
  * DR scripts end to end (scripts/dr): backup → restore drill into a scratch database → row counts, audit chains and
- * sample decryptions verified. Skips (with the reason) when the pg client tools are missing or older than the server.
+ * sample decryptions verified. Skips (with the reason) when the pg client tools are missing or a different major version from the server (set PG_BIN).
  */
 const run = promisify(execFile);
 const DR = resolve(import.meta.dirname, '../../../scripts/dr');
 
 async function toolsUsable(): Promise<string | null> {
   try {
-    const v = (await run('pg_dump', ['--version'])).stdout.match(/(\d+)\./)?.[1];
+    const bin = process.env.PG_BIN ? `${process.env.PG_BIN}/pg_dump` : 'pg_dump';
+    const v = (await run(bin, ['--version'])).stdout.match(/(\d+)\./)?.[1];
     const pg = await import('pg');
     const c = new pg.default.Client({ connectionString: process.env.TEST_DATABASE_URL }); await c.connect();
     const server = (await c.query('SHOW server_version_num')).rows[0].server_version_num as string; await c.end();
-    if (Number(v) < Math.floor(Number(server) / 10000)) return `pg_dump ${v} is older than the server`;
+    const major = Math.floor(Number(server) / 10000);
+    if (Number(v) !== major) return `pg client tools ${v} don't match the server (${major}); set PG_BIN to the ${major} client tools`;
     await run('openssl', ['version']);
     return null;
   } catch (e) { return `tools unavailable: ${(e as Error).message}`; }

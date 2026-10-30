@@ -15,6 +15,7 @@
       ],
       "passThroughEnv": [
         "TEST_DATABASE_URL",
+        "PG_BIN",
         "DATABASE_URL"
       ]
     },

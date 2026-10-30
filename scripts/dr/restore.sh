@@ -43,6 +43,7 @@ fi
 log "restoring database $NAME"
 decrypt "$SRC/db-$NAME.dump.enc" "$WORK/db.dump"
 # --no-owner: objects belong to the restoring role; GRANTs (worko_app) are kept. RLS policies come with the schema.
+check_pg_restore_version "$TARGET"
 pg_restore --no-owner --exit-on-error --jobs "${RESTORE_JOBS:-4}" --dbname "$TARGET" "$WORK/db.dump"
 rm -f "$WORK/db.dump"
 
