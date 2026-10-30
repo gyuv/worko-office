@@ -239,9 +239,13 @@ describe('safety', () => {
     expect((await t.http().post(`/v1/automation/runs/${failed.id}/retry`).set(H(P)).expect(200)).body).toMatchObject({ retried: 0, skipped: 'rule_inactive' });
     await t.http().post(`/v1/automation/rules/${bad.id}/resume`).set(H(P)).expect(200);
     expect((await t.http().get(`/v1/automation/rules/${bad.id}`).set(H(P))).body).toMatchObject({ status: 'active', consecutiveFailures: 0 });
-    // Concurrent retries: each failed action is claimed once.
-    const [r1, r2] = await Promise.all([1, 2].map(() => t.http().post(`/v1/automation/runs/${failed.id}/retry`).set(H(P)).expect(200)));
+    // Concurrent retries with the same generation token: exactly one runs, the other is already_retried (deterministic under load).
+    const gen = (await t.http().get(`/v1/automation/runs/${failed.id}`).set(H(P)).expect(200)).body.attempts as number;
+    const [r1, r2] = await Promise.all([1, 2].map(() => t.http().post(`/v1/automation/runs/${failed.id}/retry`).set(H(P)).send({ expectedAttempts: gen }).expect(200)));
     expect(r1!.body.retried + r2!.body.retried).toBe(1);
+    expect([r1!.body.skipped, r2!.body.skipped]).toContain('already_retried');
+    // A stale token (header form) does nothing.
+    expect((await t.http().post(`/v1/automation/runs/${failed.id}/retry`).set(H(P)).set('Idempotency-Key', String(gen)).expect(200)).body).toMatchObject({ retried: 0, skipped: 'already_retried' });
     expect((await runActions(failed.id as string))[0]).toMatchObject({ status: 'failed', attempts: 2 });
     await disable(bad.id);
   });

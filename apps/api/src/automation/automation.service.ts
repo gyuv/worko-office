@@ -222,7 +222,7 @@ export class AutomationService {
       return { ...runOut(r), actions };
     });
   }
-  async retryRun(a: RequestActor, id: string) {
+  async retryRun(a: RequestActor, id: string, expectedAttempts?: number) {
     await this.db.tenantTx(a.tenantId, async (tx) => {
       const run = (await tx.query('SELECT rule_id FROM automation_run WHERE id = $1', [id])).rows[0];
       if (!run) throw new NotFoundException();
@@ -231,7 +231,7 @@ export class AutomationService {
       if (r.owner_id !== a.userId) this.requireActionPerms(a, ruleDefinitionSchema.parse(r.definition));
       await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'automation.run_retried', entity: 'automation_run', entityId: id, diff: { ruleId: r.id } });
     });
-    const res = await this.engine.retry(a.tenantId, id, this.clock.now());
+    const res = await this.engine.retry(a.tenantId, id, this.clock.now(), expectedAttempts);
     return { ...res, run: await this.getRun(a, id) };
   }
 

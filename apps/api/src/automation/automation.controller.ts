@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { CurrentActor, Perm, type RequestActor } from '../auth/context.js';
 import { ZodPipe } from '../common/zod.pipe.js';
@@ -12,6 +12,7 @@ const rulePatch = z.object({ name: txt(200).optional(), description: z.string().
 const sample = { limit: z.number().int().min(1).max(100).default(20), entityType: z.string().max(40).optional(), entityId: uuid.optional() };
 const dryRunIn = z.object({ ...sample, definition: z.unknown().optional() }).strict();
 const draftDryRunIn = z.object({ ...sample, scope: z.enum(['firm', 'personal']).default('firm'), definition: z.unknown() }).strict();
+const retryIn = z.object({ expectedAttempts: z.number().int().min(0).optional() }).strict().optional();
 const agentIn = z.object({ params: z.record(z.unknown()).optional(), name: txt(200).optional(), enabled: z.boolean().optional() }).strict();
 const agentPreviewIn = z.object({ params: z.record(z.unknown()).optional(), limit: z.number().int().min(1).max(100).default(20) }).strict();
 const listQ = z.object({ scope: z.enum(['firm', 'personal']).optional(), enabled: z.enum(['true', 'false']).transform((v) => v === 'true').optional() });
@@ -42,7 +43,12 @@ export class AutomationController {
   enableAgent(@CurrentActor() a: RequestActor, @Param('key', agentKey) key: string, @Body(new ZodPipe(agentIn)) b: z.infer<typeof agentIn>) { return this.svc.enableAgent(a, key, b); }
   @Get('runs') @Perm('automation', 'view') runs(@CurrentActor() a: RequestActor, @Query(new ZodPipe(runsQ)) q: z.infer<typeof runsQ>) { return this.svc.runs(a, q); }
   @Get('runs/:id') @Perm('automation', 'view') run(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string) { return this.svc.getRun(a, id); }
-  @Post('runs/:id/retry') @HttpCode(200) @Perm('automation', 'edit') retry(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string) { return this.svc.retryRun(a, id); }
+  /** Generation token: body `expectedAttempts` or an integer `Idempotency-Key` header (the run's `attempts` the caller saw); omitted = current. */
+  @Post('runs/:id/retry') @HttpCode(200) @Perm('automation', 'edit')
+  retry(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(retryIn)) b: z.infer<typeof retryIn>, @Headers('idempotency-key') key?: string) {
+    const fromKey = key !== undefined && /^\d{1,9}$/.test(key) ? Number(key) : undefined;
+    return this.svc.retryRun(a, id, b?.expectedAttempts ?? fromKey);
+  }
   @Get('settings') @Perm('automation', 'view') settings(@CurrentActor() a: RequestActor) { return this.svc.settings(a); }
   @Put('settings') @Perm('settings', 'edit') putSettings(@CurrentActor() a: RequestActor, @Body() b: unknown) { return this.svc.putSettings(a, b); }
   @Get('costs') @Perm('automation', 'view') costs(@CurrentActor() a: RequestActor, @Query(new ZodPipe(z.object({ month: z.string().regex(/^\d{4}-\d{2}$/).optional() }))) q: { month?: string }) { return this.svc.costs(a, q.month); }

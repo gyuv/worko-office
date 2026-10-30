@@ -28,7 +28,7 @@ type Expr = string | ((c: Ctx) => string);
 export type SqlDataset = { kind: 'sql'; from: string; where: (c: Ctx) => string[]; order: string; cols: Record<string, Expr>;
   derived?: Record<string, { needs: string[]; fn: (r: Row, x: unknown, c: Ctx) => unknown }>; prepare?: (c: Ctx) => Promise<unknown> };
 /** A dataset produced by the existing operational report service (so numbers reconcile by construction). */
-export type ServiceDataset = { kind: 'service'; load: (c: Ctx) => Promise<Row[]> };
+export type ServiceDataset = { kind: 'service'; load: (c: Ctx) => Promise<Row[]>; /** Writes that must happen first, OUTSIDE the read-only tx (never nested). */ before?: (a: RequestActor) => Promise<void> };
 export type ServerDataset = SqlDataset | ServiceDataset;
 
 export type Deps = { billingAuto: BillingAutoService; billingReports: BillingReportsService; timeReports: TimeReportsService; time: TimeService; compliance: ComplianceService; attendance: AttendanceService };
@@ -134,7 +134,7 @@ export function serverDatasets(d: Deps): Record<string, ServerDataset> {
 
     // ---------- Service datasets: the operational report IS the data source (reconciles by construction) ----------
     ageing: { kind: 'service', load: async (c) => {
-      const r = await d.billingReports.ageing(c.a, String(c.params.asOf));
+      const r = await d.billingReports.ageingTx(c.tx, c.a, String(c.params.asOf));
       return r.clients.flatMap((x) => AGEING_BUCKETS.filter((b) => x.buckets[b] !== 0).map((b) => ({ clientId: x.clientId, clientName: x.clientName, bucket: b, balancePaise: x.buckets[b] })));
     } },
     unbilled: { kind: 'service', load: async (c) => {
@@ -146,23 +146,23 @@ export function serverDatasets(d: Deps): Record<string, ServerDataset> {
         retainer: x.retainer, suggestedPaise: x.suggestedPaise }; });
     } },
     job_pnl: { kind: 'service', load: async (c) => {
-      const r = await d.timeReports.jobPnl(c.a, { from: String(c.params.from), to: String(c.params.to), groupBy: c.params.groupBy as 'task' | 'client' | 'service' });
+      const r = await d.timeReports.jobPnlTx(c.tx, c.a, { from: String(c.params.from), to: String(c.params.to), groupBy: c.params.groupBy as 'task' | 'client' | 'service' });
       return r.items.map((x) => ({ key: x.key, label: x.label, clientId: x.clientId, clientName: x.clientName, taskId: x.taskId, revenuePaise: x.revenuePaise, costPaise: x.costPaise,
         marginPaise: x.marginPaise, marginPct: x.marginPct, wipPaise: x.wipPaise, minutes: x.minutes, billableMinutes: x.billableMinutes, loss: x.loss }));
     } },
     capacity: { kind: 'service', load: async (c) => {
-      const r = await d.timeReports.capacity(c.a, { weeks: Number(c.params.weeks), from: String(c.params.from) });
+      const r = await d.timeReports.capacityTx(c.tx, c.a, { weeks: Number(c.params.weeks), from: String(c.params.from) });
       return r.users.flatMap((u) => u.weeks.map((w) => ({ userId: u.userId, userName: u.name, weekStart: w.weekStart, capacityMinutes: w.capacityMinutes, plannedMinutes: w.plannedMinutes,
         actualMinutes: w.actualMinutes, plannedPct: w.plannedPct, actualPct: w.actualPct })));
     } },
-    compliance: { kind: 'service', load: async (c) => {
-      const r = await d.compliance.matrix(c.a, { from: String(c.params.from), to: String(c.params.to), asOf: String(c.params.asOf) });
+    compliance: { kind: 'service', before: (a) => d.compliance.ensurePack(a), load: async (c) => {
+      const r = await d.compliance.matrixTx(c.tx, c.a, { from: String(c.params.from), to: String(c.params.to), asOf: String(c.params.asOf) });
       const names = new Map(r.clients.map((x) => [x.id as string, x.name as string])); const forms = new Map(r.rules.map((x) => [x.id, x.form]));
       return r.cells.map((x) => ({ clientId: x.clientId, clientName: names.get(x.clientId) ?? null, ruleId: x.ruleId, form: forms.get(x.ruleId) ?? x.ruleId, periodKey: x.periodKey,
         periodLabel: x.periodLabel, statutoryDue: x.statutoryDue, actBy: x.actBy, state: x.state, taskId: x.taskId }));
     } },
     attendance: { kind: 'service', load: async (c) => {
-      const r = await d.attendance.report(c.a, String(c.params.month));
+      const r = await d.attendance.reportTx(c.tx, c.a, String(c.params.month));
       return r.users.map((u) => ({ userId: u.userId, userName: u.name, workingDays: u.workingDays, presentDays: u.presentDays, leaveDays: u.leaveDays, absentDays: u.absentDays,
         flaggedDays: u.flaggedDays, minutes: u.minutes }));
     } },

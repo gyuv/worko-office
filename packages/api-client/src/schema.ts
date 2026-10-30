@@ -5492,7 +5492,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Re-executes the failed actions of a run (manage right). */
+        /** @description Re-executes the failed actions of a run (manage right). Generation token: `expectedAttempts` (body) or an integer `Idempotency-Key` header = the run's `attempts` the caller saw; a stale token answers `{retried:0, skipped:already_retried}`. Omitted = the current value (backwards compatible). */
         post: operations["retryAutomationRun"];
         delete?: never;
         options?: never;
@@ -5781,8 +5781,25 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description reports:view. Scheduled-report file behind a recipient-bound, expiring link: only the recipient (from any of their sessions) may download; others get 404, expired links 410 link_expired. Audited. */
+        /** @description reports:view. Scheduled-report file behind a recipient-bound, expiring link: only the recipient (from any of their sessions) may download; others get 404, expired links 410 link_expired. Re-rendered as the caller now (D171). Audited. */
         get: operations["downloadReportExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reports/exports/{id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description reports:view. The export a report.ready notification points at (entity_id). Recipient only (others 404); expired 410 link_expired, schedule deleted 410 source_gone. Re-rendered AS THE CALLER now (current reports:export, dataset/module permission, sharing, client scope and field hiding — D171); audited with metadata only. */
+        get: operations["downloadReportExportById"];
         put?: never;
         post?: never;
         delete?: never;
@@ -18254,13 +18271,21 @@ export interface operations {
     retryAutomationRun: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "Idempotency-Key"?: string;
+            };
             path: {
                 id: components["parameters"]["Id"];
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": {
+                    expectedAttempts?: number;
+                };
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -18740,6 +18765,31 @@ export interface operations {
             header?: never;
             path: {
                 token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description File (CSV / XLSX / PDF) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            410: components["responses"]["Error"];
+        };
+    };
+    downloadReportExportById: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
             };
             cookie?: never;
         };

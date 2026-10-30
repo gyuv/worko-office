@@ -330,17 +330,23 @@ export class AutomationEngine implements OnModuleInit {
   }
 
   /** Re-runs a run's failed actions through the same gates, limits, caps and per-action claims as a first run. */
-  async retry(tenantId: string, runId: string, at: Date): Promise<{ retried: number; skipped?: string }> {
+  /**
+   * `expectedAttempts` = the run's `attempts` the caller saw (generation token). The bump is a compare-and-set, so two
+   * retries sent with the same token run once; a stale token answers `already_retried`. Omitted → the current value.
+   */
+  async retry(tenantId: string, runId: string, at: Date, expectedAttempts?: number): Promise<{ retried: number; skipped?: string }> {
     const prep = await this.db.tenantTx(tenantId, async (tx) => {
       const run = (await tx.query('SELECT * FROM automation_run WHERE id = $1', [runId])).rows[0];
       const r = run && (await tx.query('SELECT * FROM automation_rule WHERE id = $1', [run.rule_id])).rows[0] as Rule;
       const ev = run?.event_id && (await tx.query('SELECT * FROM automation_event WHERE id = $1', [run.event_id])).rows[0] as EventRow;
       if (!run || !r || !ev) return null;
       const failed = (await tx.query(`SELECT idx FROM automation_run_action WHERE run_id = $1 AND status = 'failed' ORDER BY idx`, [runId])).rows.map((x) => Number(x.idx));
-      await tx.query('UPDATE automation_run SET attempts = attempts + 1 WHERE id = $1', [runId]);
+      const bumped = await tx.query('UPDATE automation_run SET attempts = attempts + 1 WHERE id = $1 AND attempts = $2 RETURNING attempts', [runId, expectedAttempts ?? Number(run.attempts)]);
+      if (!bumped.rowCount) return 'stale' as const;
       return { run, r, ev, failed };
     });
     if (!prep) return { retried: 0, skipped: 'not_found' };
+    if (prep === 'stale') return { retried: 0, skipped: 'already_retried' };
     const def = ruleDefinitionSchema.parse(prep.r.definition);
     const g = await this.gates(tenantId, prep.r, def, prep.ev, prep.run.step as LadderStep, at, 0);
     const why = ('skip' in g && g.skip) || ('fail' in g && g.fail) || ('noMatch' in g && g.noMatch && 'conditions_no_longer_met');

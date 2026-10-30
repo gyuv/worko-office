@@ -129,6 +129,8 @@ describe('column access', () => {
     expect([...hiddenColumns(datasetMeta('job_pnl')!, { canSeeCost: false, hiddenFields: [] })].sort()).toEqual(['costPaise', 'loss', 'marginPaise', 'marginPct']);
     expect([...hiddenColumns(datasetMeta('clients')!, { canSeeCost: true, hiddenFields: ['client.pan', 'client.fees'] })]).toEqual(['pan']);
     expect([...hiddenColumns(datasetMeta('unbilled')!, { canSeeCost: true, hiddenFields: ['client.*'] })]).toEqual(['suggestedPaise']);
+    expect([...hiddenColumns(datasetMeta('job_pnl')!, { canSeeCost: true, hiddenFields: ['client.fees'] })].sort()).toEqual(['loss', 'marginPaise', 'marginPct', 'revenuePaise', 'wipPaise']);
+    expect(datasetMeta('job_pnl')!.alsoRequires).toEqual(['billing']);
     expect(hiddenColumns(datasetMeta('invoices')!, { canSeeCost: true, hiddenFields: ['invoice.*'] }).has('totalPaise')).toBe(true);
   });
 });

@@ -37,7 +37,8 @@ const hasAny = (a: RequestActor, m: Parameters<typeof effectiveScope>[1], x: Par
 @Injectable()
 export class ReportEngine {
   /** Hard limits (instance fields so tests can lower them). */
-  maxScan = Number(process.env.REPORT_MAX_SCAN ?? 20_000);
+  /** = REPORT_LIMITS.maxRows: a definition's `limit` can never exceed what one run may scan. */
+  maxScan = Number(process.env.REPORT_MAX_SCAN ?? REPORT_LIMITS.maxRows);
   timeoutMs = Number(process.env.REPORT_TIMEOUT_MS ?? 5_000);
   private readonly ds: Record<string, ServerDataset>;
 
@@ -50,14 +51,14 @@ export class ReportEngine {
   allowedDatasets(a: RequestActor, metas: readonly DatasetMeta[]) {
     return metas.filter((m) => this.mayUse(a, m)).map((m) => ({ meta: m, hidden: this.hidden(a, m) }));
   }
-  mayUse(a: RequestActor, m: DatasetMeta) { return hasAny(a, 'reports', 'view') && hasAny(a, m.module, 'view') && !!this.ds[m.key]; }
+  mayUse(a: RequestActor, m: DatasetMeta) { return hasAny(a, 'reports', 'view') && hasAny(a, m.module, 'view') && (m.alsoRequires ?? []).every((x) => hasAny(a, x, 'view')) && !!this.ds[m.key]; }
   hidden(a: RequestActor, m: DatasetMeta) { return hiddenColumns(m, { canSeeCost: canSeeCost(a), hiddenFields: hiddenFieldsOf(a) }); }
 
   /** Validates (and checks permissions) without running — for saving reports/widgets. */
   check(a: RequestActor, raw: unknown): ValidDefinition {
     const v = validateDefinition(raw, this.clock.todayIst());
     if (!v.ok) throw invalid(v.issues);
-    if (!this.mayUse(a, v.meta)) throw new ForbiddenException({ message: `Needs reports:view and ${v.meta.module}:view`, code: 'dataset_forbidden' });
+    if (!this.mayUse(a, v.meta)) throw new ForbiddenException({ message: `Needs reports:view and ${[v.meta.module, ...(v.meta.alsoRequires ?? [])].join(', ')}:view`, code: 'dataset_forbidden' });
     return v.def;
   }
 
@@ -74,7 +75,7 @@ export class ReportEngine {
       if (!v.ok) throw invalid(v.issues);
     }
     const { def, meta } = v;
-    if (!this.mayUse(a, meta)) throw new ForbiddenException({ message: `Needs reports:view and ${meta.module}:view`, code: 'dataset_forbidden' });
+    if (!this.mayUse(a, meta)) throw new ForbiddenException({ message: `Needs reports:view and ${[meta.module, ...(meta.alsoRequires ?? [])].join(', ')}:view`, code: 'dataset_forbidden' });
 
     // Column access: hidden columns silently drop out of the selection/aggregates; using them to filter, group or sort is refused.
     const hidden = this.hidden(a, meta);
@@ -118,6 +119,8 @@ export class ReportEngine {
   private async load(a: RequestActor, meta: DatasetMeta, def: ValidDefinition, today: string): Promise<Row[]> {
     const ds = this.ds[meta.key]!;
     const need = new Set([...referencedColumns(def, meta), ...meta.columns.filter((x) => x.ref).map((x) => x.key)]);
+    if (ds.kind === 'service' && ds.before) await ds.before(a);
+    // Everything below runs on ONE connection (service datasets use their *Tx variants): no nested pool checkouts (D173).
     return this.db.readOnlyTx(a.tenantId, async (tx) => {
       await tx.query(`SET LOCAL statement_timeout = ${Math.max(1, Math.floor(this.timeoutMs))}`);
       const p = new Params(); let todayPh: string | null = null;

@@ -51,6 +51,13 @@ export class ReportsController {
     res.send(f.body);
   }
 
+  @Get('exports/:id/download') @Perm('reports', 'view')
+  async downloadById(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string, @Res() res: Response) {
+    const f = await this.reports.downloadById(a, id);
+    res.setHeader('Content-Type', f.mime); res.setHeader('Content-Disposition', `attachment; filename="${f.name}"`); res.setHeader('Cache-Control', 'no-store');
+    res.send(f.body);
+  }
+
   @Get('saved') @Perm('reports', 'view') list(@CurrentActor() a: RequestActor) { return this.reports.list(a); }
   @Post('saved') @Perm('reports', 'create') create(@CurrentActor() a: RequestActor, @Body(new ZodPipe(savedIn)) b: z.infer<typeof savedIn>) { return this.reports.create(a, b); }
   @Get('saved/:id') @Perm('reports', 'view') get(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string) { return this.reports.get(a, id); }

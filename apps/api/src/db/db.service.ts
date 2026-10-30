@@ -10,7 +10,9 @@ export type Tx = pg.PoolClient;
  */
 @Injectable()
 export class DbService implements OnModuleDestroy {
-  readonly pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: Number(process.env.DB_POOL ?? 10) });
+  readonly pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: Number(process.env.DB_POOL ?? 10),
+    // Fail fast instead of hanging when the pool is exhausted (D173).
+    connectionTimeoutMillis: Number(process.env.DB_CONNECT_TIMEOUT_MS ?? 10_000) });
 
   async tenantTx<T>(tenantId: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
     const c = await this.pool.connect();

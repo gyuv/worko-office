@@ -8,7 +8,6 @@ import { publicBase } from '../billing/providers.js';
 import { Params } from '../clients/scope.js';
 import { Clock } from '../common/clock.js';
 import { CommService } from '../comm/comm.service.js';
-import { KeyService } from '../crypto/key.service.js';
 import { DbService, type Tx } from '../db/db.service.js';
 import { uuidv7 } from '../db/ids.js';
 import { JobQueueService, Reschedule } from '../jobs/job-queue.service.js';
@@ -20,6 +19,10 @@ import { firmPublisher, ReportsService, tokenHash } from './reports.service.js';
 export const SCHEDULE_JOB = 'reports.schedule';
 /** Consecutive failed periods before a schedule pauses itself (owner is told). */
 export const PAUSE_AFTER_FAILURES = 3;
+/** A run row left 'running' longer than this is reclaimed by the next attempt. */
+export const RUN_LEASE_MS = 10 * 60_000;
+/** Export rows (link metadata) are purged this long after their link expired. */
+export const EXPORT_RETENTION_DAYS = 30;
 type ScheduleIn = { name: string; reportId?: string; catalogueKey?: string; params?: Record<string, string | number>; schedule?: unknown; recipientIds: string[];
   delivery?: 'email' | 'in_app'; format?: ExportFormat; linkTtlDays?: number };
 type ScheduleRow = Record<string, unknown> & { id: string; tenant_id: string; schedule: ReportSchedule; recipient_ids: string[]; owner_id: string; next_run_at: Date | null };
@@ -40,7 +43,7 @@ const has = (a: RequestActor, m: Parameters<typeof effectiveScope>[1], x: Parame
 @Injectable()
 export class ReportScheduleService implements OnModuleInit {
   private log = new Logger('Reports');
-  constructor(private db: DbService, private audit: AuditService, private keys: KeyService, private clock: Clock, private jobs: JobQueueService, private comm: CommService,
+  constructor(private db: DbService, private audit: AuditService, private clock: Clock, private jobs: JobQueueService, private comm: CommService,
     private realtime: RealtimeService, private reports: ReportsService) {}
 
   onModuleInit() { this.jobs.register(SCHEDULE_JOB, (j, at) => this.process(j.tenant_id, j.ref_id, at)); }
@@ -49,6 +52,13 @@ export class ReportScheduleService implements OnModuleInit {
     const p = reportScheduleSchema.safeParse(raw);
     if (!p.success) throw new BadRequestException({ message: 'Invalid schedule', code: 'invalid_schedule', issues: p.error.issues });
     return p.data;
+  }
+  /** Scheduling for others needs firm-wide reports:approve, or the others must be the scheduler's direct reports (D175). */
+  private async checkRecipientRights(tx: Tx, a: RequestActor, ids: string[]) {
+    const others = ids.filter((x) => x !== a.userId);
+    if (!others.length || firmPublisher(a)) return;
+    const n = (await tx.query('SELECT count(*)::int AS n FROM app_user WHERE id = ANY($1::uuid[]) AND manager_id = $2', [others, a.userId])).rows[0].n;
+    if (n !== others.length) throw new ForbiddenException({ message: 'You can schedule reports for yourself and your direct reports only', code: 'recipients_forbidden' });
   }
   private async checkRecipients(tx: Tx, ids: string[]) {
     const n = (await tx.query(`SELECT count(*)::int AS n FROM app_user WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL AND status = 'active' AND kind = 'staff'`, [ids])).rows[0].n;
@@ -78,6 +88,7 @@ export class ReportScheduleService implements OnModuleInit {
     const next = nextScheduleRun(s, this.clock.now());
     const id = await this.db.tenantTx(a.tenantId, async (tx) => {
       await this.checkRecipients(tx, recipients);
+      await this.checkRecipientRights(tx, a, recipients);
       const id = uuidv7();
       await tx.query(`INSERT INTO report_schedule (id, tenant_id, name, owner_id, report_id, catalogue_key, params, schedule, recipient_ids, delivery, format, link_ttl_days, next_run_at, updated_by, device_id)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$4,$14)`, [id, a.tenantId, b.name, a.userId, src.reportId, src.catalogueKey, JSON.stringify(b.params ?? {}), JSON.stringify(s), recipients,
@@ -96,7 +107,7 @@ export class ReportScheduleService implements OnModuleInit {
       const r = await this.row(tx, a, id, true);
       if (r.owner_id !== a.userId && !firmPublisher(a)) throw new ForbiddenException({ message: 'Only the owner edits a schedule', code: 'forbidden' });
       const recipients = b.recipientIds ? [...new Set(b.recipientIds)] : r.recipient_ids;
-      if (b.recipientIds) await this.checkRecipients(tx, recipients);
+      if (b.recipientIds) { await this.checkRecipients(tx, recipients); await this.checkRecipientRights(tx, a, recipients); }
       const sched = s ?? r.schedule;
       // Enabling again also resumes a schedule paused after failures.
       const resume = b.enabled === true && (r.status === 'paused' || !r.enabled);
@@ -134,11 +145,17 @@ export class ReportScheduleService implements OnModuleInit {
     return { userId: u.id, tenantId, sessionId: '', deviceId: 'report-schedule', branchId: u.branch_id ?? null, teamIds: await loadTeamIds(tx, u.id), roles: await loadUserRoles(tx, u.id) };
   }
 
+  /** Retention: export rows whose link expired more than EXPORT_RETENTION_DAYS ago are deleted (runs keep the history). */
+  async purgeExports(tenantId: string, at: Date) {
+    return this.db.tenantTx(tenantId, async (tx) => (await tx.query('DELETE FROM report_export WHERE expires_at < $1', [new Date(at.getTime() - EXPORT_RETENTION_DAYS * 86_400_000)])).rowCount ?? 0);
+  }
+
   /** One occurrence (job handler; `at` = the queue's clock). Throws Reschedule to the next occurrence. */
   async process(tenantId: string, id: string, at: Date): Promise<void> {
     const s = await this.db.tenantTx(tenantId, async (tx) => (await tx.query('SELECT * FROM report_schedule WHERE id = $1 AND deleted_at IS NULL', [id])).rows[0] as ScheduleRow | undefined);
     if (!s || !s.enabled || s.status !== 'active' || !s.next_run_at) return;
     if (s.next_run_at > at) throw new Reschedule(s.next_run_at); // edited since this job was queued
+    await this.purgeExports(tenantId, at);
     const occurrence = s.next_run_at; const period = schedulePeriodKey(s.schedule, occurrence);
     let failed = 0; let delivered = 0;
     for (const recipient of s.recipient_ids) {
@@ -169,9 +186,12 @@ export class ReportScheduleService implements OnModuleInit {
     const claim = await this.db.tenantTx(tenantId, async (tx) => {
       const runId = uuidv7();
       const ins = await tx.query(`INSERT INTO report_schedule_run (id, tenant_id, schedule_id, period_key, recipient_id, occurrence_at, started_at, device_id) VALUES ($1,$2,$3,$4,$5,$6,$7,'server')
-        ON CONFLICT (tenant_id, schedule_id, period_key, recipient_id) DO NOTHING RETURNING id`, [runId, tenantId, s.id, period, recipientId, occurrence, at]);
+        ON CONFLICT (tenant_id, schedule_id, period_key, recipient_id) DO UPDATE SET started_at = EXCLUDED.started_at
+          WHERE report_schedule_run.status = 'running' AND report_schedule_run.started_at < $8
+        RETURNING id`, [runId, tenantId, s.id, period, recipientId, occurrence, at, new Date(at.getTime() - RUN_LEASE_MS)]);
+      // Stale-lease reclaim: a run left 'running' past the lease (crash) is taken over under its existing id.
       if (!ins.rowCount) return null;
-      return { runId, actor: await this.actorFor(tx, tenantId, recipientId), email: (await tx.query('SELECT email FROM app_user WHERE id = $1', [recipientId])).rows[0]?.email as string | undefined };
+      return { runId: ins.rows[0].id as string, actor: await this.actorFor(tx, tenantId, recipientId), email: (await tx.query('SELECT email FROM app_user WHERE id = $1', [recipientId])).rows[0]?.email as string | undefined };
     });
     if (!claim) return 'done_before';
     const finish = (status: 'delivered' | 'skipped' | 'failed', f: { skip?: string; error?: string; rows?: number; exportId?: string; messageId?: string | null; notificationId?: string | null } = {}) =>
@@ -183,25 +203,23 @@ export class ReportScheduleService implements OnModuleInit {
     // A scheduled file is an export: the recipient needs reports:view + reports:export themselves.
     if (!has(a, 'reports', 'view') || !has(a, 'reports', 'export')) return skip('no_permission');
     try {
-      const src = await this.reports.resolve(a, { reportId: (s.report_id as string) ?? undefined, catalogueKey: (s.catalogue_key as string) ?? undefined }).catch(async (e) => {
-        // A saved report not shared with the recipient still runs for them on their own scope; only a deleted report stops it.
-        if (s.report_id && e instanceof NotFoundException) {
-          const r = await this.db.tenantTx(tenantId, (tx) => tx.query('SELECT name, definition FROM saved_report WHERE id = $1 AND deleted_at IS NULL', [s.report_id]));
-          if (r.rows[0]) return { definition: r.rows[0].definition, name: r.rows[0].name as string, reportId: s.report_id as string, catalogueKey: null };
-        }
+      // The recipient must be able to open the saved report themselves (owner / shared); otherwise skipped (D174).
+      const src = await this.reports.resolve(a, { reportId: (s.report_id as string) ?? undefined, catalogueKey: (s.catalogue_key as string) ?? undefined }).catch((e) => {
+        if (e instanceof NotFoundException) return null;
         throw e;
       });
+      if (!src) return skip('not_shared');
       const run = await this.reports.engine.run(a, src.definition, { params: s.params as Record<string, string | number>, allRows: true });
       this.reports.requireExport(a, run);
-      const file = await renderRun(run, s.format as ExportFormat, String(s.name), run.definition.groupBy.length ? 'groups' : 'rows');
+      const file = await renderRun(run, s.format as ExportFormat, String(s.name), run.definition.groupBy.length ? 'groups' : 'rows'); // name/mime/size; the file itself is re-rendered at download (D171)
       const token = randomBytes(32).toString('base64url');
       const expires = new Date(at.getTime() + Number(s.link_ttl_days) * 86_400_000);
       const url = `${publicBase()}/reports/downloads/${token}`;
       const sent = await this.db.tenantTx(tenantId, async (tx) => {
         const exportId = uuidv7();
-        await tx.query(`INSERT INTO report_export (id, tenant_id, user_id, schedule_id, run_id, name, mime, size_bytes, row_count, body_enc, token_hash, expires_at, device_id)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'server')`, [exportId, tenantId, recipientId, s.id, claim.runId, file.name, file.mime, file.body.length, run.rowCount,
-          await this.keys.encrypt(tx, tenantId, file.body.toString('base64'), `report_export:${exportId}:body`), tokenHash(token), expires]);
+        await tx.query(`INSERT INTO report_export (id, tenant_id, user_id, schedule_id, run_id, name, mime, size_bytes, row_count, token_hash, expires_at, format, period_key, device_id)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'server')`, [exportId, tenantId, recipientId, s.id, claim.runId, file.name, file.mime, file.body.length, run.rowCount,
+          tokenHash(token), expires, s.format, period]);
         const title = `Report ready: ${String(s.name).slice(0, 120)}`;
         // The message carries a link only — no figures, names or rows (D166).
         const text = `Your scheduled report "${s.name}" (${period.replace(/^W/, 'week of ')}) is ready: ${url}\n\nSign in to Worko to download it; the link works only for you and expires on ${istDate(expires)}.`;

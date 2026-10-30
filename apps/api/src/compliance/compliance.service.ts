@@ -173,9 +173,17 @@ export class ComplianceService {
   }
 
   // ---------- Matrix ----------
+  /** Installs the firm's active rule pack on first use (a write) — called before read-only report runs. */
+  async ensurePack(a: RequestActor) { await this.db.tenantTx(a.tenantId, (tx) => this.packs.active(tx, a.tenantId)); }
+
   matrix(a: RequestActor, q: { from: string; to: string; asOf?: string; ruleIds?: string[] }) {
     if (q.to < q.from || dayNo(q.to) - dayNo(q.from) > 366) throw new BadRequestException('Range must be 0–366 days');
-    return this.db.tenantTx(a.tenantId, async (tx) => {
+    return this.db.tenantTx(a.tenantId, (tx) => this.matrixTx(tx, a, q));
+  }
+  /** Same, on the caller's transaction (report engine: one READ ONLY connection + statement timeout). */
+  async matrixTx(tx: Tx, a: RequestActor, q: { from: string; to: string; asOf?: string; ruleIds?: string[] }) {
+    if (q.to < q.from || dayNo(q.to) - dayNo(q.from) > 366) throw new BadRequestException('Range must be 0–366 days');
+    {
       const { pack } = await this.packs.active(tx, a.tenantId);
       const clients = (await this.visibleClients(tx, a)).slice(0, 2000);
       const facts = clients.map((c) => c.facts);
@@ -201,7 +209,7 @@ export class ComplianceService {
             extensionId: i.extensionId ?? null, taskId: t?.id ?? null, taskStatus: t?.status ?? null, state };
         }),
       };
-    });
+    }
   }
 
   // ---------- Late fees (indicative) ----------

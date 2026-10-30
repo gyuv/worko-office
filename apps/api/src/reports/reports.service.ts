@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { AuditService } from '../audit/audit.service.js';
 import type { RequestActor } from '../auth/context.js';
-import { Params } from '../clients/scope.js';
+import { clientScopeSql, Params } from '../clients/scope.js';
 import { Clock } from '../common/clock.js';
 import { KeyService } from '../crypto/key.service.js';
 import { DbService, type Tx } from '../db/db.service.js';
@@ -65,20 +65,20 @@ export class ReportsService {
     return r as Record<string, unknown>;
   }
   /** Definition + name for a run; a saved report must be visible to the caller (owner / shared), else 404. */
-  async resolve(a: RequestActor, s: Source, tx?: Tx): Promise<{ definition: unknown; name: string; reportId: string | null; catalogueKey: string | null }> {
+  async resolve(a: RequestActor, s: Source, tx?: Tx): Promise<{ definition: unknown; name: string; reportId: string | null; catalogueKey: string | null; ownerId: string | null }> {
     const given = [s.definition !== undefined, !!s.reportId, !!s.catalogueKey].filter(Boolean).length;
     if (given !== 1) throw new BadRequestException({ message: 'Give exactly one of definition, reportId or catalogueKey', code: 'invalid_source' });
-    if (s.catalogueKey) { const c = catalogueReport(s.catalogueKey); if (!c) throw nf(); return { definition: c.definition, name: c.name, reportId: null, catalogueKey: c.key }; }
+    if (s.catalogueKey) { const c = catalogueReport(s.catalogueKey); if (!c) throw nf(); return { definition: c.definition, name: c.name, reportId: null, catalogueKey: c.key, ownerId: null }; }
     if (s.reportId) {
       const r = tx ? await this.savedRow(tx, a, s.reportId) : await this.db.tenantTx(a.tenantId, (t) => this.savedRow(t, a, s.reportId!));
-      return { definition: r.definition, name: r.name as string, reportId: r.id as string, catalogueKey: null };
+      return { definition: r.definition, name: r.name as string, reportId: r.id as string, catalogueKey: null, ownerId: r.owner_id as string };
     }
-    return { definition: s.definition, name: 'Ad-hoc report', reportId: null, catalogueKey: null };
+    return { definition: s.definition, name: 'Ad-hoc report', reportId: null, catalogueKey: null, ownerId: null };
   }
 
   async run(a: RequestActor, s: Source & Pick<RunOptions, 'params' | 'drill' | 'page' | 'pageSize'>) {
     const src = await this.resolve(a, s);
-    const r = await this.engine.run(a, src.definition, { params: s.params, drill: s.drill, page: s.page, pageSize: s.pageSize });
+    const r = await this.present(a, await this.engine.run(a, src.definition, { params: s.params, drill: s.drill, page: s.page, pageSize: s.pageSize }), src.ownerId);
     return { ...r, name: src.name, reportId: src.reportId, catalogueKey: src.catalogueKey };
   }
 
@@ -93,7 +93,7 @@ export class ReportsService {
   }
   async export(a: RequestActor, s: Source & { params?: Record<string, string | number>; format: ExportFormat; mode?: ExportMode }) {
     const src = await this.resolve(a, s);
-    const r = await this.engine.run(a, src.definition, { params: s.params, allRows: true });
+    const r = await this.present(a, await this.engine.run(a, src.definition, { params: s.params, allRows: true }), src.ownerId);
     this.requireExport(a, r);
     const mode = s.mode ?? (r.definition.groupBy.length ? 'groups' : 'rows');
     const file = await renderRun(r, s.format, src.name, mode);
@@ -102,17 +102,74 @@ export class ReportsService {
     return file;
   }
 
-  /** Recipient-bound, expiring download (D166): only the user the export was made for, from any of their sessions. */
-  async download(a: RequestActor, token: string) {
-    return this.db.tenantTx(a.tenantId, async (tx) => {
-      const e = (await tx.query('SELECT * FROM report_export WHERE token_hash = $1 AND deleted_at IS NULL FOR UPDATE', [tokenHash(token)])).rows[0];
+  /**
+   * Recipient-bound, expiring download (D166, D171). The file is RE-RENDERED AS THE DOWNLOADER now: their current
+   * reports:export, dataset/module permissions, sharing, client visibility and field hiding apply — a revocation since
+   * delivery takes effect immediately. Only the recipient (any session) may download; others 404; expired 410. Audited (metadata).
+   */
+  download(a: RequestActor, token: string) { return this.downloadWhere(a, 'token_hash = $1', tokenHash(token)); }
+  /** Same, by export id (the in-app `report.ready` notification carries the id). */
+  downloadById(a: RequestActor, id: string) { return this.downloadWhere(a, 'id = $1', id); }
+  private async downloadWhere(a: RequestActor, where: string, v: string) {
+    const e = await this.db.tenantTx(a.tenantId, async (tx) => {
+      const e = (await tx.query(`SELECT x.*, s.report_id, s.catalogue_key, s.params, s.name AS schedule_name, s.deleted_at AS schedule_deleted FROM report_export x
+        LEFT JOIN report_schedule s ON s.id = x.schedule_id WHERE x.${where} AND x.deleted_at IS NULL`, [v])).rows[0];
       if (!e || e.user_id !== a.userId) throw new NotFoundException('Link not found');
       if (e.expires_at <= this.clock.now()) throw new GoneException({ message: 'This link has expired', code: 'link_expired' });
-      const body = Buffer.from(await this.keys.decrypt(tx, a.tenantId, e.body_enc, `report_export:${e.id}:body`), 'base64');
-      await tx.query('UPDATE report_export SET downloads = downloads + 1, last_downloaded_at = $2, version = version + 1 WHERE id = $1', [e.id, this.clock.now()]);
-      await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'report.downloaded', entity: 'report_export', entityId: e.id, diff: { scheduleId: e.schedule_id, rows: e.row_count } });
-      return { name: e.name as string, mime: e.mime as string, body };
+      if (!e.schedule_id || e.schedule_deleted) throw new GoneException({ message: 'The scheduled report no longer exists', code: 'source_gone' });
+      return e;
     });
+    if (!has(a, 'reports', 'export')) throw new ForbiddenException({ message: 'Needs reports:export', code: 'export_forbidden' });
+    const src = await this.resolve(a, { reportId: e.report_id ?? undefined, catalogueKey: e.catalogue_key ?? undefined });
+    const r = await this.engine.run(a, src.definition, { params: e.params, allRows: true });
+    this.requireExport(a, r);
+    const shown = await this.present(a, r, src.ownerId);
+    const file = await renderRun(shown, e.format as ExportFormat, String(e.schedule_name ?? src.name), r.definition.groupBy.length ? 'groups' : 'rows');
+    await this.db.tenantTx(a.tenantId, async (tx) => {
+      await tx.query('UPDATE report_export SET downloads = downloads + 1, last_downloaded_at = $2, version = version + 1 WHERE id = $1', [e.id, this.clock.now()]);
+      await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'report.downloaded', entity: 'report_export', entityId: e.id,
+        diff: { scheduleId: e.schedule_id, period: e.period_key, dataset: r.dataset.key, format: e.format, rows: r.rowCount } });
+    });
+    return file;
+  }
+
+  // ---------- Filter-value redaction for non-owners (D176) ----------
+  /**
+   * A viewer who doesn't own a shared definition must not learn filter values they couldn't see themselves: values of filters
+   * on columns hidden from them, and client-identifying values (client id/name, client master name/file no./PAN) naming a client
+   * outside their clients:view scope, become "[hidden]". The filter still applies server-side.
+   */
+  async redactFor(a: RequestActor, raw: unknown, ownerId: string | null): Promise<unknown> {
+    const d = raw as ReportDefinition;
+    if (a.superAdmin || !d || ownerId === a.userId || !Array.isArray(d.filters) || !d.filters.length) return raw;
+    const meta = datasetMeta(d.dataset); if (!meta) return raw;
+    const hidden = this.engine.hidden(a, meta);
+    const idCols = new Set(meta.key === 'clients' ? ['id', 'name', 'fileNo', 'pan'] : ['clientId', 'clientName']);
+    const field: Record<string, string> = { id: 'id', clientId: 'id', name: 'name', clientName: 'name', fileNo: 'file_no', pan: 'pan' };
+    const filters = await this.db.tenantTx(a.tenantId, async (tx) => {
+      const out = [];
+      for (const f of d.filters) {
+        if (f.value === undefined || f.value === null) { out.push(f); continue; }
+        let secret = hidden.has(f.column);
+        if (!secret && idCols.has(f.column)) {
+          const vals = (Array.isArray(f.value) ? f.value : [f.value]).map(String);
+          const col = field[f.column]!;
+          const p = new Params([vals]);
+          const n = (await tx.query(`SELECT count(DISTINCT c.${col === 'id' ? 'id::text' : col})::int AS n FROM client c WHERE c.deleted_at IS NULL AND ${col === 'id' ? 'c.id::text' : `c.${col}`} = ANY($1::text[])
+            AND ${clientScopeSql(a, 'clients', 'view', p)}`, p.values)).rows[0].n;
+          secret = ['contains', 'starts_with'].includes(f.op) || n < new Set(vals).size;
+        }
+        out.push(secret ? { ...f, value: Array.isArray(f.value) ? f.value.map(() => '[hidden]') : '[hidden]' } : f);
+      }
+      return out;
+    });
+    return { ...d, filters };
+  }
+  /** A run result as shown to this viewer (definition + explanation redacted for non-owners). */
+  async present<T extends RunResult>(a: RequestActor, r: T, ownerId: string | null): Promise<T> {
+    if (ownerId === null || ownerId === a.userId) return r;
+    const definition = await this.redactFor(a, r.definition, ownerId) as RunResult['definition'];
+    return { ...r, definition, explanation: explainDefinition(definition) };
   }
 
   // ---------- Saved reports ----------
@@ -121,15 +178,18 @@ export class ReportsService {
       const p = new Params();
       const rows = (await tx.query(`SELECT r.*, u.name AS owner_name FROM saved_report r LEFT JOIN app_user u ON u.id = r.owner_id WHERE r.deleted_at IS NULL AND ${this.visibleSql(a, p)}
         ORDER BY lower(r.name), r.id LIMIT 500`, p.values)).rows;
-      return { items: rows.map((r) => savedOut(r, a)) };
-    });
+      return rows;
+    }).then(async (rows) => ({ items: await Promise.all(rows.map((r) => this.shown(a, r))) }));
   }
-  get(a: RequestActor, id: string) { return this.db.tenantTx(a.tenantId, async (tx) => savedOut(await this.savedRow(tx, a, id), a)); }
-  versions(a: RequestActor, id: string) {
-    return this.db.tenantTx(a.tenantId, async (tx) => {
-      await this.savedRow(tx, a, id);
-      return { items: (await tx.query(`SELECT report_version AS "reportVersion", name, definition, changed_by AS "changedBy", changed_at AS "changedAt" FROM saved_report_version WHERE report_id = $1 ORDER BY report_version DESC`, [id])).rows };
+  /** savedOut with the definition redacted for non-owners (D176). */
+  private async shown(a: RequestActor, r: Record<string, unknown>) { return savedOut({ ...r, definition: await this.redactFor(a, r.definition, r.owner_id as string) }, a); }
+  async get(a: RequestActor, id: string) { return this.shown(a, await this.db.tenantTx(a.tenantId, (tx) => this.savedRow(tx, a, id))); }
+  async versions(a: RequestActor, id: string) {
+    const { owner, rows } = await this.db.tenantTx(a.tenantId, async (tx) => {
+      const r = await this.savedRow(tx, a, id);
+      return { owner: r.owner_id as string, rows: (await tx.query(`SELECT report_version AS "reportVersion", name, definition, changed_by AS "changedBy", changed_at AS "changedAt" FROM saved_report_version WHERE report_id = $1 ORDER BY report_version DESC`, [id])).rows };
     });
+    return { items: await Promise.all(rows.map(async (v) => ({ ...v, definition: await this.redactFor(a, v.definition, owner) }))) };
   }
   private async checkShare(tx: Tx, a: RequestActor, s: ShareIn) {
     if ((s.firm || (s.roles?.length ?? 0) > 0) && !firmPublisher(a)) throw new ForbiddenException({ message: 'Sharing with the firm or roles needs firm-wide reports:approve', code: 'forbidden' });
@@ -291,12 +351,17 @@ export class ReportsService {
     });
   }
   /** Every widget runs AS THE VIEWER; a widget the viewer can't use answers with an error code instead of failing the dashboard. */
+  /** Per dashboard request: total wall-time and scanned-row budget (D173); widgets past it answer `budget_exceeded`. */
+  dashboardBudget = { ms: Number(process.env.DASHBOARD_BUDGET_MS ?? 20_000), rows: Number(process.env.DASHBOARD_BUDGET_ROWS ?? 60_000) };
   async widgetData(a: RequestActor, widgets: DashboardWidget[]) {
     const out = [];
+    const started = Date.now(); let rows = 0;
     for (const w of widgets) {
+      if (Date.now() - started > this.dashboardBudget.ms || rows > this.dashboardBudget.rows) { out.push({ id: w.id, kind: w.kind, title: w.title, error: 'budget_exceeded' }); continue; }
       try {
         const src = await this.resolve(a, { reportId: w.reportId, catalogueKey: w.catalogueKey });
-        const r = await this.engine.run(a, src.definition, { params: w.params, pageSize: w.kind === 'table' ? 10 : 1 });
+        const r = await this.present(a, await this.engine.run(a, src.definition, { params: w.params, pageSize: w.kind === 'table' ? 10 : 1 }), src.ownerId);
+        rows += r.rowCount;
         const alias = w.value ?? r.definition.aggregates[0]?.as ?? 'count';
         out.push({ id: w.id, kind: w.kind, title: w.title, dataset: r.dataset.key, explanation: r.explanation, hiddenColumns: r.hiddenColumns, asOf: r.asOf,
           ...(w.kind === 'kpi' ? { value: r.totals[alias] ?? null, valueKey: alias, type: r.columns.find((c) => alias.endsWith(`_${c.key}`))?.type ?? (alias === 'count' ? 'int' : null) } : {}),

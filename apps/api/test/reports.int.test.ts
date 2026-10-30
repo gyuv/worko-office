@@ -3,6 +3,7 @@ import { MockChannelHub } from '../src/comm/channels.js';
 import { Clock } from '../src/common/clock.js';
 import { Reschedule } from '../src/jobs/job-queue.service.js';
 import { ReportEngine } from '../src/reports/engine.js';
+import { ReportsService } from '../src/reports/reports.service.js';
 import { ReportScheduleService } from '../src/reports/schedule.service.js';
 import { bearer, bootApp, web, type Session } from './helpers.js';
 
@@ -260,8 +261,8 @@ describe('scheduled reports', () => {
     const dl = await t.http().get(`/v1/reports/downloads/${token('partner@demo.worko.in')}`).set(H('partner')).expect(200);
     expect(dl.text.trim().split('\r\n')).toHaveLength(pr.groups.length + 2); // grouped report: header + one line per group + total
     await t.http().get(`/v1/reports/downloads/${token('partner@demo.worko.in')}`).set(H('manager')).expect(404); // recipient-bound
-    const [enc] = await t.sql<{ body_enc: Buffer }>(`SELECT body_enc FROM report_export WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`, [S.partner!.userId]);
-    expect(enc!.body_enc.toString('latin1')).not.toContain(pr.rows[0].values.title);
+    const [enc] = await t.sql<{ body_enc: Buffer | null }>(`SELECT body_enc FROM report_export WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`, [S.partner!.userId]);
+    expect(enc!.body_enc).toBeNull(); // nothing stored: re-rendered at download (D171)
     // Same period again: nothing new.
     await t.sql(`UPDATE report_schedule SET next_run_at = '2026-10-19T02:30:00Z' WHERE id = $1`, [s.id]);
     const n = hub.outbox.length;
@@ -326,5 +327,118 @@ describe('dashboards', () => {
     expect(art).toContain('tasks');
     expect(art).not.toContain('invoices');
     expect((await get('article', '/v1/reports/catalogue')).map((c: { key: string }) => c.key)).not.toContain('ageing_buckets');
+  });
+});
+
+describe('review fixes', () => {
+  const svc = () => t.app.get(ReportScheduleService);
+  const occur = async (id: string, extraMin = 1) => {
+    const [s] = await t.sql<{ next_run_at: Date }>('SELECT next_run_at FROM report_schedule WHERE id = $1', [id]);
+    const at = new Date(s!.next_run_at.getTime() + extraMin * 60_000);
+    await svc().process(tenantId, id, at).catch((e) => { if (!(e instanceof Reschedule)) throw e; });
+    return at;
+  };
+  const runsOf = async (id: string) => (await get('partner', `/v1/reports/schedules/${id}/runs`)).items as Array<{ recipientId: string; status: string; skipReason: string | null }>;
+
+  it('job P&L needs billing:view; fee/invoice field hiding nulls revenue and WIP (endpoint + dataset)', async () => {
+    for (const role of ['article', 'senior']) expect((await run(role, { catalogueKey: 'job_pnl' }, 403)).code).toBe('dataset_forbidden');
+    await t.sql(`INSERT INTO role (id, tenant_id, key, name, system, grants, hidden_fields) VALUES (gen_random_uuid(), $1, 'feeless', 'Feeless', false, $2, '{client.fees}')`,
+      [tenantId, JSON.stringify(['clients', 'reports', 'billing'].map((module) => ({ module, action: 'view', scope: 'all' })))]);
+    S.feeless = await t.addUser(S.partner!, 'demo', 'Feeless', 'article');
+    await t.sql(`UPDATE user_role SET role_id = (SELECT id FROM role WHERE key = 'feeless' AND tenant_id = $1) WHERE user_id = $2`, [tenantId, S.feeless.userId]);
+    const r = await run('feeless', { catalogueKey: 'job_pnl', params: { from: '2026-04-01', to: TODAY, groupBy: 'client' } });
+    expect(r.hiddenColumns).toEqual(expect.arrayContaining(['revenuePaise', 'wipPaise']));
+    expect(r.rows.every((x: { values: object }) => !('revenuePaise' in x.values) && !('wipPaise' in x.values))).toBe(true);
+    const e = await get('feeless', '/v1/reports/job-pnl?from=2026-04-01&to=2026-10-15&groupBy=client');
+    expect(e).toMatchObject({ feesVisible: false, totals: { revenuePaise: null, wipPaise: null } });
+    expect(e.items.every((x: { revenuePaise: unknown; wipPaise: unknown }) => x.revenuePaise === null && x.wipPaise === null)).toBe(true);
+  });
+
+  it('concurrent dashboards beyond the pool size complete (one connection per run, no nesting); budget stops the rest', async () => {
+    const res = await Promise.all(Array.from({ length: 12 }, () => t.http().get('/v1/reports/dashboards/default/data').set(H('partner')).timeout(60_000)));
+    expect(res.map((r) => r.status)).toEqual(Array(12).fill(200));
+    expect(res.every((r) => r.body.widgets.every((w: { error?: string }) => !w.error))).toBe(true);
+    const reports = t.app.get(ReportsService);
+    reports.dashboardBudget.rows = 0;
+    try {
+      const d = await get('partner', '/v1/reports/dashboards/default/data');
+      expect(d.widgets[0].error).toBeUndefined();
+      expect(d.widgets.slice(1).map((w: { error?: string }) => w.error)).toEqual(Array(d.widgets.length - 1).fill('budget_exceeded'));
+    } finally { reports.dashboardBudget.rows = 60_000; }
+  });
+
+  it('downloads re-render as the recipient now: role change revokes; in-app export downloadable by id, recipient only', async () => {
+    const s = (await t.http().post('/v1/reports/schedules').set(H('partner')).send({ name: 'In-app ageing', catalogueKey: 'ageing_buckets', schedule: { frequency: 'weekly', weekday: 3, time: '11:00' },
+      recipientIds: [S.manager!.userId], delivery: 'in_app', format: 'csv' }).expect(201)).body;
+    await occur(s.id);
+    const [n] = await t.sql<{ entity_id: string }>(`SELECT entity_id FROM notification WHERE user_id = $1 AND category = 'report.ready' ORDER BY created_at DESC LIMIT 1`, [S.manager!.userId]);
+    const url = `/v1/reports/exports/${n!.entity_id}/download`;
+    const ok = await t.http().get(url).set(H('manager')).expect(200);
+    expect(ok.headers['content-type']).toMatch(/text\/csv/);
+    await t.http().get(url).set(H('partner')).expect(404);
+    const [aud] = await t.sql<{ diff: Record<string, unknown> }>(`SELECT diff FROM audit_log WHERE action = 'report.downloaded' AND entity_id = $1`, [n!.entity_id]);
+    expect(aud!.diff).toMatchObject({ dataset: 'ageing', format: 'csv' });
+    // Role change after delivery: the manager loses reports:export → the old link no longer works.
+    const mgrRole = (await t.sql<{ role_id: string }>('SELECT role_id FROM user_role WHERE user_id = $1', [S.manager!.userId]))[0]!.role_id;
+    await t.sql(`UPDATE user_role SET role_id = (SELECT id FROM role WHERE key = 'senior' AND tenant_id = $1) WHERE user_id = $2`, [tenantId, S.manager!.userId]);
+    try { expect((await t.http().get(url).set(H('manager')).expect(403)).body.code).toBe('export_forbidden'); } finally {
+      await t.sql('UPDATE user_role SET role_id = $1 WHERE user_id = $2', [mgrRole, S.manager!.userId]);
+    }
+    expect((await t.sql<{ n: number }>('SELECT count(*)::int AS n FROM report_export WHERE body_enc IS NOT NULL'))[0]!.n).toBe(0); // no stored files
+  });
+
+  it('shared definitions hide filter values the viewer could not see; unshared saved reports are not scheduled to others', async () => {
+    const pc = await run('partner', { definition: { dataset: 'clients', columns: ['name'] }, pageSize: 500 });
+    const mc = new Set((await run('manager', { definition: { dataset: 'clients', columns: ['name'] }, pageSize: 500 })).rows.map((x: { values: { name: string } }) => x.values.name));
+    const secret = pc.rows.map((x: { values: { name: string } }) => x.values.name).find((nm: string) => !mc.has(nm))!;
+    const seen = [...mc][0] as string;
+    const def = { dataset: 'unbilled', columns: ['clientName', 'suggestedPaise'], filters: [{ column: 'clientName', op: 'in', value: [secret] }] };
+    const rep = (await t.http().post('/v1/reports/saved').set(H('partner')).send({ name: 'Secret client', definition: def, share: { firm: true } }).expect(201)).body;
+    expect(rep.definition.filters[0].value).toEqual([secret]); // the owner sees it
+    for (const body of [await get('manager', `/v1/reports/saved/${rep.id}`), (await get('manager', '/v1/reports/saved')).items.find((x: { id: string }) => x.id === rep.id)]) {
+      expect(body.definition.filters[0].value).toEqual(['[hidden]']);
+      expect(body.explanation).not.toContain(secret);
+    }
+    expect(JSON.stringify(await get('manager', `/v1/reports/saved/${rep.id}/versions`))).not.toContain(secret);
+    const r = await run('manager', { reportId: rep.id });
+    expect(r.rowCount).toBe(0);
+    expect(JSON.stringify(r.definition) + r.explanation).not.toContain(secret);
+    const pdf = await t.http().post('/v1/reports/export').set(H('manager')).send({ reportId: rep.id, format: 'pdf' }).buffer(true).parse((res, cb) => { const b: Buffer[] = []; res.on('data', (c: Buffer) => b.push(c)); res.on('end', () => cb(null, Buffer.concat(b))); }).expect(200);
+    expect((pdf.body as Buffer).toString('latin1')).not.toContain(secret);
+    // A value the viewer can see stays readable; a filter on a column hidden from them is redacted.
+    const vis = (await t.http().post('/v1/reports/saved').set(H('partner')).send({ name: 'Seen', definition: { dataset: 'time_entries', columns: ['userName'], filters: [{ column: 'clientName', op: 'eq', value: seen }, { column: 'costPaise', op: 'gt', value: 123456 }] }, share: { firm: true } }).expect(201)).body;
+    const mv = await get('manager', `/v1/reports/saved/${vis.id}`);
+    expect(mv.definition.filters.map((f: { value: unknown }) => f.value)).toEqual([seen, '[hidden]']);
+    // Not shared with the recipient → skipped, not run on their behalf.
+    const priv = (await t.http().post('/v1/reports/saved').set(H('partner')).send({ name: 'Private', definition: { dataset: 'tasks', columns: ['title'] } }).expect(201)).body;
+    const s = (await t.http().post('/v1/reports/schedules').set(H('partner')).send({ name: 'Unshared', reportId: priv.id, schedule: { frequency: 'daily', time: '11:00' }, recipientIds: [S.manager!.userId, S.partner!.userId], format: 'csv' }).expect(201)).body;
+    await occur(s.id);
+    const runs = await runsOf(s.id);
+    expect(runs.find((x) => x.recipientId === S.manager!.userId)).toMatchObject({ status: 'skipped', skipReason: 'not_shared' });
+    expect(runs.find((x) => x.recipientId === S.partner!.userId)).toMatchObject({ status: 'delivered' });
+  });
+
+  it('stale running claims are reclaimed; recipients limited to self/direct reports; expired exports purged', async () => {
+    const s = (await t.http().post('/v1/reports/schedules').set(H('partner')).send({ name: 'Stale', catalogueKey: 'ageing_buckets', schedule: { frequency: 'daily', time: '11:00' }, recipientIds: [S.partner!.userId], format: 'csv' }).expect(201)).body;
+    const [row] = await t.sql<{ next_run_at: Date }>('SELECT next_run_at FROM report_schedule WHERE id = $1', [s.id]);
+    const day = new Date(row!.next_run_at.getTime() + 330 * 60_000).toISOString().slice(0, 10);
+    await t.sql(`INSERT INTO report_schedule_run (id, tenant_id, schedule_id, period_key, recipient_id, occurrence_at, status, started_at) VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, 'running', $6)`,
+      [tenantId, s.id, day, S.partner!.userId, row!.next_run_at, new Date(row!.next_run_at.getTime() - 3_600_000)]);
+    await occur(s.id);
+    expect((await runsOf(s.id)).map((x) => x.status)).toEqual(['delivered']);
+    // A fresh 'running' claim (inside the lease) is left alone.
+    const fresh = (await t.http().post('/v1/reports/schedules').set(H('partner')).send({ name: 'Fresh', catalogueKey: 'ageing_buckets', schedule: { frequency: 'daily', time: '11:00' }, recipientIds: [S.partner!.userId], format: 'csv' }).expect(201)).body;
+    const [f] = await t.sql<{ next_run_at: Date }>('SELECT next_run_at FROM report_schedule WHERE id = $1', [fresh.id]);
+    await t.sql(`INSERT INTO report_schedule_run (id, tenant_id, schedule_id, period_key, recipient_id, occurrence_at, status, started_at) VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, 'running', $5)`,
+      [tenantId, fresh.id, new Date(f!.next_run_at.getTime() + 330 * 60_000).toISOString().slice(0, 10), S.partner!.userId, f!.next_run_at]);
+    await occur(fresh.id);
+    expect((await runsOf(fresh.id)).map((x) => x.status)).toEqual(['running']);
+    // Recipients: managers schedule for themselves and direct reports only; firm-wide publishers for anyone.
+    const sched = (who: string, ids: string[]) => t.http().post('/v1/reports/schedules').set(H(who)).send({ name: 'R', catalogueKey: 'my_open_tasks', schedule: { frequency: 'weekly' }, recipientIds: ids });
+    expect((await sched('manager', [S.partner!.userId]).expect(403)).body.code).toBe('recipients_forbidden');
+    await sched('manager', [S.manager!.userId, S.senior!.userId, S.article!.userId]).expect(201);
+    // Retention purge of export rows long past expiry.
+    expect(await svc().purgeExports(tenantId, new Date('2027-06-01T00:00:00Z'))).toBeGreaterThan(0);
+    expect((await t.sql<{ n: number }>('SELECT count(*)::int AS n FROM report_export'))[0]!.n).toBe(0);
   });
 });

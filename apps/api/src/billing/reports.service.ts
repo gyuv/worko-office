@@ -19,7 +19,11 @@ export class BillingReportsService {
 
   /** Receivables by days past due, per visible client. `total` always equals the sum of the clients' open balances. */
   ageing(a: RequestActor, asOf: string) {
-    return this.db.tenantTx(a.tenantId, async (tx) => {
+    return this.db.tenantTx(a.tenantId, (tx) => this.ageingTx(tx, a, asOf));
+  }
+  /** Same, on the caller's transaction (report engine: one READ ONLY connection + statement timeout). */
+  async ageingTx(tx: Tx, a: RequestActor, asOf: string) {
+    {
       const p = new Params();
       const rows = (await tx.query(`SELECT i.client_id, c.name, i.due_date, i.balance_paise FROM invoice i JOIN client c ON c.id = i.client_id
         WHERE ${OPEN} AND c.deleted_at IS NULL AND ${scopeSql(a, 'billing', 'view', p)} ORDER BY lower(c.name), c.id`, p.values)).rows;
@@ -42,7 +46,7 @@ export class BillingReportsService {
         by.set(r.client_id, g);
       }
       return { asOf, clients: [...by.values()], totals: { ...totals, totalPaise: total, advancePaise: [...advance.values()].reduce((s, x) => s + x, 0), creditPaise: [...credit.values()].reduce((s, x) => s + x, 0) } };
-    });
+    }
   }
 
   /** A client's open receivables, unapplied advances and balance (mobile "client outstanding"). */

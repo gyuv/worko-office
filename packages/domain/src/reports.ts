@@ -27,6 +27,8 @@ export type ColumnMeta = {
   sensitivity?: Sensitivity;
   /** Role field-hiding key (`hiddenFields`), e.g. 'client.pan'; a `prefix.*` entry hides it too. */
   hiddenKey?: string;
+  /** Further keys, any of which hides the column (e.g. revenue = invoice amounts AND fees). */
+  hiddenKeys?: readonly string[];
   /** Id columns that point at an entity the UI can open (drill-through). */
   ref?: RefType;
 };
@@ -35,12 +37,16 @@ export type DatasetMeta = {
   key: string; label: string; description: string;
   /** Source module whose `view` the dataset needs (besides reports:view); its row scope applies. */
   module: Module;
+  /** Further modules whose `view` the dataset also needs (job P&L carries fees/revenue → billing). */
+  alsoRequires?: readonly Module[];
   /** The row's own entity (id column `id`), for navigation. */
   entity?: RefType;
   columns: ColumnMeta[];
   params?: ParamSpec[];
 };
 
+/** Revenue/WIP are invoice amounts and rate-table fees: hidden by either (D172). */
+export const FEE_KEYS = ['invoice.amounts', 'client.fees'] as const;
 const c = (key: string, label: string, type: ColumnType, extra: Partial<ColumnMeta> = {}): ColumnMeta => ({ key, label, type, ...extra });
 const clientCols = [c('clientId', 'Client id', 'id', { ref: 'client' }), c('clientName', 'Client', 'text')];
 const INVOICE_KINDS = ['invoice', 'credit_note', 'debit_note'] as const;
@@ -85,10 +91,12 @@ export const DATASETS: readonly DatasetMeta[] = [
     c('id', 'Task id', 'id', { ref: 'task' }), c('title', 'Task', 'text'), ...clientCols, c('periodKey', 'Period', 'text'), c('serviceKey', 'Service key', 'text'), c('serviceName', 'Service', 'text'),
     c('serviceCategory', 'Service category', 'text', { description: 'e.g. GST, Income tax, TDS, ROC' }), c('completedOn', 'Completed on', 'date'), c('assigneeId', 'Assignee id', 'id', { ref: 'user' }),
     c('assigneeName', 'Assignee (user)', 'text'), c('retainer', 'Retainer', 'bool'), c('suggestedPaise', 'Suggested fee', 'paise', { sensitivity: 'fees', hiddenKey: 'client.fees' })] },
-  { key: 'job_pnl', label: 'Job P&L', description: 'Revenue, cost, WIP and margin per task/client/service (same as Time → Job P&L). Cost and margin need cost visibility.', module: 'reports', columns: [
-    c('key', 'Key', 'text'), c('label', 'Job', 'text'), ...clientCols, c('taskId', 'Task id', 'id', { ref: 'task' }), c('revenuePaise', 'Revenue', 'paise'),
-    c('costPaise', 'Cost', 'paise', { sensitivity: 'cost', hiddenKey: 'cost.*' }), c('marginPaise', 'Margin', 'paise', { sensitivity: 'cost', hiddenKey: 'cost.*' }), c('marginPct', 'Margin %', 'number', { sensitivity: 'cost', hiddenKey: 'cost.*' }),
-    c('wipPaise', 'WIP', 'paise'), c('minutes', 'Minutes', 'minutes'), c('billableMinutes', 'Billable minutes', 'minutes'), c('loss', 'Loss-making', 'bool', { sensitivity: 'cost', hiddenKey: 'cost.*' })],
+  { key: 'job_pnl', label: 'Job P&L', description: 'Revenue, cost, WIP and margin per task/client/service (same as Time → Job P&L). Cost and margin need cost visibility; revenue/WIP follow fee/invoice field hiding.', module: 'reports', alsoRequires: ['billing'], columns: [
+    c('key', 'Key', 'text'), c('label', 'Job', 'text'), ...clientCols, c('taskId', 'Task id', 'id', { ref: 'task' }), c('revenuePaise', 'Revenue', 'paise', { sensitivity: 'fees', hiddenKeys: FEE_KEYS }),
+    c('costPaise', 'Cost', 'paise', { sensitivity: 'cost', hiddenKey: 'cost.*' }), c('marginPaise', 'Margin', 'paise', { sensitivity: 'cost', hiddenKey: 'cost.*', hiddenKeys: FEE_KEYS }),
+    c('marginPct', 'Margin %', 'number', { sensitivity: 'cost', hiddenKey: 'cost.*', hiddenKeys: FEE_KEYS }),
+    c('wipPaise', 'WIP', 'paise', { sensitivity: 'fees', hiddenKeys: FEE_KEYS }), c('minutes', 'Minutes', 'minutes'), c('billableMinutes', 'Billable minutes', 'minutes'),
+    c('loss', 'Loss-making', 'bool', { sensitivity: 'cost', hiddenKey: 'cost.*', hiddenKeys: FEE_KEYS })],
   params: [{ key: 'from', type: 'date', default: 'fy_start', description: 'From (IST)' }, { key: 'to', type: 'date', default: 'today', description: 'To (IST)' },
     { key: 'groupBy', type: 'enum', default: 'client', values: ['task', 'client', 'service'], description: 'Job level' }] },
   { key: 'capacity', label: 'Capacity & utilisation', description: 'Per person × week: capacity (after holidays/leave), planned (open task estimates) and actual (approved time) — same as Time → Capacity.', module: 'time', columns: [
@@ -146,7 +154,7 @@ export type FilterOp = (typeof FILTER_OPS)[number];
 export const AGG_FNS = ['count', 'sum', 'avg', 'min', 'max'] as const;
 export type AggFn = (typeof AGG_FNS)[number];
 export const CHART_TYPES = ['table', 'bar', 'line', 'pie', 'kpi'] as const;
-export const REPORT_LIMITS = { maxColumns: 30, maxFilters: 20, maxGroupBy: 2, maxAggregates: 10, maxRows: 10_000, maxPageSize: 500, maxGroups: 1000 } as const;
+export const REPORT_LIMITS = { maxColumns: 30, maxFilters: 20, maxGroupBy: 2, maxAggregates: 10, maxRows: 20_000, maxPageSize: 500, maxGroups: 1000 } as const;
 
 const colKey = z.string().regex(/^[a-zA-Z][a-zA-Z0-9]{0,40}$/, 'Unknown column');
 const alias = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,40}$/);
@@ -260,13 +268,14 @@ export function resolveParams(ds: DatasetMeta, given: Record<string, string | nu
 }
 
 // ---------- Column access ----------
+/** True if role field hiding covers `key` (exact, or a `prefix.*` entry). */
+export const fieldHidden = (hiddenFields: readonly string[], key: string) => hiddenFields.some((f) => f === key || (f.endsWith('.*') && key.startsWith(f.slice(0, -1))));
 /** What the viewer may see of a dataset's columns: cost needs canSeeCost; any column with a hidden key follows role field hiding. */
 export function hiddenColumns(ds: DatasetMeta, viewer: { canSeeCost: boolean; hiddenFields: string[] }): Set<string> {
   const hidden = new Set<string>();
-  const hit = (key: string) => viewer.hiddenFields.some((f) => f === key || (f.endsWith('.*') && key.startsWith(f.slice(0, -1))));
   for (const col of ds.columns) {
     if (col.sensitivity === 'cost' && !viewer.canSeeCost) hidden.add(col.key);
-    if (col.hiddenKey && hit(col.hiddenKey)) hidden.add(col.key);
+    if ([col.hiddenKey, ...(col.hiddenKeys ?? [])].some((k) => k && fieldHidden(viewer.hiddenFields, k))) hidden.add(col.key);
   }
   return hidden;
 }
@@ -571,7 +580,7 @@ export const REPORT_CATALOGUE: readonly CatalogueReport[] = [
   { key: 'revenue_by_branch', name: 'Revenue by branch', description: 'Taxable value of issued invoices this FY per branch.',
     definition: def({ dataset: 'invoice_lines', columns: ['branchName', 'clientName', 'taxablePaise'], filters: [{ column: 'kind', op: 'eq', value: 'invoice' }, { column: 'status', op: 'nin', value: ['draft', 'cancelled'] }, { column: 'reimbursement', op: 'eq', value: false }, { column: 'issueDate', op: 'period', value: 'this_fy' }], groupBy: ['branchName'], aggregates: [{ fn: 'sum', column: 'taxablePaise' }], chart: { type: 'bar' } }) },
   { key: 'job_pnl', name: 'Job P&L', description: 'Revenue, cost, WIP and margin per client this FY (cost and margin need cost visibility).',
-    definition: def({ dataset: 'job_pnl', columns: ['label', 'revenuePaise', 'costPaise', 'wipPaise', 'marginPaise', 'marginPct', 'minutes'], aggregates: [{ fn: 'sum', column: 'revenuePaise' }, { fn: 'sum', column: 'costPaise' }, { fn: 'sum', column: 'wipPaise' }, { fn: 'sum', column: 'minutes' }], sort: [{ by: 'revenuePaise', dir: 'desc' }], chart: { type: 'table' } }) },
+    definition: def({ dataset: 'job_pnl', columns: ['label', 'revenuePaise', 'costPaise', 'wipPaise', 'marginPaise', 'marginPct', 'minutes'], aggregates: [{ fn: 'sum', column: 'revenuePaise' }, { fn: 'sum', column: 'costPaise' }, { fn: 'sum', column: 'wipPaise' }, { fn: 'sum', column: 'minutes' }], chart: { type: 'table' } }) },
   { key: 'utilisation_by_user', name: 'Utilisation by user', description: 'Capacity, planned and actual minutes per person × week (reconciles with Time → Capacity).',
     definition: def({ dataset: 'capacity', columns: ['userName', 'weekStart', 'capacityMinutes', 'plannedMinutes', 'actualMinutes', 'actualPct'], groupBy: ['userName'], aggregates: [{ fn: 'sum', column: 'capacityMinutes' }, { fn: 'sum', column: 'plannedMinutes' }, { fn: 'sum', column: 'actualMinutes' }], chart: { type: 'bar', x: 'userName', y: 'sum_actualMinutes' } }) },
   { key: 'capacity_by_week', name: 'Team capacity by week', description: 'Planned vs capacity per week.',
