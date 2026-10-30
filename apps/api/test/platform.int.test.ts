@@ -188,9 +188,22 @@ describe('impersonation with consent', () => {
     const tok = (await t.http().post(`/v1/platform/tenants/${tenantId}/impersonations/${g2}/start`).set(bearer(admin)).expect(200)).body.accessToken;
     await t.http().post('/v1/clients').set(bearer(tok)).send({ name: 'Created by support', entityType: 'INDIVIDUAL' }).expect(201);
     await t.http().post('/v1/users').set(bearer(tok)).send({ name: 'Sneaky', email: 'sneaky@plat.in', password: PW, roleKeys: ['article'] }).expect(403);
+    // The blocklist can't be sidestepped with case, trailing or duplicate slashes (the router accepts all of these).
+    for (const p of ['/v1/Users', '/V1/USERS/', '/v1//users', '/v1/users/']) {
+      const r = await t.http().post(p).set(bearer(tok)).send({ name: 'Sneaky', email: 'sneaky2@plat.in', password: PW, roleKeys: ['article'] });
+      expect([403, 404]).toContain(r.status); // blocked, or not routed at all — never reaches the controller
+    }
+    expect(await t.sql(`SELECT 1 FROM app_user WHERE email = 'sneaky2@plat.in'`)).toHaveLength(0);
     await t.sql(`UPDATE impersonation_grant SET expires_at = now() - interval '1 second' WHERE id = $1`, [g2]);
     expect((await t.http().get('/v1/me').set(bearer(tok)).expect(401)).body.code).toBe('IMPERSONATION_EXPIRED');
     expect((await t.sql<{ status: string }>('SELECT status FROM impersonation_grant WHERE id = $1', [g2]))[0]!.status).toBe('expired');
+    // Ending the platform session ends impersonation, even while a grant is still valid.
+    const g3 = (await t.http().post(`/v1/platform/tenants/${tenantId}/impersonations`).set(bearer(admin)).send({ reason: 'Ticket #4413: check settings', minutes: 60 }).expect(201)).body.id;
+    await t.http().post(`/v1/impersonation/grants/${g3}/approve`).set(H(P)).send({}).expect(200);
+    const tok3 = (await t.http().post(`/v1/platform/tenants/${tenantId}/impersonations/${g3}/start`).set(bearer(admin)).expect(200)).body.accessToken;
+    await t.http().get('/v1/me').set(bearer(tok3)).expect(200);
+    await t.sql(`UPDATE platform_session SET expires_at = now() - interval '1 second' WHERE admin_id = (SELECT id FROM platform_admin WHERE email = $1) AND revoked_at IS NULL`, [EMAIL]);
+    await t.http().get('/v1/me').set(bearer(tok3)).expect(401);
   });
 
   it('a firm cannot see or decide another firm\'s grants', async () => {

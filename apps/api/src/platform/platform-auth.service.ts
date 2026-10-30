@@ -79,6 +79,6 @@ export class PlatformAuthService {
   /** Is this platform session still live (impersonation tokens die with the session that started them)? */
   async sessionLive(sid: string, adminId: string): Promise<boolean> {
     return !!(await this.db.systemTx((tx) => tx.query(`SELECT 1 FROM platform_session s JOIN platform_admin a ON a.id = s.admin_id
-      WHERE s.id = $1 AND s.admin_id = $2 AND s.revoked_at IS NULL AND a.status = 'active'`, [sid, adminId]))).rowCount;
+      WHERE s.id = $1 AND s.admin_id = $2 AND s.revoked_at IS NULL AND s.expires_at > now() AND a.status = 'active'`, [sid, adminId]))).rowCount;
   }
 }

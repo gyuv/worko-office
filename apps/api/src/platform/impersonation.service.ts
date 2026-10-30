@@ -116,7 +116,10 @@ export class ImpersonationService {
     let c;
     try { c = await this.tokens.verifyImpersonation(token); } catch { throw new UnauthorizedException(); }
     if (!(await this.pauth.sessionLive(c.sid, c.sub))) throw new UnauthorizedException();
-    const route = path.split('?')[0]!;
+    // Normalise like the router does (case-insensitive, trailing/duplicate slashes ignored) so the blocklist can't be sidestepped.
+    let route = path.split('?')[0]!;
+    try { route = decodeURIComponent(route); } catch { /* keep raw */ }
+    route = route.toLowerCase().replace(/\/{2,}/g, '/').replace(/\/+$/, '') || '/';
     const actor = await this.db.tenantTx(c.tid, async (tx) => {
       const g = (await tx.query(`SELECT * FROM impersonation_grant WHERE id = $1 AND platform_admin_id = $2`, [c.gid, c.sub])).rows[0];
       if (!g) throw new UnauthorizedException();
