@@ -46,6 +46,8 @@ export class JobQueueService implements OnModuleInit, OnApplicationShutdown {
       const jobs = (await this.db.systemTx((tx) => tx.query<Job>(
         `UPDATE job_queue SET locked_until = $2::timestamptz + interval '2 minutes', attempts = attempts + 1
          WHERE id IN (SELECT id FROM job_queue WHERE run_at <= $2 AND dead_at IS NULL AND (locked_until IS NULL OR locked_until < $2)
+                      -- suspended firms' jobs wait (data kept); the SaaS lifecycle keeps running for them (D182)
+                      AND (kind LIKE 'saas.%' OR NOT EXISTS (SELECT 1 FROM tenant t WHERE t.id = job_queue.tenant_id AND (t.status = 'suspended' OR t.sub_status IN ('suspended','cancelled'))))
                       ORDER BY run_at LIMIT $1 FOR UPDATE SKIP LOCKED)
          RETURNING id, tenant_id, kind, ref_id, attempts, max_attempts`, [batch, at]))).rows;
       for (const j of jobs) {

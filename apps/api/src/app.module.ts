@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AuditController } from './audit/audit.controller.js';
 import { AuditService } from './audit/audit.service.js';
@@ -74,6 +74,48 @@ import { ChatService } from './comm/chat.service.js';
 import { CommController, TimelineController } from './comm/comm.controller.js';
 import { CommService } from './comm/comm.service.js';
 import { ConnectionsService } from './comm/connections.service.js';
+import { AuditWorkService } from './practice/audit.service.js';
+import { DscService } from './practice/dsc.service.js';
+import { ESIGN_PROVIDERS, esignProvidersFactory } from './practice/esign.provider.js';
+import { EsignService } from './practice/esign.service.js';
+import { NOTICE_EXTRACTORS, noticeExtractorsFactory } from './practice/extractor.js';
+import { NoticesService } from './practice/notices.service.js';
+import { AuditWorkController, DscController, EsignController, NoticesController } from './practice/practice.controller.js';
+import { PracticeService } from './practice/practice.service.js';
+import { PortalAdminService } from './portal/admin.service.js';
+import { PortalAuthService } from './portal/portal-auth.service.js';
+import { PortalAdminController, PortalController, PortalPublicController } from './portal/portal.controller.js';
+import { PortalService } from './portal/portal.service.js';
+import { LeadsController, ProposalsController } from './leads/leads.controller.js';
+import { LeadsService } from './leads/leads.service.js';
+import { ProposalsService } from './leads/proposals.service.js';
+import { AiController } from './ai/ai.controller.js';
+import { AiService } from './ai/ai.service.js';
+import { ReportEngine } from './reports/engine.js';
+import { NlQueryService } from './reports/nlquery.service.js';
+import { ReportsController } from './reports/reports.controller.js';
+import { ReportsService } from './reports/reports.service.js';
+import { ReportScheduleService } from './reports/schedule.service.js';
+import { AI_PROVIDER, aiProviderFactory } from './ai/provider.js';
+import { ActionRunner } from './automation/actions.js';
+import { AutomationController } from './automation/automation.controller.js';
+import { AutomationService } from './automation/automation.service.js';
+import { AutomationEngine } from './automation/engine.js';
+// phase12 B — public API, webhooks, hardening
+import { BREACHED_PASSWORDS, breachedPasswordsFactory, PasswordPolicyService } from './auth/password-policy.js';
+import { ApiKeysService } from './publicapi/api-keys.service.js';
+import { DevelopersController, PublicApiDocsController } from './publicapi/developers.controller.js';
+import { PublicApiInterceptor } from './publicapi/interceptor.js';
+import { NodeWebhookTransport, WEBHOOK_TRANSPORT } from './publicapi/transport.js';
+import { WebhooksService } from './publicapi/webhooks.service.js';
+// phase12 A — super-admin, SaaS billing, impersonation, DPDP
+import { DpdpController, PortalPrivacyController } from './dpdp/dpdp.controller.js';
+import { DpdpService } from './dpdp/dpdp.service.js';
+import { ImpersonationService } from './platform/impersonation.service.js';
+import { PlatformAuditService } from './platform/platform-audit.service.js';
+import { PlatformAuthService } from './platform/platform-auth.service.js';
+import { PlatformController, SaasWebhookController, SubscriptionController } from './platform/platform.controller.js';
+import { SaasService } from './platform/saas.service.js';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ limit: Number(process.env.RATE_LIMIT ?? 300), ttl: 60_000 }])],
@@ -81,7 +123,11 @@ import { ConnectionsService } from './comm/connections.service.js';
     SyncController, NotificationsController, TeamsController,
     ImportController, ClientsController, VaultController, DocumentsController, RegistersController,
     TasksController, ComplianceController, BillingController, TimeController, HrController,
-    CommController, TimelineController, ChatController, CalendarController, BookingAdminController, BookingPublicController],
+    CommController, TimelineController, ChatController, CalendarController, BookingAdminController, BookingPublicController,
+    NoticesController, AuditWorkController, DscController, EsignController,
+    PortalPublicController, PortalController, PortalAdminController, LeadsController, ProposalsController, AutomationController, AiController, ReportsController,
+    PlatformController, SaasWebhookController, SubscriptionController, DpdpController, PortalPrivacyController,
+    DevelopersController, PublicApiDocsController],
   providers: [
     DbService, AuditService, TokenService, AuthService, TenancyService, UsersService, RulesService,
     RealtimeService, RealtimeGateway, JobQueueService, SyncService, NotificationsService,
@@ -92,6 +138,11 @@ import { ConnectionsService } from './comm/connections.service.js';
     BillingConfigService, InvoicesService, ReceiptsService, BillingAutoService, BillingReportsService, CollectionsService,
     TimeService, TimeReportsService, HrConfigService, AttendanceService, LeaveService, ExpensesService,
     CommService, BroadcastService, ChatService, CalendarService, ConnectionsService,
+    NoticesService, AuditWorkService, DscService, EsignService, PracticeService,
+    PortalAuthService, PortalService, PortalAdminService, LeadsService, ProposalsService,
+    AiService, { provide: AI_PROVIDER, useFactory: aiProviderFactory }, ActionRunner, AutomationEngine, AutomationService, ReportEngine, ReportsService, ReportScheduleService, NlQueryService,
+    { provide: NOTICE_EXTRACTORS, useFactory: noticeExtractorsFactory },
+    { provide: ESIGN_PROVIDERS, useFactory: esignProvidersFactory },
     { provide: MockChannelHub, useFactory: () => new MockChannelHub() },
     { provide: COMM_CHANNELS_TOKEN, useFactory: channelAdaptersFactory, inject: [MockChannelHub] },
     { provide: INBOUND_PROVIDERS, useFactory: inboundProvidersFactory },
@@ -105,6 +156,9 @@ import { ConnectionsService } from './comm/connections.service.js';
     { provide: GSTIN_LOOKUP, useClass: MockGstinLookup },
     { provide: PUSH_PROVIDERS, useFactory: pushProvidersFactory },
     { provide: SMS_PROVIDER, useClass: MockSmsProvider },
+    PlatformAuditService, PlatformAuthService, SaasService, ImpersonationService, DpdpService,
+    ApiKeysService, WebhooksService, PasswordPolicyService, { provide: BREACHED_PASSWORDS, useFactory: breachedPasswordsFactory },
+    { provide: WEBHOOK_TRANSPORT, useFactory: () => new NodeWebhookTransport() }, { provide: APP_INTERCEPTOR, useClass: PublicApiInterceptor },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_FILTER, useClass: ErrorFilter },

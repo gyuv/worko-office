@@ -12,6 +12,7 @@ import { useUsers } from '../tasks/shared';
 import { as, body, CHANNELS, fetchTimeline, useCommError, useCommSettings, useConsents, useLabel, useTemplates, type Channel } from './api';
 import { consentBlock, consentFor, contactAddress, groupTimeline, timelineFamily, userVars, type Contactish, type TimelineItem } from './logic';
 import { ConsentBadge } from './shared';
+import { DraftReplyButton, SummariseButton } from '../ai/AiParts';
 
 export type TimelineClient = { id: string; name: string; email: string | null; phone: string | null; contacts: Contactish[] };
 
@@ -42,6 +43,7 @@ export function TimelineTab({ client }: { client: TimelineClient }) {
           </select>
         </Field>
         <div className="ml-auto flex gap-2">
+          <SummariseButton clientId={client.id} clientName={client.name} />
           {can('communication', 'create') && <>
             <button className="btn btn-primary" onClick={() => setComposing(true)}><Send size={14} aria-hidden /> {t('p7.tl.compose')}</button>
             <button className="btn" onClick={() => setLogging('call')}><Phone size={14} aria-hidden /> {t('p7.tl.logCall')}</button>
@@ -56,7 +58,7 @@ export function TimelineTab({ client }: { client: TimelineClient }) {
         {groups.map((g) => (
           <li key={g.day}>
             <h3 className="mb-1 text-xs font-medium uppercase text-muted">{formatDate(`${g.day}T12:00:00+05:30`)}</h3>
-            <ul className="card divide-y divide-border">{g.items.map((i) => <Entry key={`${i.kind}:${i.id}`} i={i} />)}</ul>
+            <ul className="card divide-y divide-border">{g.items.map((i) => <Entry key={`${i.kind}:${i.id}`} i={i} client={client} />)}</ul>
           </li>
         ))}
       </ol>
@@ -74,7 +76,7 @@ export function MessageBody({ body: text, html }: { body: string; html: boolean 
   return <iframe title={t('p7.tl.emailBody')} sandbox="" referrerPolicy="no-referrer" srcDoc={`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">${text}`} className="h-40 w-full rounded border border-border bg-surface" />;
 }
 
-function Entry({ i }: { i: TimelineItem }) {
+function Entry({ i, client }: { i: TimelineItem; client: TimelineClient }) {
   const t = useT();
   const label = useLabel();
   const { name } = useUsers();
@@ -99,6 +101,7 @@ function Entry({ i }: { i: TimelineItem }) {
         {i.title && <div className="font-medium">{i.title}</div>}
         {i.body && i.kind === 'message' && <MessageBody body={i.body} html={i.channel === 'email' && i.format === 'html'} />}
         {i.body && i.kind !== 'message' && <p className="text-xs text-muted">{i.body}</p>}
+        {i.kind === 'message' && i.direction === 'in' && i.channel && i.channel !== 'note' && i.channel !== 'call' && <DraftReplyButton compact clientId={client.id} clientName={client.name} messageId={i.id} channel={i.channel as 'email'} />}
       </div>
     </li>
   );

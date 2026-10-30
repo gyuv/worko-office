@@ -115,7 +115,9 @@ describe('appointments', () => {
     const rs = (await t.http().post(`/v1/book/manage/${tok}/reschedule`).send({ startsAt: ist('2026-10-21T10:00:00') }).expect(200)).body;
     await t.http().get(`/v1/book/manage/${tok}`).expect(404); // old link revoked
     expect((await t.sql<{ s: Date }>('SELECT e.starts_at AS s FROM appointment a JOIN calendar_event e ON e.id = a.event_id WHERE a.id = $1', [b.id]))[0]!.s.toISOString()).toBe(ist('2026-10-21T10:00:00'));
-    await t.http().get(`/v1/book/manage/${tok.slice(0, -2)}xx`).expect(404);
+    // Tamper inside the signature (trailing base64url chars carry padding bits).
+    const at = tok.lastIndexOf('.') + 5;
+    await t.http().get(`/v1/book/manage/${tok.slice(0, at)}${tok[at] === 'A' ? 'B' : 'A'}${tok.slice(at + 1)}`).expect(404);
     await t.http().post(`/v1/book/manage/${rs.manageToken}/cancel`).expect(200);
     await t.http().post(`/v1/book/manage/${rs.manageToken}/cancel`).expect(404); // nonce rotated on cancel too
     expect((await t.sql<{ d: boolean }>('SELECT e.deleted_at IS NOT NULL AS d FROM appointment a JOIN calendar_event e ON e.id = a.event_id WHERE a.id = $1', [b.id]))[0]!.d).toBe(true);

@@ -7,12 +7,14 @@ import type { RequestActor } from '../auth/context.js';
 import { hashPassword } from '../auth/crypto.js';
 import { DbService } from '../db/db.service.js';
 import { uuidv7 } from '../db/ids.js';
+import { assertSeatAvailable } from '../platform/saas.service.js';
+import { PasswordPolicyService } from '../auth/password-policy.js';
 
 export type CreateUser = { name: string; email: string; phone?: string; password: string; roleKeys: string[]; branchId?: string };
 
 @Injectable()
 export class UsersService {
-  constructor(private db: DbService, private audit: AuditService, private realtime: RealtimeService) {}
+  constructor(private db: DbService, private audit: AuditService, private realtime: RealtimeService, private passwords: PasswordPolicyService) {}
 
   list(a: RequestActor) {
     return this.db.tenantTx(a.tenantId, async (tx) => (await tx.query(
@@ -27,16 +29,18 @@ export class UsersService {
       const u = (await tx.query(
         `SELECT u.id, u.name, u.email, u.phone, u.totp_enabled AS "totpEnabled", t.name AS "firmName", t.slug AS "firmSlug"
          FROM app_user u JOIN tenant t ON t.id = u.tenant_id WHERE u.id = $1`, [a.userId])).rows[0];
-      return { ...u, roles: a.roles.map((r) => r.key), grants: a.roles.flatMap((r) => r.grants) };
+      return { ...u, roles: a.roles.map((r) => r.key), grants: a.roles.flatMap((r) => r.grants), impersonation: a.impersonation ?? null };
     });
   }
 
   async create(a: RequestActor, i: CreateUser) {
     // Prevent privilege escalation: you can only hand out roles whose grants you hold yourself.
+    await this.passwords.assert(i.password, { email: i.email, name: i.name }); // D198
     const passwordHash = await hashPassword(i.password);
     return this.db.tenantTx(a.tenantId, async (tx) => {
       const branchId = i.branchId ?? a.branchId;
       if (!can(a, 'users', 'create', { branchId })) throw new ForbiddenException('Cannot add users to that branch');
+      await assertSeatAvailable(tx, a.tenantId); // plan seats (402 SEAT_LIMIT, D184)
       const roles = (await tx.query('SELECT id, key, grants, hidden_fields FROM role WHERE key = ANY($1) AND deleted_at IS NULL', [i.roleKeys])).rows;
       if (roles.length !== new Set(i.roleKeys).size) throw new BadRequestException('Unknown role');
       for (const r of roles) {
@@ -67,6 +71,7 @@ export class UsersService {
       if (!u) throw new NotFoundException();
       const current = await loadUserRoles(tx, id);
       if (!can(a, 'users', 'edit', { branchId: u.branch_id }) || !current.every((r) => coversRole(a, r))) throw new ForbiddenException();
+      if (i.status === 'active' && u.status !== 'active') await assertSeatAvailable(tx, a.tenantId); // reactivation takes a seat (D184)
       if (i.branchId) {
         if (!(await tx.query('SELECT 1 FROM branch WHERE id = $1', [i.branchId])).rowCount || !can(a, 'users', 'edit', { branchId: i.branchId })) throw new ForbiddenException('Branch outside your scope');
       }

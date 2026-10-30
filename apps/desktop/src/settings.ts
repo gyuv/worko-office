@@ -33,3 +33,17 @@ export function isTokenPair(v: unknown): boolean {
   return ['accessToken', 'refreshToken', 'sessionId', 'userId', 'tenantId'].every((k) => typeof o[k] === 'string' && (o[k] as string).length < 4096)
     && typeof o.expiresIn === 'number';
 }
+
+/**
+ * worko:// deep links (OS protocol handler) → a hash route of the app's own page, e.g. worko://tasks/abc → "#/tasks/abc".
+ * Only plain path segments survive (no query, credentials, other schemes or "..") so a link can navigate, never inject.
+ */
+export function deepLinkHash(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'worko:' || u.username || u.password || /\.\.|%2e/i.test(url)) return null;
+    const path = `${u.hostname}${u.pathname}`.replace(/^\/+|\/+$/g, '');
+    if (!path || path.length > 200 || !/^[A-Za-z0-9_-]+(\/[A-Za-z0-9_.-]+)*$/.test(path) || path.split('/').some((s) => s === '..' || s === '.')) return null;
+    return `#/${path}`;
+  } catch { return null; }
+}

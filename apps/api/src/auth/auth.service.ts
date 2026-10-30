@@ -1,4 +1,5 @@
-import { HttpException, HttpStatus, Inject, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, HttpException, HttpStatus, Inject, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { tenantBlocked } from '@worko/domain';
 import { randomBytes } from 'node:crypto';
 import { AuditService } from '../audit/audit.service.js';
 import { DbService, type Tx } from '../db/db.service.js';
@@ -33,8 +34,11 @@ export class AuthService {
   ) {}
 
   async tenantIdBySlug(slug: string): Promise<string | null> {
-    const r = await this.db.systemTx((tx) => tx.query<{ id: string }>('SELECT id FROM tenant WHERE slug = $1', [slug.toLowerCase()]));
-    return r.rows[0]?.id ?? null;
+    const r = await this.db.systemTx((tx) => tx.query<{ id: string; status: string; sub_status: string }>('SELECT id, status, sub_status FROM tenant WHERE slug = $1', [slug.toLowerCase()]));
+    const t = r.rows[0];
+    // Suspended firms (platform or subscription) cannot sign in; their data is kept (D182).
+    if (t && tenantBlocked({ status: t.status, subStatus: t.sub_status })) throw new ForbiddenException({ code: 'TENANT_SUSPENDED', message: 'This firm\'s account is suspended. Contact Worko support.' });
+    return t?.id ?? null;
   }
 
   /** Every wrong secret (password, TOTP, OTP) counts toward the same per-user lockout. */

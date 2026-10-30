@@ -1,5 +1,4 @@
 import * as FileSystem from 'expo-file-system';
-import * as ImagePicker from 'expo-image-picker';
 import { Linking } from 'react-native';
 import { parseQueue, processQueue, enqueue, type PendingSig, type UploadOutcome } from './logic/sigQueue';
 import type { RegisterKind } from './logic/registers';
@@ -33,23 +32,25 @@ export async function uploadDocument(f: RNFile, meta: { clientId: string; catego
   }
 }
 
+/** Scan-a-notice (D115): same multipart upload path as documents; the server stores the file and returns field suggestions only. */
+export async function extractNotice(f: RNFile, meta: { clientId: string; noticeId?: string }): Promise<{ id: string; documentId: string; provider: string; suggestions: Array<{ field: string; value: string | number; confidence: number; source: string }> }> {
+  const res = await postMultipart('/notices/extract', () => {
+    const fd = new FormData();
+    fd.append('file', filePart(f)); fd.append('clientId', meta.clientId);
+    if (meta.noticeId) fd.append('noticeId', meta.noticeId);
+    return fd;
+  });
+  const body = (await res.json().catch(() => null)) as { message?: string; code?: string } | null;
+  if (!res.ok) throw Object.assign(new Error(body?.message ?? `HTTP ${res.status}`), { status: res.status, code: body?.code });
+  return body as never;
+}
+
 export async function openDocument(id: string): Promise<void> {
   const { url } = await unwrap(api.POST('/documents/{id}/download-url', { params: { path: { id } }, body: {} }));
   await Linking.openURL(new URL(url, apiBase.endsWith('/') ? apiBase : apiBase + '/').toString());
 }
 
-/** Camera first; falls back to the gallery when camera permission is refused. */
-export async function pickImage(source: 'camera' | 'library'): Promise<RNFile | 'denied' | null> {
-  if (source === 'camera') {
-    const p = await ImagePicker.requestCameraPermissionsAsync();
-    if (!p.granted) return 'denied';
-  }
-  const opts: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], quality: 0.7 };
-  const r = source === 'camera' ? await ImagePicker.launchCameraAsync(opts) : await ImagePicker.launchImageLibraryAsync(opts);
-  const a = r.canceled ? null : r.assets[0];
-  if (!a) return null;
-  return { uri: a.uri, name: a.fileName ?? `scan-${Date.now()}.jpg`, type: a.mimeType ?? 'image/jpeg' };
-}
+export { pickImage } from './picker';
 
 // ---- pending signature queue (persisted in the encrypted local store's meta table) ----
 const QKEY = 'pending_signatures';

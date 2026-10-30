@@ -8,6 +8,8 @@ import { DbService, type Tx } from '../db/db.service.js';
 import { uuidv7 } from '../db/ids.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { SyncService } from '../sync/sync.service.js';
+import { udinGateError } from '../practice/udin-gate.js';
+import { once } from '../common/idempotency.js';
 import { actorChangeError, canTaskRow, checkPeopleAndRevoke, stateOf, taskScopeSql, ymd } from './scope.js';
 
 export type TaskListQ = {
@@ -77,7 +79,10 @@ export class TasksService {
 
   get(a: RequestActor, id: string) { return this.db.tenantTx(a.tenantId, async (tx) => presentTask(await this.load(tx, a, id))); }
 
-  async create(a: RequestActor, patch: Record<string, unknown>) {
+  async create(a: RequestActor, patch: Record<string, unknown>, opts: { idempotencyKey?: string | null } = {}) {
+    return once(this.db, a.tenantId, 'task', opts.idempotencyKey, (r) => ({ id: r.id as string }), () => this.createOnce(a, patch, opts.idempotencyKey ?? null));
+  }
+  private async createOnce(a: RequestActor, patch: Record<string, unknown>, key: string | null) {
     const id = uuidv7();
     const r = await this.db.tenantTx(a.tenantId, async (tx) => {
       const row = { ...patch };
@@ -86,7 +91,9 @@ export class TasksService {
         if (!st) throw new BadRequestException('Unknown service');
         if (row.checks === undefined) row.checks = ((st.default_checks ?? []) as TaskCheck[]).map((c) => ({ ...c, done: false }));
       }
-      return this.sync.applyInTx(tx, a, { table: 'task', id, baseVersion: 0, patch: row });
+      const res = await this.sync.applyInTx(tx, a, { table: 'task', id, baseVersion: 0, patch: row });
+      if (key) await tx.query('UPDATE task SET idempotency_key = $2 WHERE id = $1', [id, key]);
+      return res;
     });
     this.publish(a, r.cursor);
     return { id };
@@ -117,6 +124,8 @@ export class TasksService {
       if (!(await canTaskRow(a, outcome === 'deleted' ? 'delete' : 'edit', cur, tx))) throw new ForbiddenException();
       const why = closeError(stateOf(cur), outcome);
       if (why) throw new BadRequestException({ message: 'Rejected', code: why });
+      // M8: closing an audit task as billed/free needs its UDIN recorded (D116).
+      if (outcome !== 'deleted') { const g = await udinGateError(tx, id); if (g) throw new BadRequestException({ message: 'Record the UDIN before closing this audit task', code: g }); }
       let res = await this.sync.serverPatch(tx, a, 'task', id, { outcome, outcome_note: note ?? null, closed_at: new Date().toISOString(), closed_by: a.userId });
       if (outcome === 'deleted') {
         res = { version: 0, cursor: Number((await tx.query('UPDATE task SET deleted_at = now(), updated_by = $2 WHERE id = $1 RETURNING sync_cursor', [id, a.userId])).rows[0].sync_cursor) };
@@ -190,6 +199,7 @@ export class TasksService {
     const next = { ...cur, ...patch };
     const who = await actorChangeError(a, cur, next, tx);
     if (who) return who;
+    if (next.status === 'done' && cur.status !== 'done' && (await udinGateError(tx, cur.id as string))) return 'udin_required';
     return taskChangeError(stateOf(cur), stateOf(next)) ?? (await checkPeopleAndRevoke(tx, a.tenantId, cur, next));
   }
 

@@ -62,3 +62,14 @@ export function contrast(a: string, b: string): number {
   const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m) as [number, number];
   return (x + 0.05) / (y + 0.05);
 }
+
+/** Client-portal white-label accents: a fixed subset firms choose from (keys = PORTAL_ACCENTS in @worko/domain). AA on white / dark surface. */
+export const portalAccents = {
+  blue: { light: '#1f4fd1', dark: '#7aa2ff' },
+  teal: { light: '#0f766e', dark: '#5eead4' },
+  green: { light: '#15803d', dark: '#86efac' },
+  indigo: { light: '#4338ca', dark: '#a5b4fc' },
+  maroon: { light: '#9f1239', dark: '#fda4af' },
+  slate: { light: '#334155', dark: '#cbd5e1' },
+} as const;
+export type PortalAccent = keyof typeof portalAccents;

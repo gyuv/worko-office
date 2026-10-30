@@ -10,7 +10,12 @@ import { DocUpload } from './DocUpload';
 import { EntryDetail, RegisterForm, RegisterList } from './Registers';
 import { Approvals, Attendance, ExpenseForm, Expenses, HrHub, Leave, LeaveApply, MyTime, TimeEntryForm, Timer } from './Hr';
 import { Appointments, Calendar, ChatList, ChatThread, ClientTimeline, EventForm } from './Comm';
+import { LeadBoard, LeadDetail } from './Leads';
+import { Dashboard, ReportAsk, ReportCatalogue, ReportDownloads, ReportView } from './Reports';
+import type { RunSource } from '../logic/reports';
+import { AiInbox, AutomationHub, RunDetail, SuggestionDetail } from './Automation';
 import { Compliance, TaskDetail, TaskList, Todos } from './Tasks';
+import { AuditList, DscDetail, DscList, EngagementDetail, EsignDetail, EsignList, Hearings, NoticeDetail, NoticeList, NoticeScan, PracticeHub } from './Practice';
 
 export type Route =
   | { name: 'clients' } | { name: 'client'; id: string } | { name: 'upload'; clientId: string }
@@ -19,12 +24,17 @@ export type Route =
   | { name: 'collections' } | { name: 'invoices' } | { name: 'invoice'; id: string } | { name: 'outstanding'; clientId: string } | { name: 'receipt'; clientId: string }
   | { name: 'hr' } | { name: 'timer' } | { name: 'myTime' } | { name: 'timeEntry'; id?: string } | { name: 'attendance' } | { name: 'leave' } | { name: 'leaveApply' }
   | { name: 'expenses' } | { name: 'expenseForm' } | { name: 'approvals' }
-  | { name: 'chat' } | { name: 'chatThread'; id: string } | { name: 'calendar' } | { name: 'eventForm'; id?: string; date?: string } | { name: 'timeline'; clientId: string } | { name: 'appointments' };
+  | { name: 'chat' } | { name: 'chatThread'; id: string } | { name: 'calendar' } | { name: 'eventForm'; id?: string; date?: string } | { name: 'timeline'; clientId: string } | { name: 'appointments' }
+  | { name: 'practice' } | { name: 'notices' } | { name: 'notice'; id: string } | { name: 'noticeScan'; clientId?: string; noticeId?: string } | { name: 'hearings' }
+  | { name: 'dscList' } | { name: 'dsc'; id: string } | { name: 'audit' } | { name: 'engagement'; id: string } | { name: 'esignList' } | { name: 'esign'; id: string }
+  | { name: 'leads' } | { name: 'lead'; id: string }
+  | { name: 'automation'; runId?: string } | { name: 'autoRun'; id: string } | { name: 'aiInbox'; id?: string } | { name: 'aiSuggestion'; id: string }
+  | { name: 'dashboard' } | { name: 'reportCatalogue' } | { name: 'report'; source: RunSource; title: string; drill?: Record<string, unknown> } | { name: 'reportDownloads'; token?: string; exportId?: string } | { name: 'reportAsk' };
 export type Nav = { push(r: Route): void; pop(): void; replace(r: Route): void; reset(r?: Route): void };
 
 /** A tiny stack (no navigation library). On tablets the root list stays on the left and the top route shows on the right. */
 export function Stack({ theme, root }: { theme: Theme; root: Route }) {
-  const [stack, setStack] = useState<Route[]>([root]);
+  const [stack, setStack] = useState<Route[]>(() => initialStack(root));
   const nav: Nav = {
     push: (r) => setStack((s) => [...s, r]),
     pop: () => setStack((s) => (s.length > 1 ? s.slice(0, -1) : s)),
@@ -85,5 +95,35 @@ function render(r: Route, nav: Nav, theme: Theme, isRoot: boolean, placeholder =
     case 'eventForm': return scroll(<EventForm key={r.id ?? 'new'} theme={theme} nav={nav} id={r.id} date={r.date} onBack={back} />);
     case 'timeline': return <ClientTimeline key={r.clientId} theme={theme} clientId={r.clientId} onBack={back} />;
     case 'appointments': return <Appointments theme={theme} onBack={back} />;
+    case 'practice': return scroll(<PracticeHub theme={theme} nav={nav} onBack={back} />);
+    case 'notices': return <NoticeList theme={theme} nav={nav} onBack={back} />;
+    case 'notice': return scroll(<NoticeDetail key={r.id} theme={theme} nav={nav} id={r.id} onBack={back} />);
+    case 'noticeScan': return scroll(<NoticeScan key={r.noticeId ?? r.clientId ?? 'new'} theme={theme} nav={nav} clientId={r.clientId} noticeId={r.noticeId} onBack={back} />);
+    case 'hearings': return <Hearings theme={theme} nav={nav} onBack={back} />;
+    case 'dscList': return <DscList theme={theme} nav={nav} onBack={back} />;
+    case 'dsc': return scroll(<DscDetail key={r.id} theme={theme} id={r.id} onBack={back} />);
+    case 'audit': return <AuditList theme={theme} nav={nav} onBack={back} />;
+    case 'engagement': return scroll(<EngagementDetail key={r.id} theme={theme} id={r.id} onBack={back} />);
+    case 'esignList': return <EsignList theme={theme} nav={nav} onBack={back} />;
+    case 'esign': return scroll(<EsignDetail key={r.id} theme={theme} id={r.id} onBack={back} />);
+    case 'leads': return <LeadBoard theme={theme} nav={nav} onBack={back} />;
+    case 'lead': return scroll(<LeadDetail key={r.id} theme={theme} id={r.id} onBack={back} />);
+    case 'automation': return <AutomationHub theme={theme} nav={nav} onBack={back} />;
+    case 'autoRun': return scroll(<RunDetail key={r.id} theme={theme} id={r.id} onBack={back} />);
+    case 'aiInbox': return <AiInbox theme={theme} nav={nav} onBack={back} />;
+    case 'dashboard': return <Dashboard theme={theme} nav={nav} />;
+    case 'reportCatalogue': return <ReportCatalogue theme={theme} nav={nav} onBack={back} />;
+    case 'report': return <ReportView key={JSON.stringify([r.source, r.drill ?? null])} theme={theme} nav={nav} source={r.source} title={r.title} drill={r.drill} onBack={back} />;
+    case 'reportDownloads': return <ReportDownloads key={r.token ?? r.exportId ?? 'list'} theme={theme} token={r.token} exportId={r.exportId} onBack={back} />;
+    case 'reportAsk': return <ReportAsk theme={theme} nav={nav} onBack={back} />;
+    case 'aiSuggestion': return scroll(<SuggestionDetail key={r.id} theme={theme} id={r.id} onBack={back} />);
   }
+}
+
+/** Notification deep links: a root carrying an id opens its detail on top (back returns to the list). */
+function initialStack(root: Route): Route[] {
+  if (root.name === 'automation' && root.runId) return [{ name: 'automation' }, { name: 'autoRun', id: root.runId }];
+  if (root.name === 'reportDownloads' && (root.token || root.exportId)) return [{ name: 'dashboard' }, root];
+  if (root.name === 'aiInbox' && root.id) return [{ name: 'aiInbox' }, { name: 'aiSuggestion', id: root.id }];
+  return [root];
 }

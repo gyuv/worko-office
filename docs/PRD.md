@@ -43,3 +43,19 @@ p95 < 300 ms common reads; 100k-row virtualised lists; search < 200 ms; desktop 
 
 ## End-to-end acceptance: "The firm's day" (§15)
 The ten-step scenario in the master prompt is the release gate; each step maps to an e2e test in Phase 12.
+Reconstructed in Phase 12 from the module acceptance criteria above (the master prompt's own wording is not in the repo; D201).
+One firm, one client, one working day (Thu 12 Nov 2026, clock pinned). Automated in `apps/api/test/firmsday.e2e.test.ts`
+(one `it` per step, in order); steps 1, 2, 5 and 8 also have a browser smoke in `scripts/e2e/firmsday.web.mjs`.
+
+| Step | Scenario | Must hold (modules) |
+|---|---|---|
+| 1 | Firm set-up: partner signs up, configures the GST billing entity, installs the service catalogue and fee rates, adds manager / article / accountant. | Roles enforce least privilege (article gets 403 on billing); actions audited (M1, M5, M9). |
+| 2 | Client onboarding: client added by GSTIN with contact, team, GSTR-3B subscription and a statutory-audit engagement; contact invited to the portal. | GSTIN checksum refused locally; duplicate GSTIN 409; invitation via the comm pipeline (M2, M8, M16). |
+| 3 | Monthly auto-creation for October. | Preview = commit; second commit creates nothing; task assigned per subscription; statutory due 20 Nov from the rule pack; compliance matrix shows it (M5, M6). |
+| 4 | Document Collection Agent turned on. | Dry-run preview; tick → task `pending_client` and one e-mail "Documents needed" to the client (M15, M13). |
+| 5 | Client signs in with an e-mail OTP, sees the request, uploads the sales register. | Only granted client visible; office sees the document; client's partner + manager notified; ladder stops on `document.uploaded` (M16, M12, M15, M19). |
+| 6 | The work: article runs a timer; the phone's offline change syncs to the manager's desktop; checks ticked; review → done by the manager. Audit task closes only after the UDIN is recorded. | Sync push/pull (M20); timer minutes from server clock (M10); UDIN gate (M8). |
+| 7 | Billing: unbilled work auto-drafted at the rate-table price; audit fee invoiced against the audit task; both issued. | CGST+SGST split (intra-state), gap-free numbers `FD/2627/0001-2`, tasks end `billed`, unbilled = 0 (M9). |
+| 8 | Collection: client pays both invoices from the portal through the payment link; signed gateway webhook. | Receipts (source gateway) recorded once; invoices paid in office and portal; follow-up ladder sends nothing (M9, M16). |
+| 9 | Reports reconcile at end of day. | Unbilled, ageing and job P&L reports equal the operational screens; revenue = taxable value of both invoices; approved 90 min of time (M17, M10). |
+| 10 | End of day integrity. | Automation run succeeded; manager's notifications delivered; audit hash chain verifies; key actions (auto-create, issue, receipt, webhook, UDIN) audited (M1, M15, M19). |

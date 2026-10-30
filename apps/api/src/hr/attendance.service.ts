@@ -175,7 +175,11 @@ export class AttendanceService {
 
   /** Monthly attendance per visible user: working days, present, flagged/pending, leave, holidays, absent, minutes. */
   report(a: RequestActor, month: string) {
-    return this.db.tenantTx(a.tenantId, async (tx) => {
+    return this.db.tenantTx(a.tenantId, (tx) => this.reportTx(tx, a, month));
+  }
+  /** Same, on the caller's transaction (report engine: one READ ONLY connection + statement timeout). */
+  async reportTx(tx: Tx, a: RequestActor, month: string) {
+    {
       const from = `${month}-01`;
       const [y, m] = month.split('-').map(Number) as [number, number];
       const to = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
@@ -202,7 +206,7 @@ export class AttendanceService {
           leaveDays: [...leaveOn.values()].reduce((s2, x) => s2 + x, 0), absentDays: absent, minutes: att.reduce((s2, x) => s2 + Number(x.minutes ?? 0), 0) });
       }
       return { month, from, to, users: out };
-    });
+    }
   }
 
   /** Used by leave/comp-off: attendance minutes of a user on a day. */

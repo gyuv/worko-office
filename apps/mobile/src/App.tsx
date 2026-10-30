@@ -15,6 +15,14 @@ import { flushSignatures } from './net';
 import { useBillingPerms } from './screens/Billing';
 import { Stack } from './screens/Stack';
 import { useChatUnread } from './screens/Comm';
+import { useLeadPerms } from './screens/Leads';
+import { PortalRoot } from './portal/PortalApp';
+import { usePortal } from './portal/session';
+import { routeForCategory, type Phase10Route } from './logic/automation';
+import { hasGrant } from './logic/billing';
+import { downloadToken } from './logic/reports';
+import { clearReportCache } from './reportCache';
+import { Linking } from 'react-native';
 
 const t = createTranslator('en-IN', { product: PRODUCT.name });
 const qc = new QueryClient({ defaultOptions: { queries: { retry: 1 } } });
@@ -24,6 +32,15 @@ export function App() {
   const { tokens, ready, init } = useSession();
   useEffect(() => { void init(); }, [init]);
   useEffect(() => { if (!tokens) qc.clear(); }, [tokens]);
+  // Signed out (logout, revoked, wiped): drop the offline dashboard copy too (D170).
+  useEffect(() => { if (ready && !tokens) void clearReportCache(); }, [ready, tokens]);
+  // Phase 9 design: client portal = a separate MODE of this app ("I'm a client" on the login screen), not a separate app.
+  // Portal mode has its own secure token key + HTTP client (./portal/session) and never starts the staff sync engine,
+  // realtime, notifications or remote-wipe paths: those run only while a STAFF session exists (sessionKey below).
+  const portal = usePortal();
+  const portalInit = portal.init;
+  useEffect(() => { void portalInit(); }, [portalInit]);
+  const [portalMode, setPortalMode] = useState(false);
   // Restart sync only when the signed-in session changes, not on every token refresh.
   const sessionKey = tokens ? `${tokens.tenantId}:${tokens.userId}:${tokens.sessionId}` : '';
   useEffect(() => {
@@ -35,14 +52,15 @@ export function App() {
       <QueryClientProvider client={qc}>
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }}>
           <StatusBar style={theme.name === 'dark' ? 'light' : 'dark'} />
-          {!ready ? <ActivityIndicator style={{ flex: 1 }} /> : tokens ? <Tabs theme={theme} /> : <Login theme={theme} />}
+          {!ready || !portal.ready ? <ActivityIndicator style={{ flex: 1 }} /> : tokens ? <Tabs theme={theme} />
+            : portalMode || portal.tokens ? <PortalRoot theme={theme} onStaff={() => setPortalMode(false)} /> : <Login theme={theme} onClient={() => setPortalMode(true)} />}
         </SafeAreaView>
       </QueryClientProvider>
     </SafeAreaProvider>
   );
 }
 
-function Login({ theme }: { theme: Theme }) {
+function Login({ theme, onClient }: { theme: Theme; onClient(): void }) {
   const s = styles(theme);
   const { setTokens, wiped } = useSession();
   const [firm, setFirm] = useState('');
@@ -80,6 +98,9 @@ function Login({ theme }: { theme: Theme }) {
       <Pressable style={[s.button, busy && { opacity: 0.5 }]} disabled={busy} onPress={submit} accessibilityRole="button">
         <Text style={s.buttonText}>{sent ? t('auth.signIn') : t('auth.sendOtp')}</Text>
       </Pressable>
+      <Pressable style={{ minHeight: 48, justifyContent: 'center', marginTop: 16 }} onPress={onClient} accessibilityRole="button" accessibilityHint={t('m.portal.clientEntryHint')}>
+        <Text style={{ color: theme.primary, textAlign: 'center', fontWeight: '600' }}>{t('m.portal.clientEntry')}</Text>
+      </Pressable>
     </View>
   );
 }
@@ -88,18 +109,22 @@ function Tabs({ theme }: { theme: Theme }) {
   const s = styles(theme);
   const [tab, setTab] = useState<Tab>('home');
   const current = TABS.find((x) => x.key === tab)!;
-  const [sub, setSub] = useState<'registers' | 'collections' | 'hr' | 'chat' | 'calendar' | 'appointments' | null>(null);
+  const [sub, setSub] = useState<'registers' | 'collections' | 'hr' | 'chat' | 'calendar' | 'appointments' | 'practice' | 'leads' | 'automation' | 'aiInbox' | null>(null);
+  const [deep, setDeep] = useState<Phase10Route | null>(null);
+  const [homeRoot, setHomeRoot] = useState<{ name: 'dashboard' } | { name: 'reportDownloads'; token?: string; exportId?: string }>({ name: 'dashboard' });
+  useReportLinks((token) => { setHomeRoot({ name: 'reportDownloads', token }); setTab('home'); });
+  const openLink = (r: Phase10Route) => { setDeep(r); setSub(r.name); setTab('more'); };
   useSignatureRetry();
   return (
     <View style={{ flex: 1 }}>
       <StatusStrip theme={theme} />
       <View style={{ flex: 1, padding: 16 }}>
-        {tab === 'home' ? <Home theme={theme} /> : tab === 'tasks' ? <Stack theme={theme} root={{ name: 'tasks' }} /> : tab === 'clients' ? <Stack theme={theme} root={{ name: 'clients' }} />
+        {tab === 'home' ? <Home theme={theme} root={homeRoot} /> : tab === 'tasks' ? <Stack theme={theme} root={{ name: 'tasks' }} /> : tab === 'clients' ? <Stack theme={theme} root={{ name: 'clients' }} />
           : tab === 'more' ? (sub ? <View style={{ flex: 1 }}>
-            <Pressable onPress={() => setSub(null)} accessibilityRole="button" style={{ minHeight: 48, justifyContent: 'center' }}>
+            <Pressable onPress={() => { setSub(null); setDeep(null); }} accessibilityRole="button" style={{ minHeight: 48, justifyContent: 'center' }}>
               <Text style={{ color: theme.primary, fontWeight: '600' }}>{t('nav.more')}</Text></Pressable>
-            <Stack key={sub} theme={theme} root={{ name: sub }} /></View>
-            : <More theme={theme} onRegisters={() => setSub('registers')} onCollections={() => setSub('collections')} onHr={() => setSub('hr')} onOpen={setSub} />) : tab === 'inbox' ? <Inbox theme={theme} />
+            <Stack key={deep ? JSON.stringify(deep) : sub} theme={theme} root={deep ?? { name: sub }} /></View>
+            : <More theme={theme} onRegisters={() => setSub('registers')} onCollections={() => setSub('collections')} onHr={() => setSub('hr')} onOpen={setSub} />) : tab === 'inbox' ? <Inbox theme={theme} onOpen={openLink} onReport={(exportId) => { setHomeRoot({ name: 'reportDownloads', exportId }); setTab('home'); }} />
           : <Text style={s.muted}>{t('home.comingSoon', { module: t(current.label), phase: current.phase ?? 0 })}</Text>}
       </View>
       <View style={s.tabbar} accessibilityRole="tablist">
@@ -135,7 +160,7 @@ function StatusStrip({ theme }: { theme: Theme }) {
   );
 }
 
-type Item = ReturnType<typeof toReminder> & { requiresAck: boolean; escalationLevel: number };
+type Item = ReturnType<typeof toReminder> & { requiresAck: boolean; escalationLevel: number; entityId: string | null };
 
 function useInbox(): Item[] {
   const v = useSync((x) => x.versions.notification ?? 0);
@@ -145,7 +170,7 @@ function useInbox(): Item[] {
     void getStore()?.list('notification').then((list) => {
       if (!live) return;
       const now = new Date();
-      setRows(list.map((r) => ({ ...toReminder(r), requiresAck: !!r.fields.requires_ack, escalationLevel: Number(r.fields.escalation_level ?? 0) }))
+      setRows(list.map((r) => ({ ...toReminder(r), requiresAck: !!r.fields.requires_ack, escalationLevel: Number(r.fields.escalation_level ?? 0), entityId: typeof r.fields.entity_id === 'string' ? r.fields.entity_id : null }))
         .filter((r) => new Date(r.fireAt) <= now && !(r.snoozedUntil && new Date(r.snoozedUntil) > now))
         .sort((a, b) => b.fireAt.localeCompare(a.fireAt)));
     });
@@ -155,7 +180,7 @@ function useInbox(): Item[] {
 }
 
 /** Works offline: read/ack are local writes that sync when the connection returns. */
-function Inbox({ theme }: { theme: Theme }) {
+function Inbox({ theme, onOpen, onReport }: { theme: Theme; onOpen(r: Phase10Route): void; onReport(exportId?: string): void }) {
   const s = styles(theme);
   const items = useInbox();
   const act = async (id: string, patch: Record<string, unknown>) => { await getEngine()?.write('notification', id, patch); void syncNow(); };
@@ -165,7 +190,7 @@ function Inbox({ theme }: { theme: Theme }) {
       const urgent = item.priority === 'critical' || item.priority === 'high';
       const now = new Date().toISOString();
       return (
-        <Pressable style={s.row} onPress={() => !item.readAt && void act(item.id, { read_at: now })} accessibilityRole="button"
+        <Pressable style={s.row} onPress={() => { if (!item.readAt) void act(item.id, { read_at: now }); if (item.category === 'report.ready') { onReport(item.entityId ?? undefined); return; } const link = routeForCategory(item.category); if (link) onOpen(link); }} accessibilityRole="button"
           accessibilityHint={item.readAt ? undefined : t('notif.markRead')}>
           <Feather name={item.escalationLevel ? 'shield' : urgent ? 'alert-octagon' : 'bell'} size={18} color={urgent ? theme.status.overdue : theme.textMuted} style={{ marginRight: 10 }} />
           <View style={{ flex: 1 }}>
@@ -186,18 +211,31 @@ function Inbox({ theme }: { theme: Theme }) {
 
 function useMe() { return useQuery({ queryKey: ['me'], queryFn: () => unwrap(api.GET('/me')) }); }
 
-function Home({ theme }: { theme: Theme }) {
+/** Scheduled-report links (https …/reports/downloads/{token} or worko://reports/downloads/{token}) open the download screen (D166). */
+function useReportLinks(onToken: (token: string) => void) {
+  useEffect(() => {
+    const handle = (url: string | null) => { const tok = downloadToken(url); if (tok) onToken(tok); };
+    void Linking.getInitialURL().then(handle).catch(() => undefined);
+    const sub = Linking.addEventListener('url', (e) => handle(e.url));
+    return () => sub.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+}
+
+function Home({ theme, root }: { theme: Theme; root: { name: 'dashboard' } | { name: 'reportDownloads'; token?: string; exportId?: string } }) {
   const s = styles(theme);
   const me = useMe().data;
   return (
-    <View>
+    <View style={{ flex: 1 }}>
       <Text style={s.h1}>{me ? t('home.greeting', { partOfDay: 'day', name: me.name.split(' ')[0] ?? '' }) : t('common.loading')}</Text>
-      <Text style={s.muted}>{me?.firmName}</Text>
+      <Text style={[s.muted, { marginBottom: 8 }]}>{me?.firmName}</Text>
+      {/* Phase 11: dashboard (cached for offline KPIs), catalogue, Ask and scheduled-report links. */}
+      <Stack key={JSON.stringify(root)} theme={theme} root={root} />
     </View>
   );
 }
 
-function More({ theme, onRegisters, onCollections, onHr, onOpen }: { theme: Theme; onRegisters(): void; onCollections(): void; onHr(): void; onOpen(x: 'chat' | 'calendar' | 'appointments'): void }) {
+function More({ theme, onRegisters, onCollections, onHr, onOpen }: { theme: Theme; onRegisters(): void; onCollections(): void; onHr(): void; onOpen(x: 'chat' | 'calendar' | 'appointments' | 'practice' | 'leads' | 'automation' | 'aiInbox'): void }) {
   const s = styles(theme);
   const qcl = useQueryClient();
   const setTokens = useSession((x) => x.setTokens);
@@ -209,6 +247,9 @@ function More({ theme, onRegisters, onCollections, onHr, onOpen }: { theme: Them
   const active = useMemo(() => (sessions.data ?? []).filter((x) => !x.revokedAt), [sessions.data]);
   const billing = useBillingPerms().view;
   const unread = useChatUnread();
+  const leads = useLeadPerms().view;
+  const grants = useQuery({ queryKey: ['me'], queryFn: () => unwrap(api.GET('/me')) }).data?.grants;
+  const phase10 = ([['automation', 'zap', 'm.auto.title', hasGrant(grants, 'automation', 'view')], ['aiInbox', 'cpu', 'm.ai.title', hasGrant(grants, 'ai', 'view')]] as const).filter((x) => x[3]);
   return (
     <View style={{ flex: 1 }}>
       {([['chat', 'message-square', 'm.chat.title'], ['calendar', 'calendar', 'm.cal.title'], ['appointments', 'user-check', 'm.cal.appointments']] as const).map(([k, icon, label]) => (
@@ -219,6 +260,23 @@ function More({ theme, onRegisters, onCollections, onHr, onOpen }: { theme: Them
           <Feather name="chevron-right" size={18} color={theme.textMuted} />
         </Pressable>
       ))}
+      {phase10.map(([k, icon, label]) => (
+        <Pressable key={k} style={[s.row, { minHeight: 48 }]} onPress={() => onOpen(k)} accessibilityRole="button">
+          <Feather name={icon} size={18} color={theme.primary} style={{ marginRight: 10 }} />
+          <Text style={[s.text, { flex: 1 }]}>{t(label)}</Text>
+          <Feather name="chevron-right" size={18} color={theme.textMuted} />
+        </Pressable>
+      ))}
+      {leads && <Pressable style={[s.row, { minHeight: 48 }]} onPress={() => onOpen('leads')} accessibilityRole="button">
+        <Feather name="trending-up" size={18} color={theme.primary} style={{ marginRight: 10 }} />
+        <Text style={[s.text, { flex: 1 }]}>{t('m.lead.title')}</Text>
+        <Feather name="chevron-right" size={18} color={theme.textMuted} />
+      </Pressable>}
+      <Pressable style={[s.row, { minHeight: 48 }]} onPress={() => onOpen('practice')} accessibilityRole="button">
+        <Feather name="file-text" size={18} color={theme.primary} style={{ marginRight: 10 }} />
+        <Text style={[s.text, { flex: 1 }]}>{t('m.notice.hub')}</Text>
+        <Feather name="chevron-right" size={18} color={theme.textMuted} />
+      </Pressable>
       {billing && <Pressable style={[s.row, { minHeight: 48 }]} onPress={onCollections} accessibilityRole="button">
         <Feather name="credit-card" size={18} color={theme.primary} style={{ marginRight: 10 }} />
         <Text style={[s.text, { flex: 1 }]}>{t('m.bill.collections')}</Text>

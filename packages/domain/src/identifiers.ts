@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /** PAN: 5 letters, 4 digits, 1 letter. 4th char is holder type. */
-export const PAN_REGEX = /^[A-Z]{3}[ABCFGHLJPTK][A-Z]\d{4}[A-Z]$/;
+export const PAN_REGEX = /^[A-Z]{3}[ABCEFGHJKLPT][A-Z]\d{4}[A-Z]$/;
 /** TAN: 4 letters, 5 digits, 1 letter. */
 export const TAN_REGEX = /^[A-Z]{4}\d{5}[A-Z]$/;
 /** GSTIN: 2-digit state + PAN + entity no + 'Z' (default) + checksum. */

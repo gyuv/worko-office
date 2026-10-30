@@ -1,3 +1,4 @@
+import { entityClient, usersSeeing } from '../practice/common.js';
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { defaultPrefs, planDelivery, prefsSchema, type Prefs } from '@worko/notify';
 import { AuditService } from '../audit/audit.service.js';
@@ -97,6 +98,9 @@ export class NotificationsService implements OnModuleInit {
          ) c JOIN app_user tu ON tu.id = c.id AND tu.status = 'active' AND tu.deleted_at IS NULL
          WHERE u.id = $1 AND c.id <> u.id ORDER BY c.pref LIMIT 1`, [n.user_id])).rows[0]?.target ?? null;
       if (!target) return;
+      // Client records (notices, DSCs, licences): never escalate to someone who can't see the client.
+      const ec = await entityClient(tx, n.entity_type, n.entity_id);
+      if (ec && !(await usersSeeing(tx, [target], ec.clientId, ec.module)).length) { target = null; return; }
       const who = (await tx.query('SELECT name FROM app_user WHERE id = $1', [n.user_id])).rows[0]?.name ?? '';
       const r = await this.notifyInTx(tx, j.tenant_id, {
         userIds: [target], category: n.category, priority: n.priority === 'critical' ? 'critical' : 'high',

@@ -12,15 +12,46 @@
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.CAMERA",
         "android.permission.SCHEDULE_EXACT_ALARM",
         "android.permission.RECEIVE_BOOT_COMPLETED"
       ],
       "blockedPermissions": [
-        "android.permission.READ_EXTERNAL_STORAGE"
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ],
+      "allowBackup": false,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "app.worko.in",
+              "pathPrefix": "/reports/download/"
+            },
+            {
+              "scheme": "https",
+              "host": "app.worko.in",
+              "pathPrefix": "/portal/"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
       ]
     },
     "extra": {
-      "apiBase": "http://10.0.2.2:3000/v1"
+      "apiBase": "http://10.0.2.2:3000/v1",
+      "eas": {
+        "projectId": "REPLACE_WITH_EAS_PROJECT_ID"
+      }
     },
     "plugins": [
       "expo-secure-store",
@@ -35,7 +66,25 @@
         {
           "defaultChannel": "tasks"
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Worko lets you attach photos of client documents you choose.",
+          "cameraPermission": "Worko uses the camera to scan client documents and receipts into the client's file.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Worko checks your location only when you tap Check in/out, to confirm you are at the office or an approved client site.",
+          "isAndroidBackgroundLocationEnabled": false
+        }
       ]
-    ]
+    ],
+    "runtimeVersion": {
+      "policy": "appVersion"
+    }
   }
 }

@@ -22,7 +22,9 @@ const ALLOWED_MIME = new Set([
 ]);
 const BLOCKED_EXT = /\.(exe|bat|cmd|com|msi|scr|js|mjs|vbs|ps1|sh|jar|html?|svg|xhtml|php|dll)$/i;
 
-export type UploadMeta = { clientId?: string | null; fy?: string | null; category?: string; name?: string; tags?: string[]; permanent?: boolean; expiresOn?: string | null; documentId?: string; note?: string };
+export type UploadMeta = { clientId?: string | null; fy?: string | null; category?: string; name?: string; tags?: string[]; permanent?: boolean; expiresOn?: string | null; documentId?: string; note?: string;
+  /** Phase 9: visible on the client portal; who/what added it (portal uploads never pass `documentId`, so they can't overwrite). */
+  clientVisible?: boolean; source?: 'staff' | 'portal' | 'system'; portalUserId?: string | null };
 
 /** Firm documents (not tied to a client) need firm-wide scope for the action. */
 const firmWide = (a: RequestActor, action: Action) => effectiveScope(a, 'documents', action)?.scope === 'all';
@@ -80,20 +82,24 @@ export class DocumentsService {
       const key = `t/${a.tenantId}/d/${id}/v${version}`;
       await this.storage.put(key, file.buffer, file.mimetype);
       if (version === 1) {
-        await tx.query(`INSERT INTO document (id, tenant_id, client_id, fy, category, name, mime, size, sha256, storage_key, tags, permanent, expires_on, uploaded_by, updated_by, field_versions)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14,'{}')`,
-          [id, a.tenantId, clientId, m.fy ?? null, m.category ?? 'General', name, file.mimetype, file.size, sha, key, m.tags ?? [], m.permanent ?? false, m.expiresOn ?? null, a.userId]);
+        await tx.query(`INSERT INTO document (id, tenant_id, client_id, fy, category, name, mime, size, sha256, storage_key, tags, permanent, expires_on, uploaded_by, updated_by, field_versions,
+            client_visible, source, portal_user_id, device_id)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14,'{}',$15,$16,$17,$18)`,
+          [id, a.tenantId, clientId, m.fy ?? null, m.category ?? 'General', name, file.mimetype, file.size, sha, key, m.tags ?? [], m.permanent ?? false, m.expiresOn ?? null, a.userId,
+            m.clientVisible ?? false, m.source ?? 'staff', m.portalUserId ?? null, a.deviceId]);
       } else {
         await tx.query(`UPDATE document SET current_version = $2, storage_key = $3, size = $4, sha256 = $5, mime = $6, updated_by = $7 WHERE id = $1`, [id, version, key, file.size, sha, file.mimetype, a.userId]);
       }
       await tx.query(`INSERT INTO document_version (id, tenant_id, document_id, version, storage_key, size, sha256, mime, note, uploaded_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
         [uuidv7(), a.tenantId, id, version, key, file.size, sha, file.mimetype, m.note ?? null, a.userId]);
       await this.log(tx, a, id, 'upload', ip);
-      await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: version === 1 ? 'document.uploaded' : 'document.new_version', entity: 'document', entityId: id, diff: { name, size: file.size, sha256: sha, version } });
-      return { id, version };
+      await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: version === 1 ? 'document.uploaded' : 'document.new_version', entity: 'document', entityId: id,
+        diff: { name, size: file.size, sha256: sha, version, ...(m.source && m.source !== 'staff' ? { source: m.source, portalUserId: m.portalUserId ?? null } : {}) } });
+      const cur = Number((await tx.query('SELECT sync_cursor FROM document WHERE id = $1', [id])).rows[0].sync_cursor);
+      return { id, version, cursor: cur };
     });
-    this.realtime.publish({ type: 'changed', tenantId: a.tenantId, cursor: 0 });
-    return r;
+    this.realtime.publish({ type: 'changed', tenantId: a.tenantId, cursor: r.cursor });
+    return { id: r.id, version: r.version };
   }
 
   private log(tx: Tx, a: RequestActor | null, documentId: string, action: string, ip: string | null, shareLinkId: string | null = null,
@@ -115,7 +121,7 @@ export class DocumentsService {
       const rows = (await tx.query(
         `SELECT d.id, d.client_id AS "clientId", c.name AS "clientName", d.fy, d.category, d.name, d.mime, d.size, d.current_version AS "currentVersion",
                 d.tags, d.permanent, d.expires_on AS "expiresOn", d.legal_hold AS "legalHold", d.created_at AS "createdAt", d.updated_at AS "updatedAt",
-                d.deleted_at AS "deletedAt", count(*) OVER () AS total
+                d.deleted_at AS "deletedAt", d.client_visible AS "clientVisible", d.source, count(*) OVER () AS total
          FROM document d LEFT JOIN client c ON c.id = d.client_id WHERE ${where.join(' AND ')}
          ORDER BY d.updated_at DESC LIMIT ${p.add(q.limit)} OFFSET ${p.add(q.offset)}`, p.values)).rows;
       return { total: Number(rows[0]?.total ?? 0), items: rows.map(({ total: _t, ...r }) => ({ ...r, size: Number(r.size) })) };
@@ -139,7 +145,7 @@ export class DocumentsService {
     });
   }
 
-  async updateMeta(a: RequestActor, id: string, m: { name?: string; category?: string; fy?: string | null; tags?: string[]; permanent?: boolean; expiresOn?: string | null; legalHold?: boolean }) {
+  async updateMeta(a: RequestActor, id: string, m: { name?: string; category?: string; fy?: string | null; tags?: string[]; permanent?: boolean; expiresOn?: string | null; legalHold?: boolean; clientVisible?: boolean }) {
     const res = await this.db.tenantTx(a.tenantId, async (tx) => {
       await this.loadDoc(tx, a, id, 'edit');
       const patch: Record<string, unknown> = {};
@@ -149,6 +155,12 @@ export class DocumentsService {
       if (m.tags !== undefined) patch.tags = m.tags;
       if (m.permanent !== undefined) patch.permanent = m.permanent;
       if (m.expiresOn !== undefined) patch.expires_on = m.expiresOn;
+      // Client-portal visibility: a client document only (firm documents never reach the portal).
+      if (m.clientVisible !== undefined) {
+        const d = (await tx.query('SELECT client_id FROM document WHERE id = $1', [id])).rows[0];
+        if (m.clientVisible && !d.client_id) throw new BadRequestException({ message: 'Only client documents can be shared on the portal', code: 'not_client_document' });
+        patch.client_visible = m.clientVisible;
+      }
       const r = await this.sync.serverPatch(tx, a, 'document', id, patch);
       if (m.legalHold !== undefined) {
         if (effectiveScope(a, 'documents', 'approve')?.scope !== 'all') throw new ForbiddenException('Only firm-wide approvers can set legal hold');

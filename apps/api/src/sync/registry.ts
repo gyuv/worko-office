@@ -8,6 +8,8 @@ import { checkOutError, checkOutFields, evaluateCheckIn } from '../hr/common.js'
 import { RejectError } from './reject.js';
 import { calendarEventError, calendarScopeSql, calendarWritable, canDeleteChatMessage, chatMessageAfter, chatMessageDerive, chatMessageError, chatMessageWritable, isMember, memberSql, ownEditable } from '../comm/sync-rules.js';
 import { taskForEntry, timeEntryError } from '../time/rules.js';
+import { dscScopeSql } from '../practice/scope.js';
+import { udinGateError } from '../practice/udin-gate.js';
 import { actorChangeError, canTaskRow, checkPeopleAndRevoke, clientOfTask, PEOPLE_COLS, stampChecks, stateOf, taskScopeSql, ymd } from '../tasks/scope.js';
 
 /**
@@ -202,7 +204,8 @@ export const SYNC_TABLES: Record<string, SyncTableDef> = {
   document: {
     table: 'document',
     // Metadata only: file bytes are fetched on demand through signed download URLs.
-    columns: ['client_id', 'fy', 'category', 'name', 'mime', 'size', 'current_version', 'tags', 'permanent', 'expires_on', 'legal_hold', 'uploaded_by', 'created_at'],
+    columns: ['client_id', 'fy', 'category', 'name', 'mime', 'size', 'current_version', 'tags', 'permanent', 'expires_on', 'legal_hold', 'uploaded_by', 'created_at',
+      'client_visible', 'source'], // portal visibility is read-only on devices (REST toggle with audit)
     writable: { name: z.string().trim().min(1).max(300), category: z.string().trim().min(1).max(100), fy: z.string().regex(/^\d{4}-\d{2}$/).nullable(),
       tags: z.array(z.string().max(50)).max(30), permanent: z.boolean(), expires_on: date },
     ...childOf('documents'),
@@ -288,6 +291,8 @@ export const SYNC_TABLES: Record<string, SyncTableDef> = {
       const why = taskChangeError(cur ? stateOf(cur) : null, stateOf(next));
       if (why) return why;
       if (!next.title && !cur) return 'invalid:title';
+      // M8: an audit task can't be marked done on a device until its UDIN is recorded (D116).
+      if (cur && next.status === 'done' && cur.status !== 'done') { const g = await udinGateError(tx, cur.id as string); if (g) return g; }
       return checkPeopleAndRevoke(tx, a.tenantId, cur, next);
     },
     derive: (a, cur, patch, ctx) => {
@@ -511,9 +516,42 @@ export const SYNC_TABLES: Record<string, SyncTableDef> = {
     derive: (_a, cur, patch) => ('attendee_ids' in patch ? { accepted_ids: ((cur?.accepted_ids as string[]) ?? []).filter((u) => (patch.attendee_ids as string[]).includes(u)) } : {}),
     audit: true,
   },
+
+  // Phase 8 (D120): notices + hearings and the DSC register sync read-only for offline lookup; every change goes through REST
+  // (workflow/validation) and reaches devices via serverPatch. Client-scoped: clients:view AND notices/dsc:view; firm (staff) DSCs need firm-wide dsc:view or being holder/custodian.
+  notice: {
+    table: 'notice',
+    columns: ['client_id', 'authority', 'level', 'section', 'reference_no', 'din', 'title', 'issue_date', 'received_on', 'response_due', 'assessment_year', 'financial_year', 'period',
+      'demand_paise', 'status', 'outcome', 'final_demand_paise', 'assignee_id', 'reviewer_id', 'task_id', 'appeal_of', 'closed_at', 'created_at'],
+    writable: {},
+    scope: (a, p) => `EXISTS (SELECT 1 FROM client c WHERE c.id = x.client_id AND ${clientScopeSql(a, 'clients', 'view', p)} AND ${clientScopeSql(a, 'notices', 'view', p)})`,
+    visible: (a) => !!a.superAdmin || (effectiveScope(a, 'notices', 'view')?.scope ?? 'none') !== 'none',
+    canInsert: () => false, canUpdate: () => false, canDelete: () => false,
+    audit: true,
+  },
+  notice_hearing: {
+    table: 'notice_hearing',
+    columns: ['notice_id', 'client_id', 'starts_at', 'ends_at', 'venue', 'virtual_link', 'status', 'adjourned_from', 'prep_done', 'owner_id', 'calendar_event_id'],
+    writable: {},
+    scope: (a, p) => `EXISTS (SELECT 1 FROM client c WHERE c.id = x.client_id AND ${clientScopeSql(a, 'clients', 'view', p)} AND ${clientScopeSql(a, 'notices', 'view', p)})`,
+    visible: (a) => !!a.superAdmin || (effectiveScope(a, 'notices', 'view')?.scope ?? 'none') !== 'none',
+    canInsert: () => false, canUpdate: () => false, canDelete: () => false,
+    audit: true,
+  },
+  // Metadata only — the table has no PIN/password column by design (D117).
+  dsc: {
+    table: 'dsc',
+    columns: ['client_id', 'holder_kind', 'contact_id', 'holder_user_id', 'holder_name', 'dsc_class', 'dsc_type', 'issuer', 'serial_no', 'valid_from', 'valid_to', 'token_label',
+      'custody', 'custody_user_id', 'renewal_task_id'],
+    writable: {},
+    scope: (a, p) => dscScopeSql(a, p),
+    visible: (a) => !!a.superAdmin || (effectiveScope(a, 'dsc', 'view')?.scope ?? 'none') !== 'none',
+    canInsert: () => false, canUpdate: () => false, canDelete: () => false,
+    audit: true,
+  },
 };
 
 /** Child tables whose visibility follows their client (used for revocations). */
-export const CLIENT_CHILD_TABLES = ['contact', 'client_registration', 'document', 'inward_entry', 'outward_entry', 'client_service', 'task', 'invoice', 'receipt'] as const;
+export const CLIENT_CHILD_TABLES = ['contact', 'client_registration', 'document', 'inward_entry', 'outward_entry', 'client_service', 'task', 'invoice', 'receipt', 'notice', 'notice_hearing', 'dsc'] as const;
 
 export const SYNC_TABLES_TOKEN = 'SYNC_TABLES';

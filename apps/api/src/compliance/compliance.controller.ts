@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { CurrentActor, Perm, type RequestActor } from '../auth/context.js';
 import { ZodPipe } from '../common/zod.pipe.js';
 import { ComplianceService } from './compliance.service.js';
+import { PublicApi } from '../publicapi/decorators.js';
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((s) => !Number.isNaN(Date.parse(s)), 'Invalid date');
 const extB = z.object({
@@ -44,7 +45,7 @@ export class ComplianceController {
   @Post('extensions/:id/approve') @HttpCode(200) @Perm('compliance', 'approve')
   approveExtension(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string) { return this.c.approveExtension(a, id); }
 
-  @Get('matrix') @Perm('compliance', 'view')
+  @Get('matrix') @Perm('compliance', 'view') @PublicApi()
   matrix(@CurrentActor() a: RequestActor, @Query(new ZodPipe(matrixQ)) q: z.infer<typeof matrixQ>) { return this.c.matrix(a, q); }
 
   @Post('late-fee') @HttpCode(200) @Perm('compliance', 'view')

@@ -1,5 +1,5 @@
-import { Injectable } from '@nestjs/common';
-import { addDaysIso, allocateByWeight, canSeeCost, costPaise, effectiveScope, mondayOf, pnlOf, utilisationPct, weekCapacity } from '@worko/domain';
+import { ForbiddenException, Injectable } from '@nestjs/common';
+import { addDaysIso, allocateByWeight, canSeeCost, FEE_KEYS, fieldHidden, hiddenFieldsOf, costPaise, effectiveScope, mondayOf, pnlOf, utilisationPct, weekCapacity } from '@worko/domain';
 import type { RequestActor } from '../auth/context.js';
 import { rateFor } from '../billing/auto.service.js';
 import { clientScopeSql, Params } from '../clients/scope.js';
@@ -29,7 +29,14 @@ export class TimeReportsService {
    * firm-wide reports:view. Cost/margin are null without cost visibility (D87).
    */
   jobPnl(a: RequestActor, q: { from: string; to: string; groupBy: 'task' | 'client' | 'service' }) {
-    return this.db.tenantTx(a.tenantId, async (tx) => {
+    return this.db.tenantTx(a.tenantId, (tx) => this.jobPnlTx(tx, a, q));
+  }
+  /** Same, on the caller's transaction (report engine: one READ ONLY connection + statement timeout). */
+  async jobPnlTx(tx: Tx, a: RequestActor, q: { from: string; to: string; groupBy: 'task' | 'client' | 'service' }) {
+    {
+      // Revenue and WIP are invoice amounts / rate-table fees (D172): billing:view is required, field hiding nulls them.
+      if (!a.superAdmin && (effectiveScope(a, 'billing', 'view')?.scope ?? 'none') === 'none') throw new ForbiddenException({ message: 'Needs billing:view', code: 'forbidden' });
+      const hideFees = FEE_KEYS.some((k) => fieldHidden(hiddenFieldsOf(a), k));
       const showCost = canSeeCost(a);
       const firm = !!a.superAdmin || effectiveScope(a, 'reports', 'view')?.scope === 'all';
       const p = new Params();
@@ -108,12 +115,14 @@ export class TimeReportsService {
         const r = pnlOf({ revenuePaise: x.revenuePaise, costPaise: showCost ? x.costPaise : null, wipPaise: x.wipPaise, minutes: x.minutes });
         // WIP valued at cost would reveal cost: null for viewers without cost visibility (D87).
         const { wipAtCost, ...rest } = x;
-        return { ...rest, ...r, costPaise: showCost ? x.costPaise : null, wipPaise: wipAtCost && !showCost ? null : x.wipPaise, wipAtCost };
+        const out = { ...rest, ...r, costPaise: showCost ? x.costPaise : null, wipPaise: wipAtCost && !showCost ? null : x.wipPaise, wipAtCost };
+        return hideFees ? { ...out, revenuePaise: null, wipPaise: null, marginPaise: null, marginPct: null, loss: false } : out;
       }).sort((x, y) => (x.marginPaise ?? 0) - (y.marginPaise ?? 0) || x.label.localeCompare(y.label));
       const sum = (f: (x: Group) => number) => [...groups.values()].reduce((s, x) => s + f(x), 0);
       const totals = pnlOf({ revenuePaise: sum((x) => x.revenuePaise), costPaise: showCost ? sum((x) => x.costPaise) : null, wipPaise: sum((x) => (x.wipAtCost && !showCost ? 0 : x.wipPaise)), minutes: sum((x) => x.minutes) });
-      return { from: q.from, to: q.to, groupBy: q.groupBy, costVisible: showCost, creditNotesPaise: creditPaise, totals, items, lossMaking: items.filter((x) => x.loss).length };
-    });
+      const shownTotals = hideFees ? { ...totals, revenuePaise: null, wipPaise: null, marginPaise: null, marginPct: null, loss: false } : totals;
+      return { from: q.from, to: q.to, groupBy: q.groupBy, costVisible: showCost, feesVisible: !hideFees, creditNotesPaise: hideFees ? null : creditPaise, totals: shownTotals, items, lossMaking: items.filter((x) => x.loss).length };
+    }
   }
 
   /**
@@ -121,7 +130,11 @@ export class TimeReportsService {
    * approved leave), planned (estimates of open tasks assigned to them, by act-by/statutory due) and actual (approved time).
    */
   capacity(a: RequestActor, q: { weeks: number; from?: string }) {
-    return this.db.tenantTx(a.tenantId, async (tx) => {
+    return this.db.tenantTx(a.tenantId, (tx) => this.capacityTx(tx, a, q));
+  }
+  /** Same, on the caller's transaction (report engine: one READ ONLY connection + statement timeout). */
+  async capacityTx(tx: Tx, a: RequestActor, q: { weeks: number; from?: string }) {
+    {
       const s = await loadHrSettings(tx);
       const start = mondayOf(q.from ?? this.clock.todayIst());
       const end = addDaysIso(start, q.weeks * 7 - 1);
@@ -155,7 +168,7 @@ export class TimeReportsService {
         out.push({ userId: u.id, name: u.name, weeklyCapacityMinutes: Number(u.weekly), weeks: cells });
       }
       return { from: start, to: end, weeks, users: out };
-    });
+    }
   }
 }
 

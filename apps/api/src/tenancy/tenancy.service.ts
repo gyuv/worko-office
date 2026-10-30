@@ -4,6 +4,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { hashPassword } from '../auth/crypto.js';
 import { DbService, type Tx } from '../db/db.service.js';
 import { uuidv7 } from '../db/ids.js';
+import { PasswordPolicyService } from '../auth/password-policy.js';
 
 export type SignupInput = {
   firmName: string; slug: string; stateCode: string;
@@ -12,10 +13,11 @@ export type SignupInput = {
 
 @Injectable()
 export class TenancyService {
-  constructor(private db: DbService, private audit: AuditService) {}
+  constructor(private db: DbService, private audit: AuditService, private passwords: PasswordPolicyService) {}
 
   /** Creates a firm with its first entity, head office, system roles and a Partner user. */
   async signup(i: SignupInput): Promise<{ tenantId: string; userId: string }> {
+    await this.passwords.assert(i.partner.password, { email: i.partner.email, name: i.partner.name }); // D198
     const tenantId = uuidv7();
     const slug = i.slug.toLowerCase();
     try {

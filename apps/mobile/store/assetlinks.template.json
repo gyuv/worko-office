@@ -1,0 +1,10 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "in.worko.app",
+      "sha256_cert_fingerprints": ["REPLACE:WITH:THE:PLAY_APP_SIGNING:SHA256:FINGERPRINT"]
+    }
+  }
+]

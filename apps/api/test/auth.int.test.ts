@@ -6,6 +6,8 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 import { Clock } from '../src/common/clock.js';
+import { MockChannelHub } from '../src/comm/channels.js';
+import { PortalAuthService } from '../src/portal/portal-auth.service.js';
 import { base32Decode, totp } from '../src/auth/crypto.js';
 import { type MockSmsProvider, SMS_PROVIDER } from '../src/auth/sms.provider.js';
 import { migrate } from '../src/db/migrate.js';
@@ -170,7 +172,8 @@ describe('rules endpoints', () => {
 describe('demo seed', () => {
   it('creates the demo firm once and every demo user can log in', async () => {
     const { seedDemo, DEMO } = await import('../src/db/seed-demo.js');
-    expect((await seedDemo(db.url, { today: '2026-10-15' })).created).toBe(true);
+    const seeded = await seedDemo(db.url, { today: '2026-10-15' });
+    expect(seeded.created).toBe(true);
     expect((await seedDemo(db.url, { today: '2026-10-15' })).created).toBe(false);
     const tok: Record<string, string> = {};
     for (const u of DEMO.users) {
@@ -178,8 +181,28 @@ describe('demo seed', () => {
       expect((await http().get('/v1/me').set(bearer(r.body.accessToken))).body.roles).toEqual([u.role]);
       tok[u.role] = r.body.accessToken;
     }
-    expect((await http().get('/v1/clients?limit=500').set(bearer(tok.partner!))).body.total).toBe(50);
+    expect((await http().get('/v1/clients?limit=500').set(bearer(tok.partner!))).body.total).toBe(51); // 50 + one converted from an accepted proposal (Phase 9)
     expect((await http().get('/v1/clients?limit=500').set(bearer(tok.article!))).body.total).toBe(12);
+    // Phase 12 B: one API key (works, read-mostly) and one webhook subscription with delivery history.
+    const apiKey = (seeded as { apiKey?: string }).apiKey!;
+    expect(apiKey).toMatch(/^wk_demo/);
+    expect((await http().get('/v1/clients?limit=5').set(bearer(apiKey)).expect(200)).body.nextCursor).toBeTruthy();
+    expect((await http().get('/v1/developers/api-keys').set(bearer(tok.partner!)).expect(200)).body.items).toHaveLength(1);
+    const [hook] = (await http().get('/v1/developers/webhooks').set(bearer(tok.partner!)).expect(200)).body.items;
+    expect((await http().get(`/v1/developers/webhooks/${hook.id}/deliveries`).set(bearer(tok.partner!)).expect(200)).body.items.map((d: { status: string }) => d.status).sort()).toEqual(['failed', 'succeeded', 'succeeded']);
+    // Phase 12 A: platform admin (MFA), demo firm active on Professional with a paid SaaS invoice + usage, one DPDP request, one breach.
+    {
+      const { PLATFORM_DEMO } = await import('../src/db/seed-platform.js');
+      const { totp } = await import('../src/auth/crypto.js');
+      await http().post('/v1/platform/auth/login').send({ email: PLATFORM_DEMO.email, password: PLATFORM_DEMO.password }).expect(401);
+      const pa = (await http().post('/v1/platform/auth/login').send({ email: PLATFORM_DEMO.email, password: PLATFORM_DEMO.password, totp: totp(Buffer.from(PLATFORM_DEMO.totpSecretHex, 'hex')) }).expect(200)).body.accessToken;
+      expect((await http().get('/v1/platform/tenants?q=demo').set(bearer(pa)).expect(200)).body[0]).toMatchObject({ slug: 'demo', plan: 'professional', subStatus: 'active' });
+      const subn = (await http().get('/v1/subscription').set(bearer(tok.partner!)).expect(200)).body;
+      expect(subn.invoices.map((i: { status: string }) => i.status)).toEqual(['paid']);
+      expect(subn.usage.seatsUsed).toBe(5);
+      expect((await http().get('/v1/privacy/requests').set(bearer(tok.partner!)).expect(200)).body).toHaveLength(1);
+      expect((await http().get('/v1/privacy/breaches').set(bearer(tok.partner!)).expect(200)).body).toHaveLength(1);
+    }
     const [secret] = (await http().get('/v1/vault/secrets?portal=INCOME_TAX').set(bearer(tok.partner!)).expect(200)).body;
     await http().post('/v1/auth/step-up').set(bearer(tok.partner!)).send({ password: DEMO.password }).expect(200);
     expect((await http().post(`/v1/vault/secrets/${secret.id}/reveal`).set(bearer(tok.partner!)).send({ purpose: 'view' }).expect(200)).body.password).toMatch(/^Demo#/);
@@ -267,6 +290,100 @@ describe('demo seed', () => {
     expect((await http().get('/v1/notifications').set(A).expect(200)).body.some((n: { category: string }) => n.category === 'chat.mentioned')).toBe(true);
     expect((await http().get('/v1/calendar/events?from=2026-10-15&to=2026-10-31').set(M).expect(200)).body.filter((i: { source: string }) => i.source === 'event').length).toBeGreaterThanOrEqual(3);
     expect((await http().get('/v1/booking/appointments').set(P).expect(200)).body).toHaveLength(2);
+    // Phase 8: notices (overdue + hearing tomorrow + pending extraction), audit engagement with mixed sign-offs/PBC/UDIN gate, DSCs, licences, e-sign.
+    const nts = (await http().get('/v1/notices?limit=100').set(P).expect(200)).body.items as Array<{ authority: string; status: string; taskId: string | null }>;
+    expect(nts).toHaveLength(6);
+    expect(new Set(nts.map((n) => n.authority))).toEqual(new Set(['income_tax', 'gst', 'tds', 'roc']));
+    expect(new Set(nts.map((n) => n.status))).toEqual(new Set(['drafting', 'received', 'submitted', 'closed', 'hearing']));
+    expect((await http().get('/v1/notices/reports/ageing?asOf=2026-10-15').set(P).expect(200)).body).toMatchObject({ open: 4, overdue: 1 });
+    expect((await q<{ n: number }>(`SELECT count(*)::int AS n FROM notice_hearing WHERE starts_at::date = '2026-10-16'`))[0]!.n).toBe(1);
+    expect((await q<{ n: number }>(`SELECT count(*)::int AS n FROM notice_extraction WHERE status = 'pending'`))[0]!.n).toBe(1);
+    const engs = (await http().get('/v1/audit/engagements').set(P).expect(200)).body.items as Array<{ id: string; udinRecorded: boolean; taskId: string }>;
+    expect(engs.map((e) => e.udinRecorded).sort()).toEqual([false, true]);
+    const pending = engs.find((e) => !e.udinRecorded)!;
+    const eng = (await http().get(`/v1/audit/engagements/${pending.id}`).set(M).expect(200)).body;
+    expect(eng.progress).toEqual({ total: 8, prepared: 6, reviewed: 4, partner: 2 });
+    expect(new Set(eng.pbc.map((x: { status: string }) => x.status))).toEqual(new Set(['accepted', 'received', 'requested']));
+    expect((await http().post(`/v1/tasks/${pending.taskId}/close`).set(P).send({ outcome: 'billed' }).expect(400)).body.code).toBe('udin_required');
+    expect((await http().get('/v1/audit/udins').set(P).expect(200)).body).toHaveLength(1);
+    const dscs = (await http().get('/v1/dsc').set(P).expect(200)).body as Array<{ validTo: string; clientId: string | null }>;
+    expect(dscs.map((d) => d.validTo)).toEqual(['2026-10-10', '2026-10-22', '2026-11-14', '2026-12-14', '2027-11-19']);
+    expect((await http().post('/v1/practice/run').set(P).send({ asOf: '2026-10-15' }).expect(201)).body.expiryAlerts).toBeGreaterThanOrEqual(4);
+    expect((await http().get('/v1/licences').set(P).expect(200)).body).toHaveLength(6);
+    const es = (await http().get('/v1/esign/requests').set(P).expect(200)).body.items as Array<{ status: string; bulk: boolean }>;
+    expect(es.map((r) => `${r.status}:${r.bulk}`).sort()).toEqual(['completed:false', 'in_progress:true']);
+    // Phase 9: white-label portal, two portal users (group director: 2 companies; restricted accounts contact), leads in every stage, proposals.
+    app.get(Clock).set(new Date('2026-10-15T12:00:00+05:30'));
+    const { PORTAL_DEMO } = await import('../src/db/seed-portal.js');
+    const hub = app.get(MockChannelHub);
+    const portal = async (email: string) => {
+      await http().post('/v1/portal/auth/otp/request').send({ firm: 'demo', identifier: email }).expect(202);
+      await app.get(PortalAuthService).drain();
+      const code = [...hub.outbox].reverse().find((m) => m.to === email)!.text.match(/\b(\d{6})\b/)![1];
+      return bearer((await http().post('/v1/portal/auth/otp/verify').send({ firm: 'demo', identifier: email, code, device: web }).expect(200)).body.accessToken);
+    };
+    expect((await http().get('/v1/portal/branding/demo').expect(200)).body).toMatchObject({ displayName: 'Sharma & Mehta Client Desk', accent: 'teal' });
+    const G = await portal(PORTAL_DEMO.group.email); const R = await portal(PORTAL_DEMO.restricted.email);
+    const gme = (await http().get('/v1/portal/me').set(G).expect(200)).body.clients as Array<{ id: string }>;
+    expect(gme).toHaveLength(2);
+    const rme = (await http().get('/v1/portal/me').set(R).expect(200)).body.clients as Array<{ id: string }>;
+    expect(rme).toHaveLength(1);
+    await http().get(`/v1/portal/clients/${rme[0]!.id}/invoices`).set(R).expect(404);
+    const rdocs = (await http().get(`/v1/portal/clients/${rme[0]!.id}/documents`).set(R).expect(200)).body as Array<{ name: string; fromClient: boolean }>;
+    expect(rdocs.some((d) => d.name === 'Computation of income AY 2026-27.pdf')).toBe(true);
+    expect(rdocs.some((d) => d.name === 'Internal review notes.pdf')).toBe(false);
+    expect(rdocs.some((d) => d.fromClient)).toBe(true);
+    expect((await http().get(`/v1/portal/clients/${rme[0]!.id}/requests`).set(R).expect(200)).body.some((x: { kind: string }) => x.kind === 'pbc')).toBe(true);
+    const dash = await Promise.all(gme.map(async (c) => (await http().get(`/v1/portal/clients/${c.id}/dashboard`).set(G).expect(200)).body));
+    expect(dash.some((d) => d.outstanding.invoices.length > 0 && d.recentDocuments.length > 0)).toBe(true);
+    expect(dash.reduce((n, d) => n + d.pendingSignatures, 0)).toBeGreaterThanOrEqual(1);
+    const payable = dash.find((d) => d.outstanding.invoices.length)!;
+    const inv0 = (await http().get(`/v1/portal/clients/${payable.client.id}/invoices/${payable.outstanding.invoices[0].id}`).set(G).expect(200)).body;
+    expect(inv0).toMatchObject({ payable: true, paymentUrl: 'https://pay.example.invalid/plink_demo_portal' });
+    expect((await http().get(`/v1/portal/clients/${payable.client.id}/messages`).set(G).expect(200)).body).toHaveLength(2);
+    const board = (await http().get('/v1/leads/board').set(P).expect(200)).body as Array<{ stage: string; count: number }>;
+    expect(board.every((c) => c.count > 0)).toBe(true);
+    const props = (await http().get('/v1/proposals').set(P).expect(200)).body as Array<{ status: string; currentVersion: number; convertedAt: string | null }>;
+    expect(props.map((x) => x.status).sort()).toEqual(['accepted', 'declined', 'draft', 'sent']);
+    expect(props.find((x) => x.status === 'sent')!.currentVersion).toBe(2);
+    expect(props.find((x) => x.status === 'accepted')!.convertedAt).toBeTruthy();
+    expect((await q<{ n: number }>(`SELECT count(*)::int AS n FROM client_service cs JOIN client c ON c.id = cs.client_id WHERE c.file_no = 'F-151' AND cs.billing_frequency = 'monthly'`))[0]!.n).toBe(2);
+    expect((await q<{ n: number }>(`SELECT count(*)::int AS n FROM document d JOIN client c ON c.id = d.client_id WHERE c.file_no = 'F-151' AND d.category = 'Engagement letters'`))[0]!.n).toBe(1);
+    // Phase 10: GST Document Collection Agent with run history (reminders, then stopped on upload), a nudger, a paused rule;
+    // mock AI opted in with three pending suggestions and usage on the meter.
+    const rules = (await http().get('/v1/automation/rules').set(P).expect(200)).body.items as Array<{ id: string; agentKey: string | null; status: string; enabled: boolean }>;
+    expect(rules.map((r) => `${r.agentKey}:${r.status}`).sort()).toEqual(['document_collection:active', 'null:paused', 'overdue_nudger:active']);
+    const dc = rules.find((r) => r.agentKey === 'document_collection')!;
+    const runs = (await http().get(`/v1/automation/runs?ruleId=${dc.id}`).set(P).expect(200)).body.items as Array<{ step: string; status: string; skipReason: string | null }>;
+    expect(runs.filter((r) => r.step === 'repeat')).toHaveLength(2);
+    expect(runs.some((r) => r.step === 'stop' && r.skipReason === 'stopped 1 on document.uploaded')).toBe(true);
+    expect((await http().get(`/v1/automation/runs?status=failed`).set(P).expect(200)).body.items).toHaveLength(3);
+    expect((await http().get('/v1/ai/settings').set(P).expect(200)).body).toMatchObject({ enabled: true, provider: 'mock' });
+    const sugs = (await http().get('/v1/ai/suggestions?status=pending').set(P).expect(200)).body.items as Array<{ kind: string; mock: boolean; payload: Record<string, unknown> }>;
+    expect(sugs.map((x) => x.kind).sort()).toEqual(['classification', 'draft_reply', 'summary']);
+    expect(sugs.every((x) => x.mock)).toBe(true);
+    expect(String(sugs.find((x) => x.kind === 'draft_reply')!.payload.body)).toMatch(/^\[Mock AI\]/);
+    expect((await http().get('/v1/ai/usage?month=2026-10').set(P).expect(200)).body.byFeature.length).toBeGreaterThanOrEqual(3);
+    // Phase 11: role-default dashboards, saved reports (firm- and role-shared + a private one), a weekly schedule with history, NL examples.
+    const dashes = (await http().get('/v1/reports/dashboards').set(P).expect(200)).body.items as Array<{ roleKey: string | null }>;
+    expect(dashes.map((d) => d.roleKey).sort()).toEqual(['article', 'manager', 'partner']);
+    app.get(Clock).set(new Date('2026-10-15T12:00:00+05:30'));
+    try {
+      const pd = (await http().get('/v1/reports/dashboards/default/data').set(P).expect(200)).body;
+      expect(pd.dashboard.name).toBe('Partner overview');
+      expect(pd.widgets.map((w: { id: string; error?: string }) => w.error ?? w.id)).toEqual(['unbilled', 'ageing', 'utilisation', 'collections', 'compliance']);
+      expect((await http().get('/v1/reports/dashboards/default').set(bearer(tok.article!)).expect(200)).body.name).toBe('My work');
+    } finally { app.get(Clock).set(null); }
+    const saved = (await http().get('/v1/reports/saved').set(P).expect(200)).body.items as Array<{ name: string; source: string }>;
+    expect(saved.map((r) => r.name).sort()).toEqual(['Collections by mode this FY', 'Unbilled GST work FY 25-26 by user']);
+    expect((await http().get('/v1/reports/saved').set(bearer(tok.manager!)).expect(200)).body.items.map((r: { name: string }) => r.name).sort()).toEqual(['My team: overdue GST tasks', 'Unbilled GST work FY 25-26 by user']);
+    const [sched] = (await http().get('/v1/reports/schedules').set(P).expect(200)).body.items as Array<{ id: string; name: string; nextRunAt: string }>;
+    expect(sched).toMatchObject({ name: 'Weekly unbilled review', nextRunAt: '2026-10-19T02:30:00.000Z' });
+    const hist = (await http().get(`/v1/reports/schedules/${sched!.id}/runs`).set(P).expect(200)).body.items as Array<{ status: string; periodKey: string }>;
+    expect(hist.map((r) => r.periodKey).sort()).toEqual(['W2026-10-05', 'W2026-10-05', 'W2026-10-12', 'W2026-10-12']);
+    expect(hist.every((r) => r.status === 'delivered')).toBe(true);
+    expect((await http().get('/v1/reports/ask').set(P).expect(200)).body.items.map((x: { question: string; status: string }) => `${x.status}:${x.question}`).sort())
+      .toEqual(['proposed:overdue tasks by assignee', 'saved:unbilled GST work FY 25-26 by user']);
     app.get(Clock).set(new Date('2026-10-15T12:00:00+05:30')); // slots depend on "now"
     try { expect((await http().get('/v1/book/demo/consult?from=2026-10-16&to=2026-10-22').expect(200)).body.slots.length).toBeGreaterThan(10); } finally { app.get(Clock).set(null); }
   });

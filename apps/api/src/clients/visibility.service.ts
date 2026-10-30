@@ -8,6 +8,7 @@ const CHILD_MODULE: Record<string, Module> = {
   // Tasks: approximated by the client's context (a task's own people may keep seeing it; they get it back on the touch below).
   client_service: 'tasks', task: 'tasks',
   invoice: 'billing', receipt: 'receipts',
+  notice: 'notices', notice_hearing: 'notices', dsc: 'dsc',
 };
 
 /**
@@ -40,5 +41,9 @@ export class VisibilityService {
       // Touch so users who gained access get these rows on their next pull.
       if (ids.length) await tx.query(`UPDATE ${table} SET updated_at = now() WHERE client_id = $1 AND deleted_at IS NULL`, [childSource]);
     }
+    // Hearing events (calendar_event kind 'hearing') follow notice visibility, not the meeting rules (D120 / review fix).
+    const hearings = (await tx.query(`SELECT id FROM calendar_event WHERE client_id = $1 AND kind = 'hearing' AND deleted_at IS NULL`, [childSource])).rows.map((r) => r.id as string);
+    await revoke('calendar_event', hearings, lost('notices'));
+    if (hearings.length) await tx.query(`UPDATE calendar_event SET updated_at = now() WHERE id = ANY($1::uuid[])`, [hearings]);
   }
 }

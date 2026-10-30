@@ -8,7 +8,7 @@ import { z } from 'zod';
 export const COMM_CHANNELS = ['email', 'whatsapp', 'sms'] as const;
 export type CommChannel = (typeof COMM_CHANNELS)[number];
 /** Timeline entry kinds: the three messaging channels plus manually logged notes and calls. */
-export const TIMELINE_CHANNELS = [...COMM_CHANNELS, 'note', 'call'] as const;
+export const TIMELINE_CHANNELS = [...COMM_CHANNELS, 'note', 'call', 'portal'] as const;
 export const TEMPLATE_CATEGORIES = ['transactional', 'utility', 'marketing'] as const;
 export type TemplateCategory = (typeof TEMPLATE_CATEGORIES)[number];
 export const TEMPLATE_STATUSES = ['draft', 'submitted', 'approved', 'rejected'] as const;

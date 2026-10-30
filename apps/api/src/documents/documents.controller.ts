@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { CurrentActor, Perm, Public, type RequestActor } from '../auth/context.js';
 import { ZodPipe } from '../common/zod.pipe.js';
 import { DocumentsService, MAX_UPLOAD } from './documents.service.js';
+import { PublicApi } from '../publicapi/decorators.js';
 
 const fy = z.string().regex(/^\d{4}-\d{2}$/);
 const uploadB = z.object({
@@ -20,7 +21,7 @@ const listQ = z.object({
   trashed: z.enum(['true', 'false']).transform((v) => v === 'true').optional(), limit: z.coerce.number().int().min(1).max(500).default(100), offset: z.coerce.number().int().min(0).default(0),
 });
 const metaB = z.object({ name: z.string().trim().min(1).max(300).optional(), category: z.string().trim().min(1).max(100).optional(), fy: fy.nullable().optional(),
-  tags: z.array(z.string().max(50)).max(30).optional(), permanent: z.boolean().optional(), expiresOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(), legalHold: z.boolean().optional() });
+  tags: z.array(z.string().max(50)).max(30).optional(), permanent: z.boolean().optional(), expiresOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(), legalHold: z.boolean().optional(), clientVisible: z.boolean().optional() });
 const shareB = z.object({ expiresInHours: z.number().int().min(1).max(720), password: z.string().min(6).max(100).optional(), maxDownloads: z.number().int().min(1).max(1000).optional() });
 
 /** Streams a stored file as an attachment with headers that stop it rendering as active content in our origin. */
@@ -38,13 +39,13 @@ function send(res: Response, f: { name: string; mime: string; size: number; stre
 export class DocumentsController {
   constructor(private docs: DocumentsService) {}
 
-  @Post('documents') @Perm('documents', 'create')
+  @Post('documents') @Perm('documents', 'create') @PublicApi()
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD, files: 1 } }))
   upload(@CurrentActor() a: RequestActor, @UploadedFile() file: Express.Multer.File, @Body(new ZodPipe(uploadB)) b: z.infer<typeof uploadB>, @Req() req: Request) {
     return this.docs.upload(a, file, b, req.ip ?? null);
   }
 
-  @Get('documents') @Perm('documents', 'view')
+  @Get('documents') @Perm('documents', 'view') @PublicApi()
   list(@CurrentActor() a: RequestActor, @Query(new ZodPipe(listQ)) q: z.infer<typeof listQ>) { return this.docs.list(a, q); }
 
   @Get('clients/:id/document-tree') @Perm('documents', 'view')

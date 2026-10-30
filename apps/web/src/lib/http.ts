@@ -12,7 +12,10 @@ export function absoluteUrl(path: string): string {
 export async function fetchBlob(path: string): Promise<{ blob: Blob; filename: string | null }> {
   const tokens = useSession.getState().tokens;
   const res = await fetch(`${apiBase()}${path}`, { headers: tokens ? { authorization: `Bearer ${tokens.accessToken}` } : {} });
-  if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
+  if (!res.ok) {
+    const e = (await res.json().catch(() => ({}))) as { code?: string; message?: string };
+    throw Object.assign(new Error(e.message ?? `HTTP ${res.status}`), { status: res.status, code: e.code });
+  }
   const cd = res.headers.get('content-disposition') ?? '';
   const filename = /filename="?([^";]+)"?/.exec(cd)?.[1] ?? null;
   return { blob: await res.blob(), filename };

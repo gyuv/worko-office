@@ -33,6 +33,20 @@ import { CalendarScreen } from '../screens/comm/CalendarScreen';
 import { BookingScreen } from '../screens/comm/BookingScreen';
 import { ManageBooking, PublicBook } from '../screens/comm/PublicBooking';
 import { publicRoute } from '../screens/comm/logic';
+import { NoticesScreen } from '../screens/practice/NoticesScreen';
+import { AuditWorkScreen } from '../screens/practice/AuditWorkScreen';
+import { DscScreen, LicencesScreen } from '../screens/practice/DscScreen';
+import { EsignScreen, PublicEsign } from '../screens/practice/EsignScreen';
+import { esignPublicToken } from '../screens/practice/logic';
+import { LeadsRoute } from '../screens/leads/LeadsScreen';
+import { PublicProposal } from '../screens/leads/PublicProposal';
+import { proposalPublicToken } from '../screens/leads/logic';
+import { AutomationScreen } from '../screens/automation/AutomationScreen';
+import { SuggestionsScreen } from '../screens/ai/SuggestionsScreen';
+import { PortalRoot } from '../portal/PortalApp';
+import { parsePortalHash } from '../portal/logic';
+import { PlatformRoot } from '../platform/PlatformApp';
+import { ImpersonationBanner, isPlatformHash } from '../platform/banner';
 
 function Routes() {
   const t = useT();
@@ -61,6 +75,14 @@ function Routes() {
     case 'chat': return <ChatScreen />;
     case 'calendar': return <CalendarScreen />;
     case 'booking': return <BookingScreen />;
+    case 'notices': return <NoticesScreen />;
+    case 'engagements': return <AuditWorkScreen />;
+    case 'dsc': return <DscScreen />;
+    case 'licences': return <LicencesScreen />;
+    case 'esign': return <EsignScreen />;
+    case 'leads': return <LeadsRoute />;
+    case 'automation': return <AutomationScreen />;
+    case 'suggestions': return <SuggestionsScreen />;
     default: {
       const n = NAV.find((x) => x.route === route)!;
       return <ComingSoon module={t(n.label)} phase={n.phase ?? 0} />;
@@ -68,29 +90,55 @@ function Routes() {
   }
 }
 
-/** Public booking pages (no login), decided from the hash (or path) before any session logic. */
+type PublicR = ReturnType<typeof publicRoute> | { kind: 'esign'; token: string } | { kind: 'proposal'; token: string };
+
+/** Public booking + e-sign signer pages (no login), decided from the hash (or path) before any session logic. */
 function usePublicRoute() {
-  const read = () => (typeof location === 'undefined' ? null : publicRoute(location.hash, location.pathname));
+  const read = (): PublicR => {
+    if (typeof location === 'undefined') return null;
+    const token = esignPublicToken(location.hash, location.pathname);
+    if (token) return { kind: 'esign', token };
+    const prop = proposalPublicToken(location.hash, location.pathname);
+    return prop ? { kind: 'proposal', token: prop } : publicRoute(location.hash, location.pathname);
+  };
   const [r, setR] = useState(read);
   useEffect(() => { const on = () => setR(read()); addEventListener('hashchange', on); return () => removeEventListener('hashchange', on); }, []);
   return r;
 }
 
-function PublicApp({ r }: { r: NonNullable<ReturnType<typeof publicRoute>> }) {
+function PublicApp({ r }: { r: NonNullable<PublicR> }) {
   const qc = useMemo(() => new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } } }), []);
   const firm = typeof location !== 'undefined' ? new URLSearchParams(location.hash.split('?')[1] ?? '').get('firm') ?? undefined : undefined;
   return (
     <I18nProvider>
       <QueryClientProvider client={qc}>
-        {r.kind === 'book' ? <PublicBook key={`${r.firm}/${r.slug}`} firm={r.firm} slug={r.slug} /> : <ManageBooking key={r.token} token={r.token} firmSlug={firm} />}
+        {r.kind === 'proposal' ? <PublicProposal key={r.token} token={r.token} /> : r.kind === 'esign' ? <PublicEsign key={r.token} token={r.token} /> : r.kind === 'book' ? <PublicBook key={`${r.firm}/${r.slug}`} firm={r.firm} slug={r.slug} /> : <ManageBooking key={r.token} token={r.token} firmSlug={firm} />}
       </QueryClientProvider>
     </I18nProvider>
   );
 }
 
+/** Client portal (`#/portal/{firm}/…`): its own tokens/http client; never touches the staff session. */
+function usePortalRoute() {
+  const read = () => (typeof location === 'undefined' ? null : parsePortalHash(location.hash));
+  const [r, setR] = useState(read);
+  useEffect(() => { const on = () => setR(read()); addEventListener('hashchange', on); return () => removeEventListener('hashchange', on); }, []);
+  return r;
+}
+
+/** Super-admin console (`#/platform`): separate login + token; never the firm session (D178). */
+function usePlatformRoute() {
+  const read = () => typeof location !== 'undefined' && isPlatformHash(location.hash);
+  const [r, setR] = useState(read);
+  useEffect(() => { const on = () => setR(read()); addEventListener('hashchange', on); return () => removeEventListener('hashchange', on); }, []);
+  return r;
+}
+
 export function App() {
+  const platform = usePlatformRoute();
+  const portal = usePortalRoute();
   const pub = usePublicRoute();
-  return pub ? <PublicApp r={pub} /> : <StaffApp />;
+  return platform ? <PlatformRoot /> : portal ? <PortalRoot loc={portal} /> : pub ? <PublicApp r={pub} /> : <StaffApp />;
 }
 
 function StaffApp() {
@@ -112,7 +160,7 @@ function StaffApp() {
   return (
     <I18nProvider>
       <QueryClientProvider client={qc}>
-        {tokens ? <Shell onSignOut={signOut}><Routes /><ToastHost /></Shell> : <LoginScreen />}
+        {tokens ? <><ImpersonationBanner /><Shell onSignOut={signOut}><Routes /><ToastHost /></Shell></> : <LoginScreen />}
       </QueryClientProvider>
     </I18nProvider>
   );

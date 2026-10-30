@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, safeStora
 import { pathToFileURL } from 'node:url';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { DEFAULTS, isAllowedExternal, isAppUrl, isTokenPair, loadSettings, saveSettings } from './settings';
+import { DEFAULTS, deepLinkHash, isAllowedExternal, isAppUrl, isTokenPair, loadSettings, saveSettings } from './settings';
 import { randomBytes } from 'node:crypto';
 import { DbKeyStore, TokenStore } from './token-store';
 import { trayMenu } from './tray-menu';
@@ -20,7 +20,18 @@ const tokens = new TokenStore(join(app.getPath('userData'), 'session.bin'), safe
 const dbKey = new DbKeyStore(join(app.getPath('userData'), 'dbkey.bin'), safeStorage, randomBytes);
 
 if (!app.requestSingleInstanceLock()) app.quit();
-app.on('second-instance', () => showWindow());
+// worko:// deep links: Windows/Linux deliver them in argv (first start or second instance), macOS via open-url.
+app.setAsDefaultProtocolClient('worko');
+let pendingLink: string | null = process.argv.find((a) => a.startsWith('worko://')) ?? null;
+function openDeepLink(url: string) {
+  const hash = deepLinkHash(url);
+  if (!hash) return;
+  if (!win) { pendingLink = url; return; }
+  showWindow();
+  void win.loadURL(`${appUrl.split('#')[0]}${hash}`);
+}
+app.on('second-instance', (_e, argv) => { const link = argv.find((a) => a.startsWith('worko://')); if (link) openDeepLink(link); else showWindow(); });
+app.on('open-url', (e, url) => { e.preventDefault(); openDeepLink(url); });
 app.setAppUserModelId('in.worko.desktop'); // required for Windows toasts
 
 function createWindow() {
@@ -64,6 +75,7 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(perm === 'notifications'));
   applyAutoStart();
   createWindow();
+  if (pendingLink) { const l = pendingLink; pendingLink = null; openDeepLink(l); }
   tray = new Tray(nativeImage.createEmpty()); // VERIFY: branded .ico/.png tray icons land with installer assets (Phase 12)
   tray.on('click', showWindow);
   refreshTray();

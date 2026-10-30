@@ -5,6 +5,7 @@ import { CurrentActor, Perm, type RequestActor } from '../auth/context.js';
 import { ZodPipe } from '../common/zod.pipe.js';
 import { TimeReportsService } from './reports.service.js';
 import { TimeService, type EntriesQ, type EntryIn, type EntryPatch } from './time.service.js';
+import { PublicApi } from '../publicapi/decorators.js';
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((s) => !Number.isNaN(Date.parse(s)), 'Invalid date');
 const uuidN = z.string().uuid().nullable().optional();
@@ -32,7 +33,7 @@ const capQ = z.object({ weeks: z.coerce.number().int().min(1).max(26).default(4)
 export class TimeController {
   constructor(private time: TimeService, private reports: TimeReportsService) {}
 
-  @Get('time/entries') @Perm('time', 'view')
+  @Get('time/entries') @Perm('time', 'view') @PublicApi()
   list(@CurrentActor() a: RequestActor, @Query(new ZodPipe(listQ)) q: EntriesQ) { return this.time.list(a, q); }
 
   @Post('time/entries') @Perm('time', 'edit')

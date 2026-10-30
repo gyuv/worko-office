@@ -178,14 +178,14 @@ export function groupByDay(ms: MessageItem[]): Array<DaySection<MessageItem>> {
 
 // ---------- calendar ----------
 
-export type EventKind = 'meeting' | 'personal' | 'appointment' | 'external';
+export type EventKind = 'meeting' | 'personal' | 'appointment' | 'external' | 'hearing';
 export type EventItem = {
   id: string; ownerId: string; kind: EventKind; title: string; description: string; location: string; startsAt: string; endsAt: string;
   allDay: boolean; clientId: string | null; attendeeIds: string[]; busy: boolean;
 };
 export function toEvent(r: LocalRow): EventItem {
   const f = r.fields;
-  const kind = (['meeting', 'personal', 'appointment', 'external'] as const).find((k) => k === f.kind) ?? 'meeting';
+  const kind = (['meeting', 'personal', 'appointment', 'external', 'hearing'] as const).find((k) => k === f.kind) ?? 'meeting';
   return {
     id: r.id, ownerId: String(f.owner_id ?? ''), kind, title: String(f.title ?? ''), description: String(f.description ?? ''), location: String(f.location ?? ''),
     startsAt: String(f.starts_at ?? ''), endsAt: String(f.ends_at ?? f.starts_at ?? ''), allDay: !!f.all_day, clientId: str(f.client_id),

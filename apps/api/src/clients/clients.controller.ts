@@ -5,6 +5,7 @@ import { CurrentActor, Perm, type RequestActor } from '../auth/context.js';
 import { ZodPipe } from '../common/zod.pipe.js';
 import { accessIn, clientCreate, clientPatch, contactIn, registrationIn, type AccessIn, type ClientCreate, type ClientPatch } from './clients.schemas.js';
 import { ClientsService } from './clients.service.js';
+import { PublicApi } from '../publicapi/decorators.js';
 
 const listQ = z.object({
   q: z.string().max(100).optional(), status: z.enum(['active', 'inactive', 'prospect']).optional(), groupId: z.string().uuid().optional(),
@@ -19,16 +20,16 @@ const fieldB = z.object({ key: z.string().regex(/^[a-z][a-z0-9_]{0,39}$/), label
 export class ClientsController {
   constructor(private clients: ClientsService) {}
 
-  @Get('clients') @Perm('clients', 'view')
+  @Get('clients') @Perm('clients', 'view') @PublicApi()
   list(@CurrentActor() a: RequestActor, @Query(new ZodPipe(listQ)) q: z.infer<typeof listQ>) { return this.clients.list(a, q); }
 
-  @Post('clients') @Perm('clients', 'create')
+  @Post('clients') @Perm('clients', 'create') @PublicApi()
   create(@CurrentActor() a: RequestActor, @Body(new ZodPipe(clientCreate)) b: ClientCreate) { return this.clients.create(a, b); }
 
   @Post('clients/duplicates') @HttpCode(200) @Perm('clients', 'view')
   duplicates(@CurrentActor() a: RequestActor, @Body(new ZodPipe(dupB)) b: z.infer<typeof dupB>) { return this.clients.duplicates(a, b); }
 
-  @Get('clients/:id') @Perm('clients', 'view')
+  @Get('clients/:id') @Perm('clients', 'view') @PublicApi()
   get(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string) { return this.clients.get(a, id); }
 
   @Patch('clients/:id') @HttpCode(204) @Perm('clients', 'edit')
