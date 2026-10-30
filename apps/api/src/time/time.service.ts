@@ -34,11 +34,11 @@ export class TimeService {
   publish(tenantId: string, c: Cursor) { if (c.v) this.realtime.publish({ type: 'changed', tenantId, cursor: c.v }); }
 
   /** Display columns (client/task names only when the viewer may see them) over entry alias `x`. */
-  private names(a: RequestActor, p: Params) {
+  namesSql(a: RequestActor, p: Params) {
     return `u.name AS user_name, CASE WHEN c.id IS NOT NULL AND ${clientScopeSql(a, 'clients', 'view', p, 'c')} THEN c.name END AS client_name,
       CASE WHEN t.id IS NOT NULL AND ${taskScopeSql(a, 'view', p, 't', 'tc')} THEN t.title END AS task_title`;
   }
-  private joins = `JOIN app_user u ON u.id = x.user_id LEFT JOIN client c ON c.id = x.client_id LEFT JOIN task t ON t.id = x.task_id LEFT JOIN client tc ON tc.id = t.client_id`;
+  readonly joins = `JOIN app_user u ON u.id = x.user_id LEFT JOIN client c ON c.id = x.client_id LEFT JOIN task t ON t.id = x.task_id LEFT JOIN client tc ON tc.id = t.client_id`;
   /** Entries the actor may see: own, or the person is in scope AND the client (if any) is visible (D84). */
   visibleSql(a: RequestActor, p: Params, action: 'view' | 'approve' = 'view') {
     return `(${personScopeSql(a, 'time', action, p)} AND (x.user_id = ${p.add(a.userId)}::uuid OR x.client_id IS NULL
@@ -53,7 +53,7 @@ export class TimeService {
       if (q.from) where.push(`x.work_date >= ${p.add(q.from)}::date`);
       if (q.to) where.push(`x.work_date <= ${p.add(q.to)}::date`);
       if (q.status) where.push(`x.status = ${p.add(q.status)}`);
-      const rows = (await tx.query(`SELECT x.*, ${this.names(a, p)}, count(*) OVER () AS total_count FROM time_entry x ${this.joins}
+      const rows = (await tx.query(`SELECT x.*, ${this.namesSql(a, p)}, count(*) OVER () AS total_count FROM time_entry x ${this.joins}
         WHERE ${where.join(' AND ')} ORDER BY x.work_date DESC, x.created_at DESC LIMIT ${p.add(q.limit)} OFFSET ${p.add(q.offset)}`, p.values)).rows;
       return { total: Number(rows[0]?.total_count ?? 0), totalMinutes: rows.reduce((s, r) => s + Number(r.minutes), 0), items: rows.map(presentEntry) };
     });
@@ -62,7 +62,7 @@ export class TimeService {
   /** Entry row visible to the actor (404 otherwise). */
   private async load(tx: Tx, a: RequestActor, id: string, lock = false) {
     const p = new Params([id]);
-    const r = (await tx.query(`SELECT x.*, ${this.names(a, p)} FROM time_entry x ${this.joins} WHERE x.id = $1 AND x.deleted_at IS NULL AND ${this.visibleSql(a, p)}`, p.values)).rows[0];
+    const r = (await tx.query(`SELECT x.*, ${this.namesSql(a, p)} FROM time_entry x ${this.joins} WHERE x.id = $1 AND x.deleted_at IS NULL AND ${this.visibleSql(a, p)}`, p.values)).rows[0];
     if (!r) throw new NotFoundException();
     if (lock) await tx.query('SELECT 1 FROM time_entry WHERE id = $1 FOR UPDATE', [id]);
     return r as Record<string, unknown>;
@@ -275,7 +275,7 @@ export class TimeService {
   live(a: RequestActor) {
     return this.db.tenantTx(a.tenantId, async (tx) => {
       const p = new Params();
-      const rows = (await tx.query(`SELECT x.*, ${this.names(a, p)} FROM time_timer x ${this.joins} WHERE x.stopped_at IS NULL AND x.deleted_at IS NULL ORDER BY x.started_at`, p.values)).rows;
+      const rows = (await tx.query(`SELECT x.*, ${this.namesSql(a, p)} FROM time_timer x ${this.joins} WHERE x.stopped_at IS NULL AND x.deleted_at IS NULL ORDER BY x.started_at`, p.values)).rows;
       const now = this.clock.now().getTime();
       const items = [];
       for (const r of rows) {

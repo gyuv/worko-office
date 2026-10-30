@@ -26,16 +26,21 @@ const runOut = (r: Record<string, unknown>) => ({
 
 type RuleIn = { name: string; description?: string | null; scope: RuleScope; definition?: unknown; enabled?: boolean };
 
+/** Firm-wide rules need automation:edit (or settings:edit) at 'all' scope (D142). */
+const firmManager = (a: RequestActor) => !!a.superAdmin || effectiveScope(a, 'automation', 'edit')?.scope === 'all' || effectiveScope(a, 'settings', 'edit')?.scope === 'all';
+const firmViewer = (a: RequestActor) => !!a.superAdmin || effectiveScope(a, 'automation', 'view')?.scope === 'all' || firmManager(a);
+/** Rules (alias `r`) the actor may see: firm viewers all; others firm-scope rules and their own (also the Phase 11 report scope). */
+export function ruleVisibleSql(a: RequestActor, p: Params, r = 'r') {
+  if (firmViewer(a)) return 'TRUE';
+  return `(${r}.scope = 'firm' OR ${r}.owner_id = ${p.add(a.userId)}::uuid)`;
+}
+
 /** Rules, versions, agents, runs, dry-runs, settings and the cost meter (REST-only — D147). */
 @Injectable()
 export class AutomationService {
   constructor(private db: DbService, private audit: AuditService, private clock: Clock, private realtime: RealtimeService, private engine: AutomationEngine) {}
 
-  /** Firm-wide rules need automation:edit (or settings:edit) at 'all' scope (D142). */
-  private firmManager(a: RequestActor) {
-    return !!a.superAdmin || effectiveScope(a, 'automation', 'edit')?.scope === 'all' || effectiveScope(a, 'settings', 'edit')?.scope === 'all';
-  }
-  private firmViewer(a: RequestActor) { return !!a.superAdmin || effectiveScope(a, 'automation', 'view')?.scope === 'all' || this.firmManager(a); }
+  private firmManager(a: RequestActor) { return firmManager(a); }
   private requireManage(a: RequestActor, r: { scope: string; owner_id: string }) {
     if (r.scope === 'firm' ? this.firmManager(a) : r.owner_id === a.userId && !!effectiveScope(a, 'automation', 'edit')) return;
     throw new ForbiddenException({ message: r.scope === 'firm' ? 'Needs firm-wide automation:edit' : 'Only the owner manages a personal rule', code: 'forbidden' });
@@ -49,10 +54,7 @@ export class AutomationService {
     const missing = [...def.actions, ...(def.ladder?.escalate ?? [])].flatMap((x) => ACTION_PERMS[x.type]).filter(([m, act]) => (effectiveScope(a, m as Module, act as Action)?.scope ?? 'none') === 'none');
     if (missing.length) throw new ForbiddenException({ message: `Needs ${[...new Set(missing.map(([m, x]) => `${m}:${x}`))].join(', ')}`, code: 'missing_action_permission' });
   }
-  private visibleSql(a: RequestActor, p: Params, r = 'r') {
-    if (this.firmViewer(a)) return 'TRUE';
-    return `(${r}.scope = 'firm' OR ${r}.owner_id = ${p.add(a.userId)}::uuid)`;
-  }
+  private visibleSql(a: RequestActor, p: Params, r = 'r') { return ruleVisibleSql(a, p, r); }
   private async load(tx: Tx, a: RequestActor, id: string, lock = false) {
     const p = new Params([id]);
     const r = (await tx.query(`SELECT * FROM automation_rule r WHERE r.id = $1 AND r.deleted_at IS NULL AND ${this.visibleSql(a, p)}${lock ? ' FOR UPDATE' : ''}`, p.values)).rows[0];

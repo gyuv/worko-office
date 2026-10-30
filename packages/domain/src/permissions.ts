@@ -98,7 +98,9 @@ export const SYSTEM_ROLES: Role[] = [
   },
   {
     key: 'senior', name: 'Senior', system: true, hiddenFields: ['client.fees'],
-    grants: all('own', ['view', 'create', 'edit', 'print'], ['clients', 'tasks', 'compliance', 'documents', 'registers', 'time', 'hr', 'notices', 'audit', 'communication', 'dsc']),
+    grants: [...all('own', ['view', 'create', 'edit', 'print'], ['clients', 'tasks', 'compliance', 'documents', 'registers', 'time', 'hr', 'notices', 'audit', 'communication', 'dsc']),
+      // "My work" reports over their own scope (D160).
+      ...all('own', ['view', 'create', 'edit'], ['reports'])],
   },
   {
     key: 'article', name: 'Article / Intern', system: true, hiddenFields: ['client.fees', 'invoice.*'],
@@ -107,6 +109,7 @@ export const SYSTEM_ROLES: Role[] = [
       // Recording inward/outward papers and filing scans is everyday article work — on their own clients only.
       ...all('own', ['view', 'edit', 'create', 'print'], ['documents', 'registers']),
       ...all('own', ['view'], ['clients']),
+      ...all('own', ['view'], ['reports']),
     ],
   },
   { key: 'accountant', name: 'Accountant', system: true, grants: all('all', ['view', 'create', 'edit', 'export', 'print'], ['billing', 'receipts', 'clients', 'reports']) },

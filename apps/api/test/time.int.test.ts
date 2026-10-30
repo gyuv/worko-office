@@ -165,7 +165,10 @@ describe('job P&L and capacity', () => {
     expect(rm.costVisible).toBe(false);
     expect(rm.items.map((x: { taskId: string }) => x.taskId)).toEqual([f.tA]);
     expect(rm.items[0]).toMatchObject({ revenuePaise: 270_000, costPaise: null, marginPaise: null });
-    await t.http().get(q).set(H(f.ar)).expect(403); // no reports grant
+    // Articles have reports:view at 'own' scope since Phase 11 (D160): only clients they own, never cost.
+    const ra = (await t.http().get(q).set(H(f.ar)).expect(200)).body;
+    expect(ra.costVisible).toBe(false);
+    expect(ra.items.every((x: { costPaise: number | null; clientId: string | null }) => x.costPaise === null && x.clientId !== f.cB)).toBe(true);
     // Review fix: WIP valued at cost (no rate-table fee) is hidden with the cost, and left out of the totals.
     const tC = (await t.http().post('/v1/tasks').set(H(f.p)).send({ client_id: f.cA, title: 'Ad-hoc advice', assignee_id: f.ar.userId, checks: [] }).expect(201)).body.id;
     await approve(f.m, [await entry(f.ar, { taskId: tC, workDate: '2026-10-13', minutes: 60, submit: true })]);

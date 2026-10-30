@@ -4,7 +4,7 @@ import { z } from 'zod';
  * M21 AI (§10): opt-in, redaction before any call, sources shown, human approval before anything is sent/filed/applied,
  * and a no-AI mode that switches every path off. Pure helpers here; the provider adapter lives in the API.
  */
-export const AI_FEATURES = ['notice_extraction', 'draft_reply', 'summarise', 'classify_upload', 'automation_draft', 'ask'] as const;
+export const AI_FEATURES = ['notice_extraction', 'draft_reply', 'summarise', 'classify_upload', 'automation_draft', 'ask', 'nl_query'] as const;
 export type AiFeature = (typeof AI_FEATURES)[number];
 
 export const aiSettingsSchema = z.object({
@@ -12,7 +12,7 @@ export const aiSettingsSchema = z.object({
   enabled: z.boolean().default(false),
   /** No-AI mode: hard kill switch (also `AI_DISABLED=1` in the environment) — wins over everything else. */
   noAiMode: z.boolean().default(false),
-  features: z.object(Object.fromEntries(AI_FEATURES.map((f) => [f, z.boolean().default(f !== 'ask')])) as Record<AiFeature, z.ZodDefault<z.ZodBoolean>>).default({}),
+  features: z.object(Object.fromEntries(AI_FEATURES.map((f) => [f, z.boolean().default(f !== 'ask' && f !== 'nl_query')])) as Record<AiFeature, z.ZodDefault<z.ZodBoolean>>).default({}),
   /** Firm-wide spend per IST month, and per user (null = no per-user cap). */
   monthlyCapPaise: z.number().int().min(0).max(1e10).default(100_000),
   perUserMonthlyCapPaise: z.number().int().min(0).max(1e10).nullable().default(null),

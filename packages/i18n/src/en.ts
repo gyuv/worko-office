@@ -1026,7 +1026,7 @@ export const en = {
   'p10.as.p.storage': 'Prompts and outputs are stored encrypted and deleted after the retention period; audit logs keep only metadata.',
   'p10.as.p.approval': 'AI never sends, files or changes anything: every output is a suggestion a person approves.', 'p10.as.p.off': 'Off by default. Turning it on applies to the whole firm.',
   'p10.as.enable': 'Enable AI for the firm', 'p10.as.noAiMode': 'No-AI mode (hard switch-off)', 'p10.as.features': 'Features',
-  'p10.feat.notice_extraction': 'Notice extraction', 'p10.feat.draft_reply': 'Draft replies', 'p10.feat.summarise': 'Summaries', 'p10.feat.classify_upload': 'Upload categories', 'p10.feat.automation_draft': 'Drafts from automation', 'p10.feat.ask': 'Ask (natural-language questions)',
+  'p10.feat.notice_extraction': 'Notice extraction', 'p10.feat.draft_reply': 'Draft replies', 'p10.feat.summarise': 'Summaries', 'p10.feat.classify_upload': 'Upload categories', 'p10.feat.automation_draft': 'Drafts from automation', 'p10.feat.ask': 'Ask (natural-language questions)', 'p10.feat.nl_query': 'Report questions (natural language → report)',
   'p10.as.cap': 'Monthly cap (₹)', 'p10.as.userCap': 'Per-user monthly cap (₹)', 'p10.as.noCapHint': 'Empty = no per-user cap', 'p10.as.retention': 'Keep content (days)', 'p10.as.redactNames': 'Redact client names',
   'p10.as.usage': 'Usage', 'p10.as.usageTotal': 'AI spend this month', 'p10.as.feature': 'Feature', 'p10.as.calls': 'Calls', 'p10.as.tokens': 'Tokens',
   'p10.field.event.type': 'Event type', 'p10.field.event.daysUntil': 'Event days until', 'p10.field.event.daysOverdue': 'Event days overdue', 'p10.field.entity.type': 'Entity type',

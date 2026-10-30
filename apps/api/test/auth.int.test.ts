@@ -343,6 +343,26 @@ describe('demo seed', () => {
     expect(sugs.every((x) => x.mock)).toBe(true);
     expect(String(sugs.find((x) => x.kind === 'draft_reply')!.payload.body)).toMatch(/^\[Mock AI\]/);
     expect((await http().get('/v1/ai/usage?month=2026-10').set(P).expect(200)).body.byFeature.length).toBeGreaterThanOrEqual(3);
+    // Phase 11: role-default dashboards, saved reports (firm- and role-shared + a private one), a weekly schedule with history, NL examples.
+    const dashes = (await http().get('/v1/reports/dashboards').set(P).expect(200)).body.items as Array<{ roleKey: string | null }>;
+    expect(dashes.map((d) => d.roleKey).sort()).toEqual(['article', 'manager', 'partner']);
+    app.get(Clock).set(new Date('2026-10-15T12:00:00+05:30'));
+    try {
+      const pd = (await http().get('/v1/reports/dashboards/default/data').set(P).expect(200)).body;
+      expect(pd.dashboard.name).toBe('Partner overview');
+      expect(pd.widgets.map((w: { id: string; error?: string }) => w.error ?? w.id)).toEqual(['unbilled', 'ageing', 'utilisation', 'collections', 'compliance']);
+      expect((await http().get('/v1/reports/dashboards/default').set(bearer(tok.article!)).expect(200)).body.name).toBe('My work');
+    } finally { app.get(Clock).set(null); }
+    const saved = (await http().get('/v1/reports/saved').set(P).expect(200)).body.items as Array<{ name: string; source: string }>;
+    expect(saved.map((r) => r.name).sort()).toEqual(['Collections by mode this FY', 'Unbilled GST work FY 25-26 by user']);
+    expect((await http().get('/v1/reports/saved').set(bearer(tok.manager!)).expect(200)).body.items.map((r: { name: string }) => r.name).sort()).toEqual(['My team: overdue GST tasks', 'Unbilled GST work FY 25-26 by user']);
+    const [sched] = (await http().get('/v1/reports/schedules').set(P).expect(200)).body.items as Array<{ id: string; name: string; nextRunAt: string }>;
+    expect(sched).toMatchObject({ name: 'Weekly unbilled review', nextRunAt: '2026-10-19T02:30:00.000Z' });
+    const hist = (await http().get(`/v1/reports/schedules/${sched!.id}/runs`).set(P).expect(200)).body.items as Array<{ status: string; periodKey: string }>;
+    expect(hist.map((r) => r.periodKey).sort()).toEqual(['W2026-10-05', 'W2026-10-05', 'W2026-10-12', 'W2026-10-12']);
+    expect(hist.every((r) => r.status === 'delivered')).toBe(true);
+    expect((await http().get('/v1/reports/ask').set(P).expect(200)).body.items.map((x: { question: string; status: string }) => `${x.status}:${x.question}`).sort())
+      .toEqual(['proposed:overdue tasks by assignee', 'saved:unbilled GST work FY 25-26 by user']);
     app.get(Clock).set(new Date('2026-10-15T12:00:00+05:30')); // slots depend on "now"
     try { expect((await http().get('/v1/book/demo/consult?from=2026-10-16&to=2026-10-22').expect(200)).body.slots.length).toBeGreaterThan(10); } finally { app.get(Clock).set(null); }
   });

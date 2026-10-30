@@ -51,9 +51,39 @@ export class MockAiProvider implements AiProvider {
         const fy = /\b(20\d{2})-(\d{2})\b/.exec(data);
         return { category, fy: fy ? `${fy[1]}-${fy[2]}` : null, confidence: category === 'General' ? 0.3 : 0.8 };
       }
+      case 'nl_query': return { definition: mockNlDefinition(data) };
       default: return { answer: 'Not available in mock mode.' };
     }
   }
+}
+
+/**
+ * Deterministic NL → report definition for the mock (M21 NL query). Handles the PRD example "unbilled GST work FY 25-26 by
+ * user" and a few common shapes; it only ever sees the (redacted) question — never data rows.
+ */
+export function mockNlDefinition(question: string): Record<string, unknown> {
+  const q = question.toLowerCase();
+  const ds = /salar|cost rate|\bcost\b/.test(q) ? 'time_entries' : /unbilled|not billed|to bill/.test(q) ? 'unbilled' : /overdue|late task/.test(q) ? 'tasks'
+    : /ageing|aging|outstanding|receivable/.test(q) ? 'ageing' : /collection|receipt|collected/.test(q) ? 'receipts' : /notice/.test(q) ? 'notices' : /lead/.test(q) ? 'leads'
+      : /time|hours/.test(q) ? 'time_entries' : 'tasks';
+  const dateCol: Record<string, string> = { unbilled: 'completedOn', tasks: 'statutoryDue', receipts: 'receivedOn', time_entries: 'workDate', notices: 'receivedOn' };
+  const userCol: Record<string, string> = { unbilled: 'assigneeName', tasks: 'assigneeName', time_entries: 'userName', notices: 'assigneeName', leads: 'ownerName' };
+  const filters: Array<Record<string, unknown>> = [];
+  if (/\bgst\b/.test(q) && ['unbilled', 'tasks'].includes(ds)) filters.push({ column: 'serviceCategory', op: 'eq', value: 'GST' });
+  if (ds === 'tasks' && /overdue/.test(q)) filters.push({ column: 'overdue', op: 'eq', value: true });
+  const fy = /\bfy\s*(\d{2,4}\s*-\s*\d{2,4})/.exec(q);
+  if (fy && dateCol[ds]) filters.push({ column: dateCol[ds], op: 'fy', value: fy[1]!.replace(/\s+/g, '') });
+  const groupBy = /\bby (user|assignee|person|staff|employee|people)/.test(q) || /salar/.test(q) ? [userCol[ds] ?? 'clientName'].filter(Boolean)
+    : /\bby client/.test(q) ? ['clientName'] : /\bby service/.test(q) && ['unbilled', 'tasks'].includes(ds) ? ['serviceName'] : [];
+  const money: Record<string, string> = { unbilled: 'suggestedPaise', receipts: 'amountPaise', ageing: 'balancePaise', notices: 'demandPaise', leads: 'expectedValuePaise' };
+  const aggregates: Array<Record<string, unknown>> = [{ fn: 'count' }];
+  if (money[ds]) aggregates.push({ fn: 'sum', column: money[ds] });
+  if (ds === 'time_entries') aggregates.push({ fn: 'sum', column: 'minutes' }, { fn: 'sum', column: 'costPaise' });
+  const columns: Record<string, string[]> = { unbilled: ['clientName', 'title', 'serviceName', 'assigneeName', 'completedOn', 'suggestedPaise'], tasks: ['title', 'clientName', 'assigneeName', 'statutoryDue', 'status'],
+    time_entries: ['userName', 'workDate', 'clientName', 'minutes', 'costPaise'], ageing: ['clientName', 'bucket', 'balancePaise'], receipts: ['receivedOn', 'clientName', 'amountPaise'],
+    notices: ['title', 'clientName', 'authority', 'receivedOn', 'demandPaise'], leads: ['name', 'stage', 'ownerName', 'expectedValuePaise'] };
+  if (ds === 'ageing' && !groupBy.length) groupBy.push('bucket');
+  return { dataset: ds, columns: columns[ds], filters, groupBy, aggregates, chart: { type: groupBy.length ? 'bar' : 'table' } };
 }
 
 /**
