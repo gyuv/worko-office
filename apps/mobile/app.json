@@ -81,6 +81,14 @@
           "locationWhenInUsePermission": "Worko checks your location only when you tap Check in/out, to confirm you are at the office or an approved client site.",
           "isAndroidBackgroundLocationEnabled": false
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "kotlinVersion": "1.9.25"
+          }
+        }
       ]
     ],
     "runtimeVersion": {
