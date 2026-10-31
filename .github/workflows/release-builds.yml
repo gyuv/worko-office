@@ -45,7 +45,11 @@ jobs:
         run: pnpm turbo run build --filter=@worko/web... --filter=@worko/desktop...
       - name: Package NSIS installer (unsigned)
         working-directory: apps/desktop
-        run: pnpm dlx ${{ env.ELECTRON_BUILDER }} --win nsis --x64 --publish never
+        # Global npm install keeps app-builder-lib on a short, hoisted path: pnpm's dlx cache path exceeds
+        # Windows MAX_PATH, so makensis cannot !include its templates (StdUtils.nsh) from there.
+        run: |
+          npm install -g ${{ env.ELECTRON_BUILDER }}
+          electron-builder --win nsis --x64 --publish never
       - uses: actions/upload-artifact@v4
         with:
           name: worko-windows
