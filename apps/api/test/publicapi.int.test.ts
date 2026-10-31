@@ -77,7 +77,8 @@ describe('public API keys', () => {
     expect((await t.http().get('/v1/tasks').set(K(secret)).expect(403)).body.code).toBe('SCOPE_MISSING');
     // Secret never stored; list shows prefix only.
     const raw = await t.sql<{ secret_hash: Buffer }>('SELECT secret_hash FROM api_key WHERE id = $1', [key.id]);
-    expect(raw[0]!.secret_hash.toString('latin1')).not.toContain(secret.split('_')[2]);
+    // The secret part may itself contain '_' (base64url), so take everything after the prefix.
+    expect(raw[0]!.secret_hash.toString('latin1')).not.toContain(secret.slice('wk_'.length + 11));
     const list = (await t.http().get('/v1/developers/api-keys').set(H(p)).expect(200)).body.items;
     expect(JSON.stringify(list)).not.toContain(secret);
     expect(list[0]).toMatchObject({ prefix: key.prefix, status: 'active' });

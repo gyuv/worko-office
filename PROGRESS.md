@@ -47,3 +47,5 @@ Migrations `0023`–`0024`. Super-admin console (separate principal, password + 
 
 ## Before go-live (see docs/RELEASE.md, docs/KNOWN_GAPS.md)
 Dependency upgrades for `pnpm audit` findings (NestJS/multer/body-parser, Electron, Vite/Vitest, Expo); decide handling of legacy audit entries hashed before D200; code signing, Android keystore/EAS; verify all third-party adapters (Razorpay, WhatsApp, SMS/DLT, Gmail/Outlook, e-sign ASP, Tally, Anthropic) and statutory/legal data (rule packs, late fees, GST particulars, DPDP periods) against official sources; confirm the Firm's day steps in PRD §15 against the master prompt.
+
+Release builds: `.github/workflows/release-builds.yml` (unsigned Windows .exe, macOS .dmg, debug-signed Android .apk; artifacts + tag pre-release), build-time API base (desktop `build-config.json`, web CSP `connect-src`), `infra/api.Dockerfile`, `apps/web/vercel.json`, docs/DEPLOY.md.

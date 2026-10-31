@@ -7,6 +7,10 @@
       ],
       "outputs": [
         "dist/**"
+      ],
+      "env": [
+        "WORKO_API_BASE",
+        "VITE_API_URL"
       ]
     },
     "test": {

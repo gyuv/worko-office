@@ -92,6 +92,31 @@ own OS (or CI runners: windows-latest, macos-latest, ubuntu-latest). Code signin
    secrets manager at `apps/mobile/secrets/play-service-account.json` (git-ignored).
 7. Play Console: Data safety form and permission declarations (text in docs/manual/admin.md → Android permissions).
 
+## 5a. Unsigned installers from GitHub Actions (no certificates needed)
+`.github/workflows/release-builds.yml` builds on GitHub-hosted runners: **Windows** `Worko-Setup-X.Y.Z.exe` (NSIS x64,
+windows-latest), **macOS** `Worko-X.Y.Z.dmg` + `Worko-X.Y.Z-arm64.dmg` (macos-latest, ad-hoc signed, not notarised),
+**Android** `Worko-X.Y.Z.apk` (ubuntu-latest: `expo prebuild` + `gradlew assembleRelease`, signed with the **debug
+keystore** — sideload only, Play rejects it; Play needs the AAB flow in §5).
+
+Server address: the apps are built against one API. Set it as a repository variable **Settings → Secrets and
+variables → Actions → Variables → `WORKO_API_BASE`** = `https://api.example.in/v1` (or type it in the *Run workflow*
+form, which wins). Unset → placeholder `https://api.worko.invalid/v1` (the apps install but cannot sign in).
+Desktop reads it from `dist/build-config.json` (`scripts/write-build-config.mjs`, https only), Android from
+`app.config.js` → `extra.apiBase`, and the web renderer's CSP `connect-src` gets that origin. Optional variable
+`WORKO_UPDATE_URL` (update feed; the in-app updater is not wired yet).
+
+Getting the files:
+- **Any run** (manual *Actions → Release builds → Run workflow*, or a push to a `claude/**` branch): open the run →
+  *Artifacts* → `worko-windows`, `worko-macos`, `worko-android` (zip downloads, kept 90 days).
+- **Tag** `git tag v0.1.0 && git push origin v0.1.0`: the same builds are attached to a GitHub **pre-release** for that tag.
+
+Installing unsigned builds (tell testers):
+- Windows: SmartScreen "Windows protected your PC" → **More info → Run anyway**.
+- macOS: Gatekeeper says the app can't be opened → **right-click Worko.app → Open → Open**, or
+  `xattr -dr com.apple.quarantine /Applications/Worko.app`. Use the `-arm64` dmg on Apple Silicon.
+- Android: allow **Install unknown apps** for the browser/file manager, then open the APK. A later Play build has a
+  different signature — uninstall the sideloaded APK first.
+
 ## 6. Smoke tests after deploy (production, a test firm)
 1. `GET /v1/health` is 200; the web app loads; staff sign-in works (TOTP for a partner).
 2. Create a test client; open Tasks; run auto-creation **preview** only.
