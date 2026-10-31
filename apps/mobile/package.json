@@ -12,8 +12,7 @@
     "lint": "eslint . --max-warnings=0",
     "config:check": "expo config --type public --json > /dev/null && echo ok",
     "aab": "pnpm dlx eas-cli@16.6.0 build --platform android --profile production",
-    "aab:local": "pnpm dlx eas-cli@16.6.0 build --platform android --profile production --local --output ../../release/worko.aab",
-    "ios": "expo run:ios"
+    "aab:local": "pnpm dlx eas-cli@16.6.0 build --platform android --profile production --local --output ../../release/worko.aab"
   },
   "dependencies": {
     "@babel/runtime": "^7.29.10",
