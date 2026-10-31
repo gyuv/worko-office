@@ -10,3 +10,4 @@ apps/mobile/secrets/
 *.jks
 *.keystore
 credentials.json
+apps/mobile/android

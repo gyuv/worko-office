@@ -1,0 +1,136 @@
+# Unsigned installers from GitHub-hosted runners (docs/RELEASE.md §5a): Windows .exe (NSIS), macOS .dmg (x64 + arm64),
+# Android .apk signed with the debug keystore (sideload only — never Play Store). No certificates are used.
+# The packaged server address comes from WORKO_API_BASE: workflow input → repo variable → placeholder.
+name: Release builds
+on:
+  workflow_dispatch:
+    inputs:
+      api_base:
+        description: API base URL baked into the apps (e.g. https://api.example.in/v1); empty = repo variable WORKO_API_BASE
+        required: false
+        type: string
+  push:
+    tags: ['v*']
+    branches: ['claude/**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-builds-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  WORKO_API_BASE: ${{ inputs.api_base || vars.WORKO_API_BASE || 'https://api.worko.invalid/v1' }}
+  # The web build talks to the same API (CSP connect-src gets its origin); the desktop renderer uses the preload bridge.
+  VITE_API_URL: ${{ inputs.api_base || vars.WORKO_API_BASE || 'https://api.worko.invalid/v1' }}
+  # electron-builder needs a publish URL for latest*.yml; the in-app updater is not wired yet (KNOWN_GAPS).
+  WORKO_UPDATE_URL: ${{ vars.WORKO_UPDATE_URL || 'https://updates.invalid/desktop' }}
+  ELECTRON_BUILDER: electron-builder@26.0.12
+  TURBO_TELEMETRY_DISABLED: '1'
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: Build web + desktop
+        run: pnpm turbo run build --filter=@worko/web... --filter=@worko/desktop...
+      - name: Package NSIS installer (unsigned)
+        working-directory: apps/desktop
+        run: pnpm dlx ${{ env.ELECTRON_BUILDER }} --win nsis --x64 --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: worko-windows
+          path: apps/desktop/release/Worko-Setup-*.exe
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: Build web + desktop
+        run: pnpm turbo run build --filter=@worko/web... --filter=@worko/desktop...
+      - name: Package dmg (x64 + arm64, ad-hoc signed, not notarised)
+        working-directory: apps/desktop
+        # identity "-" = ad-hoc signature (Apple Silicon refuses to run unsigned code); no notarisation without an Apple ID.
+        run: pnpm dlx ${{ env.ELECTRON_BUILDER }} --mac dmg --x64 --arm64 --publish never -c.mac.identity=- -c.mac.notarize=false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: worko-macos
+          path: apps/desktop/release/*.dmg
+          if-no-files-found: error
+
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      NODE_ENV: production
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - run: pnpm install --frozen-lockfile
+        env: { NODE_ENV: development }
+      - name: Build workspace packages the app imports
+        run: pnpm turbo run build --filter=@worko/mobile^...
+      - name: Expo prebuild (android)
+        working-directory: apps/mobile
+        run: npx expo prebuild --platform android --no-install
+      - name: Show packaged API base
+        working-directory: apps/mobile
+        run: npx expo config --type public --json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log('apiBase =',JSON.parse(s).extra.apiBase))"
+      - name: Gradle assembleRelease (debug keystore — sideload only)
+        working-directory: apps/mobile/android
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a,x86_64
+      - name: Rename APK
+        run: |
+          v=$(node -p "require('./apps/mobile/app.json').expo.version")
+          mkdir -p out && cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk "out/Worko-$v.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: worko-android
+          path: out/*.apk
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, macos, android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - uses: softprops/action-gh-release@v2.2.1
+        with:
+          prerelease: true
+          fail_on_unmatched_files: true
+          body: |
+            Unsigned test builds. Windows: SmartScreen → More info → Run anyway. macOS: right-click → Open
+            (or `xattr -dr com.apple.quarantine /Applications/Worko.app`). Android: allow "Install unknown apps";
+            the APK is debug-signed and cannot be uploaded to Play. See docs/RELEASE.md.
+          files: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.apk

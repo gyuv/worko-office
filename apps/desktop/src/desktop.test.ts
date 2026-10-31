@@ -2,7 +2,8 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { deepLinkHash, isAllowedExternal, isAppUrl, isTokenPair, loadSettings } from './settings';
+import { buildApiBase, deepLinkHash, isAllowedExternal, isAppUrl, isTokenPair, loadSettings } from './settings';
+import { writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { DbKeyStore, TokenStore, type SafeStorage } from './token-store';
 import { trayMenu } from './tray-menu';
@@ -45,6 +46,14 @@ describe('external links', () => {
 
 describe('settings & tray', () => {
   it('defaults when missing or corrupt', () => expect(loadSettings('/nonexistent/x.json').autoStart).toBe(true));
+  it('takes the packaged API base from build-config.json, refusing non-https', () => {
+    const d = mkdtempSync(join(tmpdir(), 'wb-')); const f = join(d, 'build-config.json');
+    expect(buildApiBase('/nonexistent/build-config.json')).toBe('http://localhost:3000/v1');
+    writeFileSync(f, JSON.stringify({ apiBase: 'https://api.firm.example/v1' }));
+    expect(buildApiBase(f)).toBe('https://api.firm.example/v1');
+    writeFileSync(f, JSON.stringify({ apiBase: 'http://api.firm.example/v1' }));
+    expect(buildApiBase(f)).toBe('http://localhost:3000/v1');
+  });
   it('tray shows pending count and auto-start state', () => {
     const m = trayMenu({ badge: 3, autoStart: false, open() {}, toggleAutoStart() {}, quit() {} });
     expect(m[0]?.label).toBe('Open Worko (3 pending)');

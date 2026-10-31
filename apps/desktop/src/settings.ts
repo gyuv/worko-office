@@ -1,7 +1,18 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 export type DesktopSettings = { autoStart: boolean; startMinimised: boolean; apiBase: string };
-export const DEFAULTS: DesktopSettings = { autoStart: true, startMinimised: false, apiBase: 'http://localhost:3000/v1' };
+
+/** The installer's default API base, written at build time from WORKO_API_BASE (scripts/write-build-config.js). */
+export function buildApiBase(file = join(__dirname, 'build-config.json'), fallback = 'http://localhost:3000/v1'): string {
+  try {
+    const v = (JSON.parse(readFileSync(file, 'utf8')) as { apiBase?: unknown }).apiBase;
+    if (typeof v !== 'string') return fallback;
+    const u = new URL(v);
+    return u.protocol === 'https:' || (u.protocol === 'http:' && u.hostname === 'localhost') ? v : fallback;
+  } catch { return fallback; }
+}
+export const DEFAULTS: DesktopSettings = { autoStart: true, startMinimised: false, apiBase: buildApiBase() };
 
 export function loadSettings(file: string): DesktopSettings {
   try { return { ...DEFAULTS, ...(existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {}) }; } catch { return { ...DEFAULTS }; }

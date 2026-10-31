@@ -10,6 +10,7 @@ directories:
 files:
   - dist/**/*.js
   - "!dist/**/*.test.js"
+  - dist/build-config.json         # packaged default API base (scripts/write-build-config.js, from WORKO_API_BASE)
   - package.json
 extraResources:
   # The renderer: main.ts loads ../../web/dist/index.html relative to resources/app.asar/dist → resources/web/dist.
