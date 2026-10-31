@@ -95,9 +95,9 @@ jobs:
       - uses: android-actions/setup-android@v3
         with: { packages: 'platform-tools' }   # the default list includes the removed 'tools' package
       - uses: gradle/actions/setup-gradle@v4
-      # Expo's Metro config resolves expo-asset etc. from the top level; pnpm's isolated layout hides them
-      # ("The required package `expo-asset` cannot be found"), so this job installs with a hoisted layout.
-      - run: pnpm install --frozen-lockfile --config.node-linker=hoisted
+      # Isolated (default) layout: hoisting mixed native module versions (Compose/Kotlin mismatch).
+      # expo-asset is a direct dependency of apps/mobile so Metro can resolve it.
+      - run: pnpm install --frozen-lockfile
         env: { NODE_ENV: development }
       - name: Build workspace packages the app imports
         run: pnpm turbo run build --filter=@worko/mobile^...
