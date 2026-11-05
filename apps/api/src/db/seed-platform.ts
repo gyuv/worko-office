@@ -10,7 +10,8 @@ import { uuidv7 } from './ids.js';
 export const PLATFORM_DEMO = { email: 'ops@platform.worko.in', name: 'Worko Ops (demo)', password: 'Platform@12345', totpSecretHex: '576f726b6f44656d6f506c6174666f726d4f7073' } as const;
 
 /**
- * Phase 12 A demo data: a platform admin, the demo firm on Professional (trial ended → first invoice paid → active),
+ * Phase 12 A demo data: a platform admin, the demo firm on Enterprise with no period end (always active, unlimited seats,
+ * every module on; the lifecycle job never expires or dunns it), one historical paid Professional invoice,
  * two months of usage, one DPDP access request and one breach record.
  */
 export async function seedPlatform(db: DbService, tenantId: string, today: string) {
@@ -25,8 +26,7 @@ export async function seedPlatform(db: DbService, tenantId: string, today: strin
   const price = Number((await db.systemTx((tx) => tx.query(`SELECT price_paise FROM saas_plan_price WHERE plan_key = 'professional' AND cycle = 'monthly' AND effective_from <= $1 ORDER BY effective_from DESC LIMIT 1`, [period.start]))).rows[0].price_paise);
   const seq = (await db.systemTx((tx) => tx.query(`INSERT INTO saas_invoice_counter (fy, last) VALUES ($1, 1) ON CONFLICT (fy) DO UPDATE SET last = saas_invoice_counter.last + 1 RETURNING last`,
     [Number(period.start.slice(0, 4)) - (Number(period.start.slice(5, 7)) < 4 ? 1 : 0)]))).rows[0].last as number;
-  await db.systemTx((tx) => tx.query(`UPDATE tenant SET plan = 'professional', sub_status = 'active', billing_cycle = 'monthly', trial_ends_on = $2, period_start = $3, period_end = $4 WHERE id = $1`,
-    [tenantId, trialEnd, period.start, period.end]));
+  await db.systemTx((tx) => tx.query(`UPDATE tenant SET plan = 'enterprise', sub_status = 'active', billing_cycle = 'annual', trial_ends_on = $2, period_start = $3, period_end = NULL WHERE id = $1`, [tenantId, trialEnd, period.start]));
   await db.tenantTx(tenantId, async (tx) => {
     const partner = (await tx.query(`SELECT u.id FROM app_user u JOIN user_role ur ON ur.user_id = u.id JOIN role r ON r.id = ur.role_id WHERE r.key = 'partner' ORDER BY u.id LIMIT 1`)).rows[0].id as string;
     const firm = (await tx.query(`SELECT e.name, e.gstin, e.state_code, e.address FROM firm_entity e ORDER BY e.id LIMIT 1`)).rows[0];
