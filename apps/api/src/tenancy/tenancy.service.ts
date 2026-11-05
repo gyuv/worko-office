@@ -4,6 +4,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { hashPassword } from '../auth/crypto.js';
 import { DbService, type Tx } from '../db/db.service.js';
 import { uuidv7 } from '../db/ids.js';
+import { FREE_FOREVER_SQL, saasFreeForever } from '../platform/saas.service.js';
 import { PasswordPolicyService } from '../auth/password-policy.js';
 
 export type SignupInput = {
@@ -22,6 +23,7 @@ export class TenancyService {
     const slug = i.slug.toLowerCase();
     try {
       await this.db.systemTx((tx) => tx.query('INSERT INTO tenant (id, name, slug) VALUES ($1,$2,$3)', [tenantId, i.firmName, slug]));
+      if (saasFreeForever()) await this.db.systemTx((tx) => tx.query(FREE_FOREVER_SQL, [tenantId]));
     } catch (e) {
       if ((e as { code?: string }).code === '23505') throw new ConflictException('That firm address is taken');
       throw e;
