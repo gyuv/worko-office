@@ -1,0 +1,44 @@
+# Render Blueprint: Worko API on Render's free web service (free forever; sleeps when idle).
+# Database: a FREE-FOREVER Postgres from Neon (neon.tech) — Render's own free Postgres is deleted after 30 days,
+# so it is not used. Paste Neon's connection string into DATABASE_URL when Render asks.
+# Deploy via Render → New → Blueprint → pick this repo.
+# The web app stays on Vercel; set VITE_API_URL there to https://<this service>.onrender.com/v1.
+# Every start runs migrations and the demo seed (the seed skips a firm that already exists),
+# so the `demo` firm (password Demo@12345) is always there.
+services:
+  - type: web
+    name: worko-api
+    runtime: node
+    plan: free
+    region: singapore
+    healthCheckPath: /v1/health
+    buildCommand: corepack enable && pnpm install --frozen-lockfile --prod=false && pnpm turbo run build --filter=@worko/api...
+    startCommand: cd apps/api && pnpm migrate && pnpm seed:demo && pnpm start
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: "1"
+      - key: DATABASE_URL
+        sync: false   # paste the Neon connection string (postgresql://…?sslmode=require)
+      - key: JWT_SIGNING_KEY
+        generateValue: true
+      - key: FIELD_ENCRYPTION_KEY
+        generateValue: true
+      - key: KMS_LOCAL_MASTER_KEY
+        generateValue: true
+      # Comma-separated web origins allowed to call the API (your Vercel site).
+      - key: CORS_ORIGINS
+        value: https://worko-office.vercel.app
+      - key: WEB_PUBLIC_URL
+        value: https://worko-office.vercel.app
+      - key: ALLOW_SIGNUP
+        value: "1"
+      # No billing anywhere: every firm is Enterprise (unlimited), active forever; no invoices or suspension.
+      - key: SAAS_FREE_FOREVER
+        value: "1"
+      - key: AI_DISABLED
+        value: "1"
+

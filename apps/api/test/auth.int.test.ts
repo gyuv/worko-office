@@ -196,7 +196,7 @@ describe('demo seed', () => {
       const { totp } = await import('../src/auth/crypto.js');
       await http().post('/v1/platform/auth/login').send({ email: PLATFORM_DEMO.email, password: PLATFORM_DEMO.password }).expect(401);
       const pa = (await http().post('/v1/platform/auth/login').send({ email: PLATFORM_DEMO.email, password: PLATFORM_DEMO.password, totp: totp(Buffer.from(PLATFORM_DEMO.totpSecretHex, 'hex')) }).expect(200)).body.accessToken;
-      expect((await http().get('/v1/platform/tenants?q=demo').set(bearer(pa)).expect(200)).body[0]).toMatchObject({ slug: 'demo', plan: 'professional', subStatus: 'active' });
+      expect((await http().get('/v1/platform/tenants?q=demo').set(bearer(pa)).expect(200)).body[0]).toMatchObject({ slug: 'demo', plan: 'enterprise', subStatus: 'active' });
       const subn = (await http().get('/v1/subscription').set(bearer(tok.partner!)).expect(200)).body;
       expect(subn.invoices.map((i: { status: string }) => i.status)).toEqual(['paid']);
       expect(subn.usage.seatsUsed).toBe(5);

@@ -14,6 +14,9 @@ import { NotificationsService } from '../notifications/notifications.service.js'
 import { PlatformAuditService } from './platform-audit.service.js';
 
 export const SAAS_JOB = 'saas.daily';
+/** SAAS_FREE_FOREVER=1: every firm is on Enterprise (unlimited), active, with no period end; no invoices, dunning or suspension. */
+export const saasFreeForever = () => process.env.SAAS_FREE_FOREVER === '1' || process.env.SAAS_FREE_FOREVER === 'true';
+export const FREE_FOREVER_SQL = `UPDATE tenant SET plan = 'enterprise', sub_status = 'active', period_end = NULL, past_due_since = NULL, sub_suspended_since = NULL, cancelled_at = NULL WHERE id = $1`;
 type PlanRow = Plan & { active: boolean };
 type Supplier = { name: string; gstin: string | null; stateCode: string; address: string; sac: string; gstRate: number; invoicePrefix: string };
 
@@ -218,6 +221,9 @@ export class SaasService implements OnModuleInit {
 
   /** Daily lifecycle for one tenant at `today` (IST; injectable clock): invoices, state transitions, dunning, metering. Idempotent per day. */
   async runDaily(tenantId: string, today = this.clock.todayIst(), by: PlatformActor | null = null) {
+    if (saasFreeForever()) {
+      const s0 = this.subState(await this.tenantRow(tenantId)); await this.db.systemTx((tx) => tx.query(FREE_FOREVER_SQL, [tenantId]));
+      return { today, from: s0.status, status: 'active' as const, actions: [] as string[], invoiceId: null, reminders: 0 }; }
     const cfg = await this.lifecycle();
     const t = await this.tenantRow(tenantId);
     const s = this.subState(t);
