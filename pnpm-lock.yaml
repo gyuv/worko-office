@@ -41,6 +41,9 @@ importers:
       '@aws-sdk/client-s3':
         specifier: ^3.1157.0
         version: 3.1157.0
+      '@neondatabase/serverless':
+        specifier: ^1.2.0
+        version: 1.2.0
       '@nestjs/common':
         specifier: ^10.4.7
         version: 10.4.22(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -1987,6 +1990,10 @@ packages:
     engines: {node: ^22.20 || ^24.12 || >=25}
     cpu: [x64]
     os: [linux]
+
+  '@neondatabase/serverless@1.2.0':
+    resolution: {integrity: sha512-tnaqgixUengZQNd9ZrS3ytQfamJzLKY8QxgqWQTNHHtB+KrFQWk77JTbbpg4RD+J3qE4eO2lVytvGDX5Kj6FdQ==}
+    engines: {node: '>=19.0.0'}
 
   '@nestjs/common@10.4.22':
     resolution: {integrity: sha512-fxJ4v85nDHaqT1PmfNCQ37b/jcv2OojtXTaK1P2uAXhzLf9qq6WNUOFvxBrV4fhQek1EQoT1o9oj5xAZmv3NRw==}
@@ -8805,6 +8812,8 @@ snapshots:
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
+
+  '@neondatabase/serverless@1.2.0': {}
 
   '@nestjs/common@10.4.22(reflect-metadata@0.2.2)(rxjs@7.8.2)':
     dependencies:

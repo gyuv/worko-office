@@ -23,6 +23,9 @@ services:
         value: "1"
       - key: DATABASE_URL
         sync: false   # paste the Neon connection string (postgresql://…?sslmode=require)
+      # Talk to Neon over WebSockets (port 443): Render's free tier can't reach Neon on 5432.
+      - key: DB_DRIVER
+        value: neon
       - key: JWT_SIGNING_KEY
         generateValue: true
       - key: FIELD_ENCRYPTION_KEY
