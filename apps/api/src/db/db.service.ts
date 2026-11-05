@@ -1,5 +1,6 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
-import pg from 'pg';
+import type pg from 'pg';
+import { Pool } from './pg.js';
 import { currentCausation } from '../automation/causation.js';
 
 export type Tx = pg.PoolClient;
@@ -10,7 +11,7 @@ export type Tx = pg.PoolClient;
  */
 @Injectable()
 export class DbService implements OnModuleDestroy {
-  readonly pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: Number(process.env.DB_POOL ?? 10),
+  readonly pool = new Pool({ connectionString: process.env.DATABASE_URL, max: Number(process.env.DB_POOL ?? 10),
     // Fail fast instead of hanging when the pool is exhausted (D173).
     connectionTimeoutMillis: Number(process.env.DB_CONNECT_TIMEOUT_MS ?? 10_000),
     // Default ceilings for every pooled statement / idle transaction (D199); report runs set a tighter LOCAL timeout.

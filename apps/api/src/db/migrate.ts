@@ -1,12 +1,12 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import pg from 'pg';
+import { Client } from './pg.js';
 
 const DIR = fileURLToPath(new URL('../../db/', import.meta.url));
 
 /** Applies db/*.sql in order, once each, inside a transaction per file. Runs as the schema owner. */
 export async function migrate(url: string, log: (s: string) => void = () => {}): Promise<string[]> {
-  const c = new pg.Client({ connectionString: url });
+  const c = new Client({ connectionString: url });
   await c.connect();
   try {
     await c.query('CREATE TABLE IF NOT EXISTS schema_migration (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())');
