@@ -42,6 +42,10 @@ services:
       # No billing anywhere: every firm is Enterprise (unlimited), active forever; no invoices or suspension.
       - key: SAAS_FREE_FOREVER
         value: "1"
+      # No online payment collection (free setup): "Pay now" links are simply unavailable.
+      # Production refuses the fake "mock" provider, so it must be set to something else.
+      - key: PAYMENT_PROVIDER
+        value: none
       - key: AI_DISABLED
         value: "1"
 
