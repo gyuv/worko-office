@@ -88,9 +88,16 @@ function Tenants({ onOpen }: { onOpen(id: string): void }) {
   const t = useT();
   const [q, setQ] = useState('');
   const list = useQuery({ queryKey: ['p', 'tenants', q], queryFn: () => pfetch<TenantRow[]>(`/platform/tenants?q=${encodeURIComponent(q)}`) });
+  const [creating, setCreating] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
   return (
     <section className="space-y-2">
-      <input className="input max-w-sm" aria-label={t('p12a.pl.search')} placeholder={t('p12a.pl.search')} value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="flex flex-wrap items-center gap-2">
+        <input className="input max-w-sm" aria-label={t('p12a.pl.search')} placeholder={t('p12a.pl.search')} value={q} onChange={(e) => setQ(e.target.value)} />
+        {!creating && <button className="btn ml-auto" onClick={() => { setCreating(true); setDone(null); }}>+ {t('p12a.pl.newFirm')}</button>}
+      </div>
+      {done && <p role="status" className="card p-2">{t('p12a.pl.created', { slug: done })}</p>}
+      {creating && <CreateFirm onCancel={() => setCreating(false)} onCreated={(slug) => { setCreating(false); setDone(slug); }} />}
       <table className="card w-full text-left text-sm"><thead><tr><th className="p-2">{t('p12a.pl.col.firm')}</th><th>{t('p12a.pl.col.plan')}</th><th>{t('p12a.pl.col.status')}</th><th>{t('p12a.pl.col.sub')}</th><th>{t('p12a.pl.col.created')}</th></tr></thead>
         <tbody>{(list.data ?? []).map((r) => (
           <tr key={r.id} className="cursor-pointer border-t border-border hover:bg-surface-alt" onClick={() => onOpen(r.id)}>
@@ -98,6 +105,91 @@ function Tenants({ onOpen }: { onOpen(id: string): void }) {
           </tr>))}</tbody>
       </table>
     </section>
+  );
+}
+
+function CreateFirm({ onCancel, onCreated }: { onCancel(): void; onCreated(slug: string): void }) {
+  const t = useT();
+  const qc = useQueryClient();
+  const [f, setF] = useState({ firmName: '', slug: '', stateCode: '', seatLimit: '', name: '', email: '', phone: '', password: '' });
+  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
+  const [error, setError] = useState<string | null>(null);
+  const create = useMutation({
+    mutationFn: () => pfetch<{ slug: string }>('/platform/tenants', { method: 'POST', body: {
+      firmName: f.firmName, slug: f.slug.trim().toLowerCase(), stateCode: f.stateCode, seatLimit: f.seatLimit ? Number(f.seatLimit) : null,
+      admin: { name: f.name, email: f.email, password: f.password, phone: f.phone || undefined } } }),
+    onSuccess: (r) => { void qc.invalidateQueries({ queryKey: ['p'] }); onCreated(r.slug); },
+    onError: (e) => setError((e as Error).message),
+  });
+  return (
+    <form className="card space-y-2 p-3 text-sm" aria-label={t('p12a.pl.newFirm')} onSubmit={(e) => { e.preventDefault(); setError(null); create.mutate(); }}>
+      <h2 className="font-semibold">{t('p12a.pl.newFirm')}</h2>
+      <p className="text-muted">{t('p12a.pl.newFirmHint')}</p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Field label={t('p12a.pl.firmName')}><input className="input" value={f.firmName} onChange={set('firmName')} required minLength={2} /></Field>
+        <Field label={t('p12a.pl.firmId')}><input className="input" value={f.slug} onChange={set('slug')} required pattern="[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?" title={t('p12a.pl.firmIdHint')} placeholder="rao-associates" /></Field>
+        <Field label={t('p12a.pl.state')}><input className="input" value={f.stateCode} onChange={set('stateCode')} required pattern="\d{2}" inputMode="numeric" placeholder="33" /></Field>
+        <Field label={t('p12a.pl.userLimit')}><input className="input" type="number" min={1} value={f.seatLimit} onChange={set('seatLimit')} /></Field>
+        <Field label={t('p12a.pl.adminName')}><input className="input" value={f.name} onChange={set('name')} required /></Field>
+        <Field label={t('p12a.pl.adminEmail')}><input className="input" type="email" value={f.email} onChange={set('email')} required /></Field>
+        <Field label={t('p12a.pl.adminPhone')}><input className="input" value={f.phone} onChange={set('phone')} /></Field>
+        <Field label={t('p12a.pl.adminPassword')}><input className="input" type="password" autoComplete="new-password" value={f.password} onChange={set('password')} required minLength={8} /></Field>
+      </div>
+      {error && <p role="alert" className="text-overdue">{error}</p>}
+      <div className="flex gap-2"><button className="btn" disabled={create.isPending}>{t('p12a.pl.create')}</button><button type="button" className="btn" onClick={onCancel}>{t('p12a.pl.cancel')}</button></div>
+    </form>
+  );
+}
+
+type FirmUser = { id: string; name: string; email: string; status: string; roles: string[]; lockedUntil: string | null; lastSignIn: string | null };
+
+function FirmUsers({ id }: { id: string }) {
+  const t = useT();
+  const users = useQuery({ queryKey: ['p', 'tenant-users', id], queryFn: () => pfetch<FirmUser[]>(`/platform/tenants/${id}/users`) });
+  const [resetFor, setResetFor] = useState<string | null>(null); const [pw, setPw] = useState('');
+  const [msg, setMsg] = useState<string | null>(null);
+  const reset = useMutation({
+    mutationFn: (userId: string) => pfetch(`/platform/tenants/${id}/users/${userId}/reset-password`, { method: 'POST', body: { password: pw } }),
+    onSuccess: () => { setResetFor(null); setPw(''); setMsg(t('p12a.pl.pwReset')); void users.refetch(); }, onError: (e) => setMsg((e as Error).message),
+  });
+  return (
+    <div className="card space-y-2 p-3"><h3 className="font-semibold">{t('p12a.pl.users')} ({users.data?.length ?? 0})</h3>
+      {msg && <p role="status">{msg}</p>}
+      <ul className="space-y-1">{(users.data ?? []).map((u) => (
+        <li key={u.id} className="flex flex-wrap items-center gap-2 border-t border-border pt-1">
+          <span><strong>{u.name}</strong> · {u.email} · {u.roles.join(', ')} · <span className={u.status === 'active' ? '' : 'text-overdue'}>{u.status}</span>
+            {u.lockedUntil && new Date(u.lockedUntil) > new Date() ? <span className="text-overdue"> · {t('p12a.pl.locked')}</span> : null}
+            <span className="text-muted"> · {u.lastSignIn ? t('p12a.pl.lastSignIn', { at: formatDateTime(u.lastSignIn) }) : t('p12a.pl.never')}</span></span>
+          {resetFor === u.id
+            ? <form className="flex gap-1" onSubmit={(e) => { e.preventDefault(); reset.mutate(u.id); }}>
+                <input className="input" type="password" autoComplete="new-password" aria-label={t('p12a.pl.newPassword')} placeholder={t('p12a.pl.newPassword')} value={pw} onChange={(e) => setPw(e.target.value)} minLength={8} required />
+                <button className="btn">{t('p12a.pl.save')}</button><button type="button" className="btn" onClick={() => setResetFor(null)}>{t('p12a.pl.cancel')}</button></form>
+            : <button className="btn ml-auto" onClick={() => { setResetFor(u.id); setPw(''); setMsg(null); }}>{t('p12a.pl.resetPw')}</button>}
+        </li>))}</ul>
+    </div>
+  );
+}
+
+function FirmExport({ id, slug }: { id: string; slug: string }) {
+  const t = useT();
+  const [reason, setReason] = useState(''); const [error, setError] = useState<string | null>(null);
+  const exp = useMutation({
+    mutationFn: () => pfetch<unknown>(`/platform/tenants/${id}/export`, { method: 'POST', body: { reason } }),
+    onSuccess: (data) => {
+      const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+      const a = document.createElement('a'); a.href = url; a.download = `${slug}-export-${new Date().toISOString().slice(0, 10)}.json`; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000); setReason('');
+    },
+    onError: (e) => setError((e as Error).message),
+  });
+  return (
+    <div className="card space-y-2 p-3"><h3 className="font-semibold">{t('p12a.pl.export')}</h3><p className="text-muted">{t('p12a.pl.exportHint')}</p>
+      <div className="flex flex-wrap items-end gap-2">
+        <Field label={t('p12a.pl.exportReason')}><input className="input" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
+        <button className="btn" disabled={reason.trim().length < 5 || exp.isPending} onClick={() => { setError(null); exp.mutate(); }}>{exp.isPending ? t('p12a.pl.exporting') : t('p12a.pl.export')}</button>
+      </div>
+      {error && <p role="alert" className="text-overdue">{error}</p>}
+    </div>
   );
 }
 
@@ -132,6 +224,8 @@ function TenantDetail({ id, onBack }: { id: string; onBack(): void }) {
       {error && <p role="alert" className="text-overdue">{error}</p>}
       <div className="card space-y-1 p-3"><h3 className="font-semibold">{t('p12a.pl.usage')}</h3>
         <p>{t('p12a.pl.seats', { used: u.seatsUsed, limit: u.seatLimit ?? t('p12a.pl.unlimited') })} · {t('p12a.pl.storage', { used: bytes(u.storageBytes) })} · {t('p12a.pl.messages', { n: u.messages })} · {t('p12a.pl.ai', { n: u.aiCalls, cost: formatINR(u.aiCostPaise) })}</p></div>
+      <FirmUsers id={id} />
+      <FirmExport id={id} slug={tn.slug} />
       <div className="card space-y-2 p-3">
         <h3 className="font-semibold">{t('p12a.pl.flags')}</h3><p className="text-muted">{t('p12a.pl.flagsHint')}</p>
         <ul className="flex flex-wrap gap-3">{SAAS_FEATURES.map((f) => {
@@ -143,9 +237,9 @@ function TenantDetail({ id, onBack }: { id: string; onBack(): void }) {
         })}</ul>
       </div>
       <div className="card grid gap-2 p-3 sm:grid-cols-3">
-        <Field label={t('p12a.pl.col.plan')}><select className="input" value={plan} onChange={(e) => setPlan(e.target.value)}><option value="" />{(plans.data ?? []).map((p) => <option key={p.key} value={p.key}>{p.name}</option>)}</select></Field>
-        <Field label={t('p12a.pl.seatOverride')}><input className="input" type="number" min={1} value={seats} onChange={(e) => setSeats(e.target.value)} /></Field>
-        <button className="btn self-end" disabled={!plan} onClick={() => call.mutate({ path: `/platform/tenants/${id}/plan`, method: 'PUT', body: { planKey: plan, seatLimit: seats ? Number(seats) : null } })}>{t('p12a.pl.assign')}</button>
+        <Field label={t('p12a.pl.col.plan')}><select className="input" value={plan || tn.plan} onChange={(e) => setPlan(e.target.value)}>{(plans.data ?? []).map((p) => <option key={p.key} value={p.key}>{p.name}</option>)}</select></Field>
+        <Field label={t('p12a.pl.seatOverride')}><input className="input" type="number" min={1} placeholder={tn.seatLimit ? String(tn.seatLimit) : ''} value={seats} onChange={(e) => setSeats(e.target.value)} /></Field>
+        <button className="btn self-end" onClick={() => call.mutate({ path: `/platform/tenants/${id}/plan`, method: 'PUT', body: { planKey: plan || tn.plan, seatLimit: seats ? Number(seats) : null } })}>{t('p12a.pl.assign')}</button>
       </div>
       <div className="card flex flex-wrap items-end gap-2 p-3">
         {tn.status === 'suspended'

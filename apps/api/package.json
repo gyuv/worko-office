@@ -14,6 +14,7 @@
     "gen:public-openapi": "tsx scripts/gen-public-openapi.ts",
     "rotate-kek": "tsx src/db/rotate-kek.ts",
     "platform:admin": "tsx src/platform/create-admin.ts",
+    "platform:bootstrap": "tsx src/platform/bootstrap-admin.ts",
     "lint": "eslint . --max-warnings=0"
   },
   "dependencies": {

@@ -114,6 +114,7 @@ import { DpdpService } from './dpdp/dpdp.service.js';
 import { ImpersonationService } from './platform/impersonation.service.js';
 import { PlatformAuditService } from './platform/platform-audit.service.js';
 import { PlatformAuthService } from './platform/platform-auth.service.js';
+import { FirmAdminService } from './platform/firm-admin.service.js';
 import { PlatformController, SaasWebhookController, SubscriptionController } from './platform/platform.controller.js';
 import { SaasService } from './platform/saas.service.js';
 
@@ -129,7 +130,7 @@ import { SaasService } from './platform/saas.service.js';
     PlatformController, SaasWebhookController, SubscriptionController, DpdpController, PortalPrivacyController,
     DevelopersController, PublicApiDocsController],
   providers: [
-    DbService, AuditService, TokenService, AuthService, TenancyService, UsersService, RulesService,
+    DbService, AuditService, TokenService, AuthService, TenancyService, FirmAdminService, UsersService, RulesService,
     RealtimeService, RealtimeGateway, JobQueueService, SyncService, NotificationsService,
     { provide: SYNC_TABLES_TOKEN, useValue: SYNC_TABLES },
     ClientsService, VisibilityService, ImportService, VaultService, DocumentsService, RegistersService, KeyService,

@@ -6342,7 +6342,8 @@ export interface paths {
         /** @description Firms list/search (q matches name/slug; status = active|suspended|trial|past_due|cancelled). */
         get: operations["platformTenants"];
         put?: never;
-        post?: never;
+        /** @description Provision a firm: firm ID (slug), firm name, state, optional seat limit (null = plan default) and its first admin user, who becomes the firm Partner and manages its users. Audited. */
+        post: operations["platformCreateTenant"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6360,6 +6361,57 @@ export interface paths {
         get: operations["platformTenant"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/tenants/{id}/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Users of a firm (name, email, status, roles, lockout, last sign-in). No secrets. Audited. */
+        get: operations["platformTenantUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/tenants/{id}/users/{userId}/reset-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Sets a new password for a firm user (password policy applies), clears lockout and signs them out everywhere. Audited in platform AND firm logs. */
+        post: operations["platformResetUserPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/tenants/{id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description All rows of every firm-scoped table as JSON (passwords, tokens, 2FA secrets and encrypted fields excluded). Reason required; reason and row counts audited. */
+        post: operations["platformExportTenant"];
         delete?: never;
         options?: never;
         head?: never;
@@ -20955,6 +21007,49 @@ export interface operations {
             403: components["responses"]["Error"];
         };
     };
+    platformCreateTenant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    firmName: string;
+                    slug: string;
+                    stateCode: string;
+                    seatLimit?: number | null;
+                    admin: {
+                        name: string;
+                        /** Format: email */
+                        email: string;
+                        password: string;
+                        phone?: string;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        tenantId?: string;
+                        adminUserId?: string;
+                        slug?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
     platformTenant: {
         parameters: {
             query?: never;
@@ -20975,6 +21070,93 @@ export interface operations {
                     "application/json": Record<string, never>;
                 };
             };
+            401: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    platformTenantUsers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>[];
+                };
+            };
+            401: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    platformResetUserPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    password: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    platformExportTenant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             404: components["responses"]["Error"];
         };

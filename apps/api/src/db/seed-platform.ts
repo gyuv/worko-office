@@ -18,6 +18,7 @@ export async function seedPlatform(db: DbService, tenantId: string, today: strin
   const audit = new AuditService(); const keys = new KeyService(new LocalKms());
   const admin = await db.systemTx(async (tx) => {
     if ((await tx.query('SELECT 1 FROM platform_admin WHERE email = $1', [PLATFORM_DEMO.email])).rowCount) return null;
+    if (process.env.NODE_ENV === 'production') return null; // public credentials: never in production (see bootstrap-admin.ts)
     return createPlatformAdmin(tx, { email: PLATFORM_DEMO.email, name: PLATFORM_DEMO.name, password: PLATFORM_DEMO.password, secret: Buffer.from(PLATFORM_DEMO.totpSecretHex, 'hex') });
   });
   const trialEnd = addDaysIso(today, -15);
