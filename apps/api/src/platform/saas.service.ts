@@ -16,7 +16,7 @@ import { PlatformAuditService } from './platform-audit.service.js';
 export const SAAS_JOB = 'saas.daily';
 /** SAAS_FREE_FOREVER=1: every firm is on Enterprise (unlimited), active, with no period end; no invoices, dunning or suspension. */
 export const saasFreeForever = () => process.env.SAAS_FREE_FOREVER === '1' || process.env.SAAS_FREE_FOREVER === 'true';
-export const FREE_FOREVER_SQL = `UPDATE tenant SET plan = 'enterprise', sub_status = 'active', period_end = NULL, past_due_since = NULL, sub_suspended_since = NULL, cancelled_at = NULL WHERE id = $1`;
+export const FREE_FOREVER_SQL = `UPDATE tenant SET plan = 'enterprise', sub_status = 'active', trial_ends_on = NULL, period_end = NULL, past_due_since = NULL, sub_suspended_since = NULL, cancelled_at = NULL WHERE id = $1`;
 type PlanRow = Plan & { active: boolean };
 type Supplier = { name: string; gstin: string | null; stateCode: string; address: string; sac: string; gstRate: number; invoicePrefix: string };
 

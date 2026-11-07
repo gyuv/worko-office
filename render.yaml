@@ -13,7 +13,7 @@ services:
     region: singapore
     healthCheckPath: /v1/health
     buildCommand: corepack enable && pnpm install --frozen-lockfile --prod=false && pnpm turbo run build --filter=@worko/api...
-    startCommand: cd apps/api && pnpm migrate && pnpm seed:demo && pnpm start
+    startCommand: cd apps/api && pnpm migrate && pnpm seed:demo && pnpm platform:bootstrap && pnpm start
     envVars:
       - key: NODE_VERSION
         value: "22"
@@ -46,6 +46,12 @@ services:
       # Production refuses the fake "mock" provider, so it must be set to something else.
       - key: PAYMENT_PROVIDER
         value: none
+      # Your super-admin login for the platform console (#/platform). Set both in the Render dashboard.
+      # On first start the log prints a one-time authenticator setup key. The demo super-admin is disabled in production.
+      - key: PLATFORM_ADMIN_EMAIL
+        sync: false
+      - key: PLATFORM_ADMIN_PASSWORD
+        sync: false
       - key: AI_DISABLED
         value: "1"
 

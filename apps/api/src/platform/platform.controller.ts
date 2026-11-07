@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { CurrentActor, CurrentPlatform, Perm, PlatformRoute, Public, type PlatformActor, type RequestActor } from '../auth/context.js';
 import { Clock } from '../common/clock.js';
 import { ZodPipe } from '../common/zod.pipe.js';
+import { FirmAdminService } from './firm-admin.service.js';
 import { ImpersonationService } from './impersonation.service.js';
 import { PlatformAuditService } from './platform-audit.service.js';
 import { PlatformAuthService } from './platform-auth.service.js';
@@ -22,6 +23,15 @@ const runB = z.object({ today: isoDate.optional() }).strict();
 const impB = z.object({ reason: z.string().trim().min(10).max(500), write: z.boolean().default(false), minutes: z.number().int().min(5).max(IMPERSONATION_MAX_MINUTES).default(60) }).strict();
 const priceB = z.object({ cycle: z.enum(BILLING_CYCLES), pricePaise: z.number().int().min(0).max(1e11), effectiveFrom: isoDate, notes: z.string().max(300).optional(), unverified: z.boolean().optional() }).strict();
 const auditQ = z.object({ tenantId: z.string().uuid().optional(), limit: z.coerce.number().int().min(1).max(1000).default(200) }).strict();
+const slugRe = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/; // same rule as self-signup
+const createFirmB = z.object({
+  firmName: z.string().trim().min(2).max(200), slug: z.string().trim().toLowerCase().regex(slugRe, 'Lowercase letters, digits and hyphens'),
+  stateCode: z.string().regex(/^\d{2}$/), seatLimit: z.number().int().positive().max(100000).nullable().optional(),
+  admin: z.object({ name: z.string().trim().min(1).max(200), email: z.string().trim().email().max(200), password: z.string().min(8).max(200),
+    phone: z.string().trim().max(20).optional() }).strict(),
+}).strict();
+const resetPwB = z.object({ password: z.string().min(8).max(200) }).strict();
+const exportB = z.object({ reason: z.string().trim().min(5).max(500) }).strict();
 const meta = (req: Request) => ({ ip: req.ip ?? null, userAgent: req.headers['user-agent'] });
 
 /**
@@ -31,7 +41,8 @@ const meta = (req: Request) => ({ ip: req.ip ?? null, userAgent: req.headers['us
 @Controller('platform')
 @PlatformRoute()
 export class PlatformController {
-  constructor(private auth: PlatformAuthService, private saas: SaasService, private imp: ImpersonationService, private paudit: PlatformAuditService, private clock: Clock) {}
+  constructor(private auth: PlatformAuthService, private saas: SaasService, private imp: ImpersonationService, private paudit: PlatformAuditService, private clock: Clock,
+    private firms: FirmAdminService) {}
 
   @Public() @Throttle({ default: { limit: Number(process.env.AUTH_RATE_LIMIT ?? 10), ttl: 60_000 } }) @Post('auth/login') @HttpCode(200)
   login(@Body(new ZodPipe(loginB)) b: z.infer<typeof loginB>, @Req() req: Request) { return this.auth.login(b.email, b.password, b.totp, meta(req)); }
@@ -108,6 +119,22 @@ export class PlatformController {
 
   @Get('audit/verify')
   verify() { return this.paudit.verify(); }
+
+  /** Provision a firm: firm ID (slug), first admin user (Partner) and seat limit. */
+  @Post('tenants')
+  createFirm(@CurrentPlatform() p: PlatformActor, @Body(new ZodPipe(createFirmB)) b: z.infer<typeof createFirmB>) { return this.firms.createFirm(p, b); }
+
+  @Get('tenants/:id/users')
+  firmUsers(@CurrentPlatform() p: PlatformActor, @Param('id', uuid) id: string) { return this.firms.users(p, id); }
+
+  @Post('tenants/:id/users/:userId/reset-password') @HttpCode(200)
+  resetPassword(@CurrentPlatform() p: PlatformActor, @Param('id', uuid) id: string, @Param('userId', uuid) userId: string, @Body(new ZodPipe(resetPwB)) b: z.infer<typeof resetPwB>) {
+    return this.firms.resetPassword(p, id, userId, b.password);
+  }
+
+  /** Full firm data as JSON (secrets excluded); a reason is required and audited. */
+  @Post('tenants/:id/export') @HttpCode(200)
+  exportFirm(@CurrentPlatform() p: PlatformActor, @Param('id', uuid) id: string, @Body(new ZodPipe(exportB)) b: z.infer<typeof exportB>) { return this.firms.exportFirm(p, id, b.reason); }
 }
 
 /** SaaS payment webhooks (signature-verified per provider; no tenant in the URL — the link id maps to it). */
