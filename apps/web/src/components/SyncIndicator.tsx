@@ -30,8 +30,8 @@ export function BellButton() {
   const go = useRoute((s) => s.go);
   const unread = useNotifications().filter((n) => !n.readAt).length;
   return (
-    <button className="btn relative" aria-label={`${t('nav.notifications')}${unread ? `, ${t('notif.unread', { count: unread })}` : ''}`} onClick={() => go('notifications')}>
-      <Bell size={14} aria-hidden />
+    <button className="icon-btn relative" aria-label={`${t('nav.notifications')}${unread ? `, ${t('notif.unread', { count: unread })}` : ''}`} onClick={() => go('notifications')}>
+      <Bell size={16} aria-hidden />
       {unread > 0 && <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-overdue px-1 text-center text-[10px] font-bold text-white">{unread > 99 ? '99+' : unread}</span>}
     </button>
   );
