@@ -311,7 +311,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     console.log(`Client portal (firm "${DEMO.firm}", one-time code login — POST /v1/portal/auth/otp/request):`);
     for (const [k, p] of Object.entries(PORTAL_DEMO)) console.log(`  ${k.padEnd(10)} ${p.email}  or  ${p.phone}  → clients ${p.clients.join(', ')}`);
     console.log('  Codes go through the mock channel: with NODE_ENV=development and PORTAL_DEV_LOG_OTP=1 the API logs them; with COMM_EMAIL_PROVIDER=smtp they land in Mailpit (http://localhost:8025).');
-    console.log(`Platform console (#/platform; DEV ONLY): ${PLATFORM_DEMO.email}  /  ${PLATFORM_DEMO.password}  + authenticator secret ${base32Encode(Buffer.from(PLATFORM_DEMO.totpSecretHex, 'hex'))}`);
+    if (process.env.NODE_ENV === 'production') console.log('Platform console: the demo super-admin is disabled in production; set PLATFORM_ADMIN_EMAIL / PLATFORM_ADMIN_PASSWORD.');
+    else console.log(`Platform console (#/platform; DEV ONLY): ${PLATFORM_DEMO.email}  /  ${PLATFORM_DEMO.password}  + authenticator secret ${base32Encode(Buffer.from(PLATFORM_DEMO.totpSecretHex, 'hex'))}`);
     if (r.created && 'apiKey' in r) console.log(`Public API key (prefix ${r.apiKeyPrefix}; dev seed only — shown once): ${r.apiKey}\n  curl -H "Authorization: Bearer ${r.apiKey}" http://localhost:3000/v1/clients`);
   }).catch((e) => { console.error(e); process.exit(1); });
 }
