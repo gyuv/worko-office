@@ -52,6 +52,19 @@ services:
         sync: false
       - key: PLATFORM_ADMIN_PASSWORD
         sync: false
+      # Uploaded files in Cloudflare R2 (free tier: 10 GB). Without these, files live on Render's disk and are lost on restart.
+      - key: STORAGE
+        value: s3
+      - key: S3_REGION
+        value: auto
+      - key: S3_ENDPOINT     # https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ACCESS_KEY   # R2 API token: Access Key ID
+        sync: false
+      - key: S3_SECRET_KEY   # R2 API token: Secret Access Key
+        sync: false
       - key: AI_DISABLED
         value: "1"
 
