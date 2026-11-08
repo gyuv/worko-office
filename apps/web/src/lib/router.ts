@@ -4,7 +4,7 @@ import { create } from 'zustand';
  * Tiny hash router. Top-level modules are flat (`#/security`); some modules take sub-paths
  * (`#/clients/<uuid>`, `#/clients/import`). `route` is always the module; `params` the remaining segments.
  */
-export const ROUTES = ['home', 'tasks', 'clients', 'compliance', 'billing', 'receipts', 'documents', 'registers', 'time', 'attendance', 'leave', 'expenses', 'reports', 'notifications', 'team', 'security', 'audit', 'todos', 'settings', 'comm', 'chat', 'calendar', 'booking', 'notices', 'engagements', 'dsc', 'licences', 'esign', 'leads', 'automation', 'suggestions'] as const;
+export const ROUTES = ['home', 'tasks', 'clients', 'compliance', 'billing', 'receipts', 'documents', 'registers', 'time', 'attendance', 'leave', 'expenses', 'reports', 'notifications', 'team', 'security', 'audit', 'todos', 'settings', 'comm', 'chat', 'calendar', 'booking', 'notices', 'engagements', 'dsc', 'licences', 'esign', 'leads', 'automation', 'suggestions', 'appearance'] as const;
 export type Route = (typeof ROUTES)[number];
 export type Location = { route: Route; params: string[] };
 
@@ -23,6 +23,11 @@ export function clientsView(params: string[]): { view: 'list' } | { view: 'impor
   if (params[0] === 'import') return { view: 'import' };
   if (isUuid(params[0])) return { view: 'detail', id: params[0] };
   return { view: 'list' };
+}
+
+/** Query string of the hash (`#/tasks?status=done` → status=done), for deep links that preset filters. */
+export function hashQuery(hash: string = typeof location !== 'undefined' ? location.hash : ''): URLSearchParams {
+  return new URLSearchParams(hash.split('?')[1] ?? '');
 }
 
 const current = (): Location => parseHash(typeof location !== 'undefined' ? location.hash : '');

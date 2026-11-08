@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { can, coversRole } from '@worko/domain';
+import { can, coversRole, type Grant } from '@worko/domain';
 import { loadUserRoles } from '../auth/roles.repo.js';
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -108,5 +108,64 @@ export class UsersService {
   roles(a: RequestActor) {
     return this.db.tenantTx(a.tenantId, async (tx) => (await tx.query(
       'SELECT id, key, name, system, grants, hidden_fields AS "hiddenFields" FROM role WHERE deleted_at IS NULL ORDER BY system DESC, name')).rows);
+  }
+
+  // ---------------- per-user UI preferences ----------------
+
+  async uiPrefs(a: RequestActor) {
+    return this.db.tenantTx(a.tenantId, async (tx) => (await tx.query('SELECT ui_prefs AS p FROM app_user WHERE id = $1', [a.userId])).rows[0]?.p ?? {});
+  }
+
+  async setUiPrefs(a: RequestActor, prefs: Record<string, unknown>) {
+    return this.db.tenantTx(a.tenantId, async (tx) => {
+      const r = (await tx.query('UPDATE app_user SET ui_prefs = $2 WHERE id = $1 RETURNING ui_prefs AS p', [a.userId, JSON.stringify(prefs)])).rows[0];
+      await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'user.ui_prefs_changed', entity: 'app_user', entityId: a.userId, diff: prefs });
+      return r?.p ?? {};
+    });
+  }
+
+  // ---------------- roles (firm admin) ----------------
+
+  /** Custom role: a key, a name and grants (usually cloned from an existing role, then edited). */
+  async createRole(a: RequestActor, b: { key: string; name: string; grants: unknown[]; hiddenFields?: string[] }) {
+    return this.db.tenantTx(a.tenantId, async (tx) => {
+      if (!a.roles.some((r) => r.key === 'partner') && !coversRole(a, { grants: b.grants as Grant[], hiddenFields: b.hiddenFields })) throw new ForbiddenException({ code: 'role_escalation', message: 'You can only grant permissions you hold yourself' });
+      const id = uuidv7();
+      try {
+        await tx.query('INSERT INTO role (id, tenant_id, key, name, system, grants, hidden_fields, updated_by) VALUES ($1,$2,$3,$4,false,$5,$6,$7)',
+          [id, a.tenantId, b.key, b.name, JSON.stringify(b.grants), b.hiddenFields ?? [], a.userId]);
+      } catch (e) {
+        if ((e as { code?: string }).code === '23505') throw new ConflictException({ code: 'role_exists', message: 'A role with that key already exists' });
+        throw e;
+      }
+      await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'role.created', entity: 'role', entityId: id, diff: { key: b.key, name: b.name, grants: b.grants.length } });
+      return { id };
+    });
+  }
+
+  /** Edit a role's name/grants/hidden fields. The Partner role is locked so a firm can never lose its administrator. */
+  async updateRole(a: RequestActor, id: string, b: { name?: string; grants?: unknown[]; hiddenFields?: string[] }) {
+    return this.db.tenantTx(a.tenantId, async (tx) => {
+      const r = (await tx.query('SELECT id, key FROM role WHERE id = $1 AND deleted_at IS NULL', [id])).rows[0];
+      if (!r) throw new NotFoundException();
+      if (r.key === 'partner') throw new BadRequestException({ code: 'role_locked', message: 'The Partner role always has full access and cannot be changed' });
+      if (!a.roles.some((r) => r.key === 'partner') && !coversRole(a, { grants: (b.grants ?? []) as Grant[], hiddenFields: b.hiddenFields })) throw new ForbiddenException({ code: 'role_escalation', message: 'You can only grant permissions you hold yourself' });
+      await tx.query(`UPDATE role SET name = COALESCE($2, name), grants = COALESCE($3::jsonb, grants), hidden_fields = COALESCE($4, hidden_fields),
+        version = version + 1, updated_at = now(), updated_by = $5 WHERE id = $1`,
+      [id, b.name ?? null, b.grants ? JSON.stringify(b.grants) : null, b.hiddenFields ?? null, a.userId]);
+      await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'role.updated', entity: 'role', entityId: id, diff: { name: b.name, grants: b.grants?.length, hiddenFields: b.hiddenFields } });
+    });
+  }
+
+  /** Delete a custom role that nobody holds. */
+  async deleteRole(a: RequestActor, id: string) {
+    return this.db.tenantTx(a.tenantId, async (tx) => {
+      const r = (await tx.query('SELECT id, system FROM role WHERE id = $1 AND deleted_at IS NULL', [id])).rows[0];
+      if (!r) throw new NotFoundException();
+      if (r.system) throw new BadRequestException({ code: 'role_system', message: 'Built-in roles cannot be deleted' });
+      if ((await tx.query('SELECT 1 FROM user_role WHERE role_id = $1 LIMIT 1', [id])).rowCount) throw new ConflictException({ code: 'role_in_use', message: 'Move the users holding this role to another role first' });
+      await tx.query('UPDATE role SET deleted_at = now(), updated_by = $2 WHERE id = $1', [id, a.userId]);
+      await this.audit.record(tx, a.tenantId, { actorId: a.userId, deviceId: a.deviceId, action: 'role.deleted', entity: 'role', entityId: id });
+    });
   }
 }

@@ -64,7 +64,7 @@ export function HomeScreen() {
             {t('home.greeting', { partOfDay, name: me?.name.split(' ')[0] ?? '' })} · {new Intl.DateTimeFormat('en-IN', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' }).format(new Date(now))}
           </h2>
         </div>
-        {canTasks && <a href="#/tasks" className="btn btn-primary px-5 py-2.5"><Plus size={16} aria-hidden /> {t('dash.addTask')}</a>}
+        {canTasks && <a href="#/tasks?new=1" className="btn btn-primary px-5 py-2.5"><Plus size={16} aria-hidden /> {t('dash.addTask')}</a>}
         <a href="#/clients/import" className="btn px-5 py-2.5"><Upload size={15} aria-hidden /> {t('dash.import')}</a>
       </div>
 
@@ -72,11 +72,11 @@ export function HomeScreen() {
         <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
           <StatCard i={0} hero label={t('dash.stat.total')} value={stats.total} loading={loading} href="#/tasks"
             note={<><TrendingUp size={12} aria-hidden /> {t('dash.stat.newThisMonth', { n: stats.createdThisMonth })}</>} />
-          <StatCard i={1} label={t('dash.stat.done')} value={stats.done} loading={loading} href="#/tasks"
+          <StatCard i={1} label={t('dash.stat.done')} value={stats.done} loading={loading} href="#/tasks?status=done"
             note={<><CheckCircle2 size={12} aria-hidden /> {t('dash.stat.doneThisMonth', { n: stats.doneThisMonth })}</>} />
-          <StatCard i={2} label={t('dash.stat.running')} value={stats.running} loading={loading} href="#/tasks"
+          <StatCard i={2} label={t('dash.stat.running')} value={stats.running} loading={loading} href="#/tasks?status=in_progress,review"
             note={<><Clock3 size={12} aria-hidden /> {t('dash.stat.overdue', { n: stats.overdue })}</>} />
-          <StatCard i={3} label={t('dash.stat.pending')} value={stats.pendingClient} loading={loading} href="#/tasks"
+          <StatCard i={3} label={t('dash.stat.pending')} value={stats.pendingClient} loading={loading} href="#/tasks?status=pending_client"
             note={t('dash.stat.onClient')} />
         </div>
       )}
@@ -198,7 +198,7 @@ function DueSoon({ i, items, now, loading }: { i: number; items: Task[]; now: nu
   const due = items.filter((x) => x.status !== 'done' && (x.actBy ?? x.statutoryDue))
     .sort((a, b) => (a.actBy ?? a.statutoryDue ?? '').localeCompare(b.actBy ?? b.statutoryDue ?? '')).slice(0, 5);
   return (
-    <Card i={i} title={t('dash.dueSoon')} action={<a href="#/tasks" className="btn py-1 text-sm"><Plus size={14} aria-hidden /> {t('dash.new')}</a>}>
+    <Card i={i} title={t('dash.dueSoon')} action={<a href="#/tasks?new=1" className="btn py-1 text-sm"><Plus size={14} aria-hidden /> {t('dash.new')}</a>}>
       {loading ? <div className="space-y-3">{[0, 1, 2, 3].map((k) => <div key={k} className="skeleton h-9" />)}</div> : due.length === 0 ? <p className="text-muted">{t('dash.nothingDue')}</p> : (
         <ul className="space-y-3">
           {due.map((x, k) => {

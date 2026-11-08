@@ -121,6 +121,13 @@ paths:
       tags: [users]
       operationId: listRoles
       responses: { '200': { description: Roles, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Role' } } } } } }
+    post: { tags: [users], operationId: createRole, description: 'Custom role (firm admin). Grants must be ones the caller holds (403 role_escalation) unless the caller is a Partner.', requestBody: { required: true, content: { application/json: { schema: { type: object, required: [key, name, grants], properties: { key: { type: string }, name: { type: string }, grants: { type: array, items: { type: object, required: [module, action, scope], properties: { module: { type: string }, action: { type: string }, scope: { type: string }, clientGroupIds: { type: array, items: { type: string } } } } }, hiddenFields: { type: array, items: { type: string } } } } } } }, responses: { '201': { description: Created, content: { application/json: { schema: { type: object, properties: { id: { type: string } } } } } }, '400': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' }, '409': { $ref: '#/components/responses/Error' } } }
+  /roles/{id}:
+    patch: { tags: [users], operationId: updateRole, description: 'Edit a role (the Partner role is locked). Takes effect on the next request of every holder.', parameters: [{ $ref: '#/components/parameters/Id' }], requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { name: { type: string }, grants: { type: array, items: { type: object, required: [module, action, scope], properties: { module: { type: string }, action: { type: string }, scope: { type: string }, clientGroupIds: { type: array, items: { type: string } } } } }, hiddenFields: { type: array, items: { type: string } } } } } } }, responses: { '204': { description: Updated }, '400': { $ref: '#/components/responses/Error' }, '403': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' } } }
+    delete: { tags: [users], operationId: deleteRole, description: 'Delete a custom role nobody holds (built-in roles cannot be deleted).', parameters: [{ $ref: '#/components/parameters/Id' }], responses: { '204': { description: Deleted }, '400': { $ref: '#/components/responses/Error' }, '404': { $ref: '#/components/responses/Error' }, '409': { $ref: '#/components/responses/Error' } } }
+  /me/ui-prefs:
+    get: { tags: [users], operationId: getUiPrefs, description: 'The caller''s display preferences.', responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/UiPrefs' } } } } } }
+    put: { tags: [users], operationId: setUiPrefs, description: 'Replace the caller''s display preferences (theme, accent, text size, density, motion, glass, hidden sidebar modules, sidebar). Audited.', requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UiPrefs' } } } }, responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/UiPrefs' } } } }, '400': { $ref: '#/components/responses/Error' } } }
   /audit:
     get:
       tags: [audit]
@@ -1506,6 +1513,17 @@ components:
     PortalTokens: { description: Portal tokens (separate issuer/audience — never valid on staff routes), content: { application/json: { schema: { $ref: '#/components/schemas/PortalTokenPair' } } } }
     Created: { description: Created, content: { application/json: { schema: { type: object, required: [id], properties: { id: { type: string } } } } } }
   schemas:
+    UiPrefs:
+      type: object
+      properties:
+        theme: { type: string, enum: [system, light, dark] }
+        accent: { type: string, enum: [green, blue, teal, indigo, violet, rose, amber, slate] }
+        fontScale: { type: string, enum: [sm, md, lg, xl] }
+        density: { type: string, enum: [comfortable, compact] }
+        motion: { type: string, enum: [full, reduced] }
+        glass: { type: boolean }
+        hiddenModules: { type: array, items: { type: string } }
+        sidebar: { type: string, enum: [expanded, compact] }
     ApiKey:
       type: object
       properties: { id: { type: string, format: uuid }, name: { type: string }, prefix: { type: string }, scopes: { type: array, items: { type: string } }, clientGroupIds: { type: [array, 'null'], items: { type: string, format: uuid } }, ipAllowlist: { type: array, items: { type: string } }, ratePerMin: { type: integer }, expiresAt: { type: [string, 'null'], format: date-time }, createdBy: { type: string, format: uuid }, createdByName: { type: [string, 'null'] }, createdAt: { type: string, format: date-time }, rotatedAt: { type: [string, 'null'] }, revokedAt: { type: [string, 'null'] }, lastUsedAt: { type: [string, 'null'] }, lastUsedIp: { type: [string, 'null'] }, status: { type: string, enum: [active, revoked, expired, creator_inactive] } }
