@@ -220,7 +220,7 @@ function Bubble({ theme, m, me, people, onLongPress }: { theme: Theme; m: Messag
   const own = m.authorId === me;
   return (
     <Pressable onLongPress={onLongPress} accessibilityHint={own ? t('m.chat.longPress') : undefined}
-      style={{ alignSelf: own ? 'flex-end' : 'flex-start', maxWidth: '85%', marginVertical: 3, padding: 8, borderRadius: 8, backgroundColor: own ? theme.surfaceAlt : theme.surface, borderWidth: 1, borderColor: theme.border }}>
+      style={{ alignSelf: own ? 'flex-end' : 'flex-start', maxWidth: '85%', marginVertical: 3, padding: 8, borderRadius: 16, backgroundColor: own ? theme.surfaceAlt : theme.glass, borderWidth: 1, borderColor: theme.border }}>
       {!own && <Text style={[s.muted, { fontWeight: '600' }]}>{nameOf(people, m.authorId)}</Text>}
       {m.deleted ? <Text style={[s.muted, { fontStyle: 'italic' }]}>{t('m.chat.deleted')}</Text> : (
         <Text style={s.text} selectable>

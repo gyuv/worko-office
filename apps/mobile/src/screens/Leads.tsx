@@ -65,7 +65,7 @@ function LeadCard({ theme, lead, onPress }: { theme: Theme; lead: LeadItem; onPr
   const s = ui(theme);
   const f = followupState(lead);
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" style={{ width: 220, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
+    <Pressable onPress={onPress} accessibilityRole="button" style={{ width: 220, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: theme.glassBorder, backgroundColor: theme.glass }}>
       <Text style={[s.text, { fontWeight: '600' }]} numberOfLines={1}>{lead.name}</Text>
       {!!lead.company && <Text style={s.muted} numberOfLines={1}>{lead.company}</Text>}
       {lead.expectedValuePaise > 0 && <Text style={s.text}>{formatINR(lead.expectedValuePaise)}</Text>}

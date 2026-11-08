@@ -17,7 +17,7 @@ const manageHref = (token: string, firm?: string) => `#/book/manage/${encodeURIC
 
 function Frame({ children }: { children: ReactNode }) {
   return (
-    <main className="mx-auto min-h-screen max-w-3xl space-y-4 bg-bg p-4 text-fg">
+    <main className="mx-auto min-h-screen max-w-3xl space-y-4 p-4 text-fg">
       {children}
       <footer className="pt-6 text-center text-xs text-muted">{PRODUCT.name}</footer>
     </main>

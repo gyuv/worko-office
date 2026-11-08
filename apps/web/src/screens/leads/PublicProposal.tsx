@@ -27,7 +27,7 @@ export function PublicProposal({ token }: { token: string }) {
   const style = { '--w-primary': accentColor(q.data?.accent, false) } as CSSProperties;
   const conflict = (decide.error as PortalHttpError | null)?.code;
   return (
-    <main style={style} className="mx-auto min-h-screen max-w-3xl space-y-4 bg-bg p-4 text-fg">
+    <main style={style} className="mx-auto min-h-screen max-w-3xl space-y-4 p-4 text-fg">
       {q.isError ? <p role="alert" className="card p-4">{t('p9.pub.notFound')}</p> : !q.data ? <p className="text-muted">{t('common.loading')}</p> : (() => {
         const v = q.data;
         return <>

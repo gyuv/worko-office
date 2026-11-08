@@ -44,7 +44,7 @@ function Portal({ loc }: { loc: PortalLoc }) {
   const style = { '--w-primary': accentColor(brand.data?.accent, isDark()) } as CSSProperties;
   if (firm !== loc.firm) return null;
   return (
-    <div style={style} className="min-h-screen bg-bg text-fg">
+    <div style={style} className="min-h-screen text-fg">
       {brand.isError ? <main className="mx-auto max-w-md p-4"><p role="alert" className="card p-4">{t('p9.portal.notFound')}</p></main>
         : !brand.data ? <p className="p-4 text-muted" aria-live="polite">{t('common.loading')}</p>
         : tokens ? <PortalShell loc={loc} brand={brand.data} /> : <PortalLogin firm={loc.firm} brand={brand.data} />}

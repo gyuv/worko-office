@@ -190,7 +190,7 @@ function PortalTabs({ theme: base }: { theme: Theme }) {
           : tab === 'messages' ? <Messages key={ownerKey} theme={theme} clientId={client.id} />
           : <MoreMenu theme={theme} grants={client.grants} onOpen={setSub} branding={me.data?.branding} />}
       </View>
-      <View style={{ flexDirection: 'row', borderTopWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }} accessibilityRole="tablist">
+      <View style={{ flexDirection: 'row', borderTopWidth: 1, borderColor: theme.glassBorder, backgroundColor: theme.glass }} accessibilityRole="tablist">
         {tabs.map((k) => (
           <Pressable key={k} style={{ flex: 1, alignItems: 'center', paddingVertical: 8, minHeight: 48 }} onPress={() => { setSub(null); setTab(k); }} accessibilityRole="tab" accessibilityState={{ selected: tab === k }}>
             <Feather name={TAB_META[k].icon} size={20} color={tab === k ? theme.primary : theme.textMuted} />

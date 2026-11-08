@@ -1,3 +1,4 @@
+import { FadeIn, GlassBackdrop } from './glass';
 import { Feather } from '@expo/vector-icons';
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { PRODUCT } from '@worko/domain';
@@ -51,6 +52,7 @@ export function App() {
     <SafeAreaProvider>
       <QueryClientProvider client={qc}>
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }}>
+          <GlassBackdrop theme={theme} />
           <StatusBar style={theme.name === 'dark' ? 'light' : 'dark'} />
           {!ready || !portal.ready ? <ActivityIndicator style={{ flex: 1 }} /> : tokens ? <Tabs theme={theme} />
             : portalMode || portal.tokens ? <PortalRoot theme={theme} onStaff={() => setPortalMode(false)} /> : <Login theme={theme} onClient={() => setPortalMode(true)} />}
@@ -119,6 +121,7 @@ function Tabs({ theme }: { theme: Theme }) {
     <View style={{ flex: 1 }}>
       <StatusStrip theme={theme} />
       <View style={{ flex: 1, padding: 16 }}>
+        <FadeIn key={`${tab}:${sub ?? ''}`}>
         {tab === 'home' ? <Home theme={theme} root={homeRoot} /> : tab === 'tasks' ? <Stack theme={theme} root={{ name: 'tasks' }} /> : tab === 'clients' ? <Stack theme={theme} root={{ name: 'clients' }} />
           : tab === 'more' ? (sub ? <View style={{ flex: 1 }}>
             <Pressable onPress={() => { setSub(null); setDeep(null); }} accessibilityRole="button" style={{ minHeight: 48, justifyContent: 'center' }}>
@@ -126,6 +129,7 @@ function Tabs({ theme }: { theme: Theme }) {
             <Stack key={deep ? JSON.stringify(deep) : sub} theme={theme} root={deep ?? { name: sub }} /></View>
             : <More theme={theme} onRegisters={() => setSub('registers')} onCollections={() => setSub('collections')} onHr={() => setSub('hr')} onOpen={setSub} />) : tab === 'inbox' ? <Inbox theme={theme} onOpen={openLink} onReport={(exportId) => { setHomeRoot({ name: 'reportDownloads', exportId }); setTab('home'); }} />
           : <Text style={s.muted}>{t('home.comingSoon', { module: t(current.label), phase: current.phase ?? 0 })}</Text>}
+        </FadeIn>
       </View>
       <View style={s.tabbar} accessibilityRole="tablist">
         {TABS.map((x) => (
@@ -322,11 +326,11 @@ const styles = (th: Theme) => StyleSheet.create({
   text: { fontSize: 15, color: th.text },
   muted: { fontSize: 13, color: th.textMuted },
   label: { fontSize: 13, color: th.textMuted, marginTop: 12 },
-  input: { borderWidth: 1, borderColor: th.border, backgroundColor: th.surface, color: th.text, borderRadius: 6, paddingHorizontal: 12, paddingVertical: 10, fontSize: 16 },
-  alert: { marginTop: 12, padding: 8, borderRadius: 6, backgroundColor: th.surfaceAlt, color: th.text },
-  button: { marginTop: 20, backgroundColor: th.primary, borderRadius: 6, paddingVertical: 12, alignItems: 'center' },
+  input: { borderWidth: 1, borderColor: th.border, backgroundColor: th.glass, color: th.text, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10, fontSize: 16 },
+  alert: { marginTop: 12, padding: 8, borderRadius: 12, backgroundColor: th.glass, color: th.text },
+  button: { marginTop: 20, backgroundColor: th.primary, borderRadius: 999, paddingVertical: 12, alignItems: 'center' },
   buttonText: { color: th.primaryText, fontWeight: '600', fontSize: 15 },
-  tabbar: { flexDirection: 'row', borderTopWidth: 1, borderColor: th.border, backgroundColor: th.surface },
+  tabbar: { flexDirection: 'row', borderTopWidth: 1, borderColor: th.glassBorder, backgroundColor: th.glass, borderTopLeftRadius: 20, borderTopRightRadius: 20 },
   tab: { flex: 1, alignItems: 'center', paddingVertical: 8, minHeight: 48 },
   row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderColor: th.border },
 });
