@@ -7,12 +7,14 @@ export type ThemeName = 'light' | 'dark';
 
 export const palette = {
   light: {
-    bg: '#f7f8fa', surface: '#ffffff', surfaceAlt: '#f1f3f6', border: '#dde1e7',
-    text: '#14181f', textMuted: '#555e6c', primary: '#1f4fd1', primaryText: '#ffffff', focus: '#1f4fd1',
+    bg: '#f3f5f3', surface: '#ffffff', surfaceAlt: '#eef3ef', border: '#e2e8e3',
+    text: '#111814', textMuted: '#56605a', primary: '#166534', primaryText: '#ffffff', focus: '#166534',
+    primarySoft: '#dcf3e3', primaryStrong: '#0b3d22', accent: '#22a35a',
   },
   dark: {
-    bg: '#0f1217', surface: '#161a21', surfaceAlt: '#1d222b', border: '#2b313c',
-    text: '#e7eaf0', textMuted: '#9aa3b2', primary: '#7aa2ff', primaryText: '#0b1020', focus: '#7aa2ff',
+    bg: '#0e1210', surface: '#151b17', surfaceAlt: '#1c241f', border: '#29332c',
+    text: '#e6ece8', textMuted: '#9aa8a0', primary: '#4ade80', primaryText: '#052e16', focus: '#4ade80',
+    primarySoft: '#173a25', primaryStrong: '#0b2a18', accent: '#34d399',
   },
 } as const;
 
@@ -30,7 +32,7 @@ export const status: Record<Status, { light: string; dark: string; icon: string;
 };
 
 export const space = { 0: 0, 1: 4, 2: 8, 3: 12, 4: 16, 5: 20, 6: 24, 8: 32, 10: 40 } as const;
-export const radius = { sm: 4, md: 6, lg: 10 } as const;
+export const radius = { sm: 4, md: 8, lg: 12, xl: 20 } as const;
 export const font = {
   family: "Inter, 'Segoe UI', system-ui, -apple-system, 'Noto Sans', 'Noto Sans Devanagari', 'Noto Sans Tamil', sans-serif",
   mono: "'JetBrains Mono', 'Cascadia Mono', Consolas, monospace",

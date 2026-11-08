@@ -27,11 +27,14 @@ export class LocalStorage implements StorageAdapter {
   async delete(key: string) { await rm(this.path(key), { force: true }); }
 }
 
-/** S3-compatible (AWS S3 ap-south-1 in prod, MinIO locally). Server-side encryption requested on every put. */
+/** S3-compatible (AWS S3, Cloudflare R2, MinIO locally). Server-side encryption requested on AWS (R2/MinIO encrypt at rest themselves). */
 export class S3Storage implements StorageAdapter {
   private s3 = new S3Client({
     region: process.env.S3_REGION ?? 'ap-south-1', endpoint: process.env.S3_ENDPOINT, forcePathStyle: !!process.env.S3_ENDPOINT,
     credentials: process.env.S3_ACCESS_KEY ? { accessKeyId: process.env.S3_ACCESS_KEY, secretAccessKey: process.env.S3_SECRET_KEY ?? '' } : undefined,
+    // S3-compatible stores (Cloudflare R2, MinIO): only send/verify checksums when the operation requires them.
+    // VERIFY AGAINST OFFICIAL DOCS: Cloudflare R2's guidance for AWS SDK v3 flexible checksums.
+    ...(process.env.S3_ENDPOINT ? { requestChecksumCalculation: 'WHEN_REQUIRED' as const, responseChecksumValidation: 'WHEN_REQUIRED' as const } : {}),
   });
   constructor(private bucket = process.env.S3_BUCKET ?? 'worko') {}
   async put(key: string, body: Buffer, mime: string) {

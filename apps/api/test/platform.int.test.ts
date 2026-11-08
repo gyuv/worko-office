@@ -14,12 +14,23 @@ let admin: string; let tenantId: string;
 const SECRET = Buffer.from('platform-test-secret-0123', 'utf8');
 const EMAIL = 'ops@worko.example';
 const H = (s: { accessToken: string }) => bearer(s.accessToken);
-let step = 0;
-/** Each login needs a fresh, increasing time step (replays are refused): -30 s, now, +30 s (±1 step drift is accepted). */
-const code = () => totp(SECRET, Date.now() + 30_000 * (step++ - 1));
+let lastStep = -Infinity;
+/**
+ * Each login needs a fresh, increasing time step (replays are refused); the server accepts its own step ±1.
+ * Never use the previous step within 5 s of a step boundary: the server's clock can cross into the next step while the
+ * password is checked, and then that code is out of range. Waits for the next step only if no valid one is left.
+ */
+async function code() {
+  for (;;) {
+    const now = Date.now(); const cur = Math.floor(now / 30_000);
+    const s = Math.max(lastStep + 1, now % 30_000 > 25_000 ? cur : cur - 1);
+    if (s <= cur + 1) { lastStep = s; return totp(SECRET, s * 30_000 + 15_000); }
+    await new Promise((r) => setTimeout(r, 30_000 - (now % 30_000) + 50));
+  }
+}
 
 async function platformLogin() {
-  const r = await t.http().post('/v1/platform/auth/login').send({ email: EMAIL, password: PW, totp: code() }).expect(200);
+  const r = await t.http().post('/v1/platform/auth/login').send({ email: EMAIL, password: PW, totp: await code() }).expect(200);
   return r.body.accessToken as string;
 }
 
@@ -43,7 +54,7 @@ describe('platform authentication', () => {
     admin = await platformLogin();
     expect((await t.http().get('/v1/platform/me').set(bearer(admin)).expect(200)).body.email).toBe(EMAIL);
     // replaying the step just used is refused
-    await t.http().post('/v1/platform/auth/login').send({ email: EMAIL, password: PW, totp: totp(SECRET, Date.now() - 30_000) }).expect(401);
+    await t.http().post('/v1/platform/auth/login').send({ email: EMAIL, password: PW, totp: totp(SECRET, lastStep * 30_000 + 15_000) }).expect(401);
   });
 
   it('tenant tokens cannot reach ANY platform route and platform tokens cannot reach ANY tenant route', async () => {
