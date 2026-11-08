@@ -46,8 +46,8 @@ export function CommandPalette({ onSignOut }: { onSignOut(): void }) {
   const run = (c?: Cmd) => { if (c) { setOpen(false); c.run(); } };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 p-4 pt-[12vh]" onMouseDown={() => setOpen(false)}>
-      <div role="dialog" aria-modal="true" aria-label={t('palette.placeholder')} className="card w-full max-w-lg overflow-hidden shadow-xl" onMouseDown={(e) => e.stopPropagation()}>
+    <div className="fade fixed inset-0 z-50 flex items-start justify-center bg-black/25 p-4 pt-[12vh] backdrop-blur-[3px]" onMouseDown={() => setOpen(false)}>
+      <div role="dialog" aria-modal="true" aria-label={t('palette.placeholder')} className="card pop w-full max-w-lg overflow-hidden shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
         <input ref={input} className="w-full border-b border-border bg-surface px-4 py-3 text-lg outline-none" placeholder={t('palette.placeholder')}
           role="combobox" aria-expanded="true" aria-controls="palette-list" value={q}
           onChange={(e) => { setQ(e.target.value); setSel(0); }}

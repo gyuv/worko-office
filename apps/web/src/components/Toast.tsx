@@ -24,7 +24,7 @@ export function ToastHost() {
   return (
     <div aria-live="polite" className="pointer-events-none fixed bottom-16 left-1/2 z-50 flex w-96 max-w-[90vw] -translate-x-1/2 flex-col gap-2 md:bottom-4">
       {toasts.map((x) => (
-        <div key={x.id} role={x.tone === 'error' ? 'alert' : 'status'} className={`card pointer-events-auto flex items-center gap-2 p-3 text-sm shadow-lg ${x.tone === 'error' ? 'border-overdue' : ''}`}>
+        <div key={x.id} role={x.tone === 'error' ? 'alert' : 'status'} className={`card toast-in pointer-events-auto flex items-center gap-2 p-3 text-sm shadow-lg ${x.tone === 'error' ? 'border-overdue' : ''}`}>
           <span className={`flex-1 ${x.tone === 'error' ? 'text-overdue' : ''}`}>{x.text}</span>
           {x.action && <button className="btn" onClick={() => { dismiss(x.id); x.action!.run(); }}>{x.action.label}</button>}
           <button className="text-xs text-muted" onClick={() => dismiss(x.id)}>{t('common.close')}</button>
