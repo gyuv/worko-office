@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { bearer, bootApp, PW, type Session } from './helpers.js';
+import { bearer, bootApp, type Session } from './helpers.js';
 
 let t: Awaited<ReturnType<typeof bootApp>>;
 let P: Session; let M: Session;
