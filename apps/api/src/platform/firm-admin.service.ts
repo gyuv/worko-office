@@ -5,6 +5,7 @@ import type { PlatformActor } from '../auth/context.js';
 import { PasswordPolicyService } from '../auth/password-policy.js';
 import { DbService } from '../db/db.service.js';
 import { TenancyService } from '../tenancy/tenancy.service.js';
+import { assertSeatAvailable } from './saas.service.js';
 import { PlatformAuditService } from './platform-audit.service.js';
 
 export type CreateFirm = {
@@ -53,6 +54,44 @@ export class FirmAdminService {
        WHERE u.deleted_at IS NULL GROUP BY u.id ORDER BY u.name`)).rows);
     await this.paudit.record({ adminId: p.adminId, tenantId, action: 'platform.users_viewed', entity: 'tenant', entityId: tenantId, ip: p.ip });
     return rows;
+  }
+
+  /** Platform-wide numbers for the console's overview: firms by state, users across firms, newest firms. */
+  async overview(p: PlatformActor) {
+    const firms = (await this.db.systemTx((tx) => tx.query(
+      `SELECT id, name, slug, status, sub_status AS "subStatus", plan, created_at AS "createdAt" FROM tenant ORDER BY created_at DESC`))).rows as Array<{ id: string; name: string; slug: string; status: string; subStatus: string; plan: string; createdAt: Date }>;
+    let users = 0; let activeUsers = 0;
+    for (const f of firms) {
+      const c = (await this.db.tenantTx(f.id, (tx) => tx.query(
+        `SELECT count(*)::int AS n, count(*) FILTER (WHERE status = 'active')::int AS a FROM app_user WHERE deleted_at IS NULL AND kind IN ('staff','freelancer')`))).rows[0];
+      users += c.n; activeUsers += c.a;
+    }
+    const month = new Date().toISOString().slice(0, 7);
+    await this.paudit.record({ adminId: p.adminId, action: 'platform.overview_viewed', entity: 'platform', entityId: null, ip: p.ip });
+    return {
+      firms: firms.length,
+      active: firms.filter((f) => f.status === 'active' && !['suspended', 'cancelled'].includes(f.subStatus)).length,
+      suspended: firms.filter((f) => f.status === 'suspended' || f.subStatus === 'suspended').length,
+      newThisMonth: firms.filter((f) => new Date(f.createdAt).toISOString().slice(0, 7) === month).length,
+      users, activeUsers,
+      recent: firms.slice(0, 5).map((f) => ({ id: f.id, name: f.name, slug: f.slug, plan: f.plan, createdAt: f.createdAt })),
+    };
+  }
+
+  /** Enable or disable a firm user. Disabling signs them out everywhere; enabling still respects the firm's user limit. */
+  async setUserStatus(p: PlatformActor, tenantId: string, userId: string, status: 'active' | 'disabled') {
+    await this.assertTenant(tenantId);
+    await this.db.tenantTx(tenantId, async (tx) => {
+      const u = (await tx.query('SELECT id, status FROM app_user WHERE id = $1 AND deleted_at IS NULL', [userId])).rows[0];
+      if (!u) throw new NotFoundException();
+      if (u.status === status) return;
+      if (status === 'active') await assertSeatAvailable(tx, tenantId);
+      await tx.query('UPDATE app_user SET status = $2, failed_logins = 0, locked_until = NULL WHERE id = $1', [userId, status]);
+      if (status === 'disabled') await tx.query('UPDATE device_session SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL', [userId]);
+      await this.audit.record(tx, tenantId, { actorId: null, deviceId: 'platform', action: status === 'active' ? 'user.enabled_by_platform' : 'user.disabled_by_platform', entity: 'app_user', entityId: userId, diff: { platformAdminId: p.adminId } });
+    });
+    await this.paudit.record({ adminId: p.adminId, tenantId, action: status === 'active' ? 'platform.user_enabled' : 'platform.user_disabled', entity: 'app_user', entityId: userId, ip: p.ip });
+    return { ok: true, status };
   }
 
   /** Sets a new password, clears any lockout and signs the user out everywhere. */
