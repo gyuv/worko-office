@@ -8,8 +8,8 @@ export default {
       colors: {
         bg: v('bg'),
         // Glass: surfaces are slightly see-through so the moving background shows; blur comes from .card/.glass.
-        surface: 'color-mix(in srgb, var(--w-surface) 82%, transparent)', 'surface-solid': v('surface'),
-        'surface-alt': 'color-mix(in srgb, var(--w-surface-alt) 75%, transparent)', border: v('border'),
+        surface: 'var(--glass-surface)', 'surface-solid': v('surface'),
+        'surface-alt': 'var(--glass-surface-alt)', border: v('border'),
         fg: v('text'), muted: v('text-muted'), primary: v('primary'), 'primary-fg': v('primary-text'),
         'primary-soft': v('primary-soft'), 'primary-strong': v('primary-strong'), accent: v('accent'),
         overdue: v('status-overdue'), 'due-soon': v('status-due-soon'), done: v('status-done'), waiting: v('status-waiting-client'),

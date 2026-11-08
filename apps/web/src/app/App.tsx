@@ -10,8 +10,10 @@ import { AuditScreen } from '../screens/AuditScreen';
 import { ComingSoon, HomeScreen } from '../screens/HomeScreen';
 import { SecurityScreen } from '../screens/SecurityScreen';
 import { TeamScreen } from '../screens/TeamScreen';
+import { AppearanceScreen } from '../screens/AppearanceScreen';
 import { NotificationsScreen } from '../screens/NotificationsScreen';
 import { startSync, stopSync } from '../lib/sync';
+import { usePrefs } from '../lib/prefs';
 import { ClientsRoute } from '../screens/clients/ClientsScreen';
 import { DocumentsScreen } from '../screens/documents/DocumentsScreen';
 import { RegistersScreen } from '../screens/registers/RegistersScreen';
@@ -56,6 +58,7 @@ function Routes() {
     case 'security': return <SecurityScreen />;
     case 'audit': return <AuditScreen />;
     case 'team': return <TeamScreen />;
+    case 'appearance': return <AppearanceScreen />;
     case 'notifications': return <NotificationsScreen />;
     case 'clients': return <ClientsRoute />;
     case 'documents': return <DocumentsScreen />;
@@ -152,6 +155,9 @@ function StaffApp() {
     if (sessionKey) { const [tenantId, userId, sessionId] = sessionKey.split(':') as [string, string, string]; void startSync(tenantId, userId, sessionId); }
     else void stopSync(false);
   }, [sessionKey]);
+
+  // The signed-in user's display preferences follow them across devices.
+  useEffect(() => { if (sessionKey) void usePrefs.getState().load(); }, [sessionKey]);
 
   // Explicit sign-out erases the local copy (shared office PCs).
   const signOut = async () => { await api.POST('/auth/logout').catch(() => undefined); await stopSync(true); setTokens(null); };

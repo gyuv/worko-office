@@ -9,7 +9,7 @@ import { toast } from '../../components/Toast';
 import { todayIst, useDebounced } from '../../lib/http';
 import { useT } from '../../lib/i18n';
 import { useCan } from '../../lib/me';
-import { isUuid, useRoute } from '../../lib/router';
+import { hashQuery, isUuid, useRoute } from '../../lib/router';
 import { api, unwrap } from '../../lib/session';
 import { AutoCreateWizard } from './AutoCreateWizard';
 import { BulkBar } from './BulkBar';
@@ -32,21 +32,23 @@ export function TasksScreen() {
   const { users, name } = useUsers();
   const services = useServiceTypes();
   const [view, setView] = useState<View>('list');
-  const [status, setStatus] = useState('');
+  // Deep links from the dashboard preset filters: #/tasks?status=done | in_progress,review | pending_client, ?overdue=true, ?new=1
+  const [initial] = useState(() => hashQuery());
+  const [status, setStatus] = useState(initial.get('status') ?? '');
   const [assignee, setAssignee] = useState('');
   const [client, setClient] = useState<PickedClient | null>(null);
   const [service, setService] = useState('');
-  const [overdue, setOverdue] = useState(false);
+  const [overdue, setOverdue] = useState(initial.get('overdue') === 'true');
   const [q, setQ] = useState('');
   const dq = useDebounced(q.trim(), 300);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // `#/tasks/<id>` (report drill-through) opens the task drawer.
   const deepId = useRoute((s) => s.params[0]);
   const [openId, setOpenId] = useState<string | null>(isUuid(deepId) ? deepId : null);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(initial.get('new') === '1');
   const [auto, setAuto] = useState(false);
 
-  const query = { status: status || undefined, assigneeId: assignee || undefined, clientId: client?.id, serviceTypeId: service || undefined, overdue: overdue ? 'true' as const : undefined, asOf: overdue ? today : undefined, closed: 'false' as const, q: dq || undefined, limit: 500 };
+  const query = { status: status || undefined, assigneeId: assignee || undefined, clientId: client?.id, serviceTypeId: service || undefined, overdue: overdue ? 'true' as const : undefined, asOf: overdue ? today : undefined, closed: status.split(',').includes('done') ? undefined : 'false' as const, q: dq || undefined, limit: 500 };
   const list = useQuery({ queryKey: ['tasks', query], queryFn: () => unwrap(api.GET('/tasks', { params: { query } })), placeholderData: (p) => p });
   const tasks = list.data?.items ?? [];
 
@@ -91,6 +93,7 @@ export function TasksScreen() {
           <select className="input w-40" value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="">{t('tasks.f.any')}</option>
             {TASK_STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
+            {status.includes(',') && <option value={status}>{status.split(',').map(statusLabel).join(' + ')}</option>}
           </select></label>
         <label className="text-sm"><span className="label">{t('tasks.f.assignee')}</span>
           <select className="input w-40" value={assignee} onChange={(e) => setAssignee(e.target.value)}>

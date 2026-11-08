@@ -7,12 +7,17 @@
  * slowly moving colour field. Motion is transform/opacity only (GPU-composited, no layout), and switches off for
  * prefers-reduced-motion; prefers-reduced-transparency gets solid surfaces.
  */
-:root { --glass-border: rgba(255, 255, 255, 0.65); --glass-shadow: 0 1px 2px rgba(16, 24, 20, 0.05), 0 8px 24px -12px rgba(16, 24, 20, 0.12); --blob-a: rgba(34, 163, 90, 0.42); --blob-b: rgba(20, 184, 166, 0.36); --blob-c: rgba(163, 230, 53, 0.34); }
-[data-theme='dark'] { --glass-border: rgba(255, 255, 255, 0.08); --glass-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 30px -12px rgba(0, 0, 0, 0.55); --blob-a: rgba(34, 197, 94, 0.30); --blob-b: rgba(20, 184, 166, 0.24); --blob-c: rgba(132, 204, 22, 0.16); }
+:root { --btn-grad-a: #166534; --btn-grad-b: #15803d; --hero-a: #0b3d22; --hero-b: #166534; --glass-border: rgba(255, 255, 255, 0.65); --glass-shadow: 0 1px 2px rgba(16, 24, 20, 0.05), 0 8px 24px -12px rgba(16, 24, 20, 0.12); --blob-a: rgba(34, 163, 90, 0.42); --blob-b: rgba(20, 184, 166, 0.36); --blob-c: rgba(163, 230, 53, 0.34); }
+[data-theme='dark'] { --btn-grad-a: #4ade80; --btn-grad-b: #22c55e; --hero-a: #0b2a18; --hero-b: #166534; --glass-border: rgba(255, 255, 255, 0.08); --glass-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 30px -12px rgba(0, 0, 0, 0.55); --blob-a: rgba(34, 197, 94, 0.30); --blob-b: rgba(20, 184, 166, 0.24); --blob-c: rgba(132, 204, 22, 0.16); }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) { --glass-border: rgba(255, 255, 255, 0.08); --glass-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 30px -12px rgba(0, 0, 0, 0.55); --blob-a: rgba(34, 197, 94, 0.30); --blob-b: rgba(20, 184, 166, 0.24); --blob-c: rgba(132, 204, 22, 0.16); }
+  :root:not([data-theme='light']) { --btn-grad-a: #4ade80; --btn-grad-b: #22c55e; --hero-a: #0b2a18; --hero-b: #166534; --glass-border: rgba(255, 255, 255, 0.08); --glass-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 30px -12px rgba(0, 0, 0, 0.55); --blob-a: rgba(34, 197, 94, 0.30); --blob-b: rgba(20, 184, 166, 0.24); --blob-c: rgba(132, 204, 22, 0.16); }
 }
 
+/* Translucent surfaces; browsers without color-mix (e.g. Safari < 16.2) get the solid theme colours. */
+:root { --glass-surface: var(--w-surface); --glass-surface-alt: var(--w-surface-alt); --glass-card: var(--w-surface); }
+@supports (background: color-mix(in srgb, red 50%, transparent)) {
+  :root { --glass-surface: color-mix(in srgb, var(--w-surface) 82%, transparent); --glass-surface-alt: color-mix(in srgb, var(--w-surface-alt) 75%, transparent); --glass-card: color-mix(in srgb, var(--w-surface) 64%, transparent); }
+}
 html { background: var(--w-bg); }
 html, body, #root { height: 100%; }
 body { position: relative; font-family: Inter, 'Segoe UI', system-ui, -apple-system, 'Noto Sans', sans-serif; font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; color: var(--w-text); background: transparent; }
@@ -30,14 +35,14 @@ body::after {
 :focus-visible { outline: 2px solid var(--w-focus); outline-offset: 2px; }
 
 @layer components {
-  .glass { background: color-mix(in srgb, var(--w-surface) 64%, transparent); border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow); -webkit-backdrop-filter: blur(20px) saturate(160%); backdrop-filter: blur(20px) saturate(160%); }
-  .card { @apply rounded-2xl; background: color-mix(in srgb, var(--w-surface) 64%, transparent); border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow); -webkit-backdrop-filter: blur(18px) saturate(160%); backdrop-filter: blur(18px) saturate(160%); animation: w-rise .45s cubic-bezier(.2,.7,.2,1) both; }
+  .glass { background: var(--glass-card); border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow); -webkit-backdrop-filter: blur(20px) saturate(160%); backdrop-filter: blur(20px) saturate(160%); }
+  .card { @apply rounded-2xl; background: var(--glass-card); border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow); -webkit-backdrop-filter: blur(18px) saturate(160%); backdrop-filter: blur(18px) saturate(160%); animation: w-rise .45s cubic-bezier(.2,.7,.2,1) both; }
 
   .btn { @apply inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-3.5 py-1.5 font-medium disabled:opacity-50; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); transition: transform .18s ease, background-color .18s ease, box-shadow .18s ease, border-color .18s ease; }
   .btn:hover:not(:disabled) { @apply bg-surface-solid; transform: translateY(-1px); box-shadow: 0 6px 16px -8px rgba(16, 24, 20, .25); }
   .btn:active:not(:disabled) { transform: translateY(0) scale(.97); }
-  .btn-primary { @apply border-transparent bg-primary text-primary-fg; background-image: linear-gradient(135deg, var(--w-primary), var(--w-accent)); background-size: 200% 200%; transition: transform .18s ease, box-shadow .18s ease, background-position .5s ease; }
-  .btn-primary:hover:not(:disabled) { @apply bg-primary; background-position: 100% 0; box-shadow: 0 8px 20px -8px var(--w-primary); }
+  .btn-primary { @apply border-transparent bg-primary text-primary-fg; background-image: linear-gradient(135deg, var(--btn-grad-a), var(--btn-grad-b)); background-size: 200% 200%; transition: transform .18s ease, box-shadow .18s ease, background-position .5s ease; }
+  .btn-primary:hover:not(:disabled) { @apply bg-primary; background-position: 100% 0; box-shadow: 0 8px 20px -8px var(--btn-grad-a); }
   .btn-danger { @apply text-overdue; }
   .input { @apply w-full rounded-xl border border-border bg-surface px-3 py-2 text-fg placeholder:text-muted; transition: border-color .15s ease, box-shadow .2s ease, background-color .15s ease; }
   .input:focus { @apply bg-surface-solid; border-color: var(--w-primary); box-shadow: 0 0 0 4px var(--w-primary-soft); outline: none; }
@@ -50,7 +55,7 @@ body::after {
   /* Dashboard */
   .tile { @apply card p-5; transition: transform .25s cubic-bezier(.2,.7,.2,1), box-shadow .25s ease; }
   .tile-hover:hover { transform: translateY(-3px); box-shadow: 0 14px 34px -14px rgba(16, 24, 20, .3); }
-  .hero { background: linear-gradient(135deg, var(--w-primary-strong) 0%, var(--w-primary) 60%, var(--w-accent) 140%); background-size: 160% 160%; animation: w-rise .45s cubic-bezier(.2,.7,.2,1) both, w-sheen 9s ease-in-out infinite alternate; color: #fff; border-color: transparent; }
+  .hero { background: linear-gradient(135deg, var(--hero-a) 0%, var(--hero-b) 100%); background-size: 160% 160%; animation: w-rise .45s cubic-bezier(.2,.7,.2,1) both, w-sheen 9s ease-in-out infinite alternate; color: #fff; border-color: transparent; }
   .icon-btn { @apply inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface text-fg; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); transition: transform .18s ease, background-color .18s ease; }
   .icon-btn:hover { @apply bg-surface-solid; transform: translateY(-1px) rotate(-6deg); }
   .pill { @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold; }
@@ -96,6 +101,26 @@ body::after {
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
   body::before, body::after { animation: none !important; }
 }
+/* Reduce transparency: glass becomes solid, but coloured surfaces (primary buttons, hero/timer cards) keep their colours. */
 @media (prefers-reduced-transparency: reduce) {
-  .card, .glass, .btn, .icon-btn { background: var(--w-surface) !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+  :root { --glass-surface: var(--w-surface); --glass-surface-alt: var(--w-surface-alt); --glass-card: var(--w-surface); }
+  .card, .glass, .btn, .icon-btn { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
 }
+
+/* ---------- Per-user preferences (set as data attributes on <html> by lib/prefs.ts) ---------- */
+/* Text size: scales the whole interface proportionally. */
+:root[data-scale='sm'] #root { zoom: .92; }
+:root[data-scale='lg'] #root { zoom: 1.08; }
+:root[data-scale='xl'] #root { zoom: 1.18; }
+/* Density */
+:root[data-density='compact'] .card.p-4, :root[data-density='compact'] .tile { padding: .75rem; }
+:root[data-density='compact'] .table td, :root[data-density='compact'] .table th { padding-top: .25rem; padding-bottom: .25rem; }
+:root[data-density='compact'] .btn { padding-top: .25rem; padding-bottom: .25rem; }
+:root[data-density='compact'] .input { padding-top: .3rem; padding-bottom: .3rem; }
+/* Motion off */
+:root[data-motion='reduced'] *, :root[data-motion='reduced'] *::before, :root[data-motion='reduced'] *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+:root[data-motion='reduced'] body::before, :root[data-motion='reduced'] body::after { animation: none !important; }
+/* Glass off: solid panels, no colour field */
+:root[data-glass='off'] { --glass-surface: var(--w-surface); --glass-surface-alt: var(--w-surface-alt); --glass-card: var(--w-surface); }
+:root[data-glass='off'] body::before, :root[data-glass='off'] body::after { display: none; }
+:root[data-glass='off'] .card, :root[data-glass='off'] .glass, :root[data-glass='off'] .btn, :root[data-glass='off'] .icon-btn { -webkit-backdrop-filter: none; backdrop-filter: none; }

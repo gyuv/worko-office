@@ -4,7 +4,9 @@ import { useT } from '../lib/i18n';
 import { useMe, useCan } from '../lib/me';
 import { useRoute, type Route } from '../lib/router';
 import { useTheme } from '../lib/theme';
+import { usePrefs } from '../lib/prefs';
 import { useOnline } from '../lib/useOnline';
+import { AnnouncementBanner } from './AnnouncementBanner';
 import { CommandPalette } from './CommandPalette';
 import { BellButton, SyncIndicator, Toasts } from './SyncIndicator';
 import { NAV, type NavItem } from './nav';
@@ -12,7 +14,7 @@ import { StepUpDialog } from './StepUpDialog';
 import { TimerWidget } from '../screens/time/TimerWidget';
 
 /** Sidebar sections: everything is "Menu" except the account/admin pages under "General". */
-const GENERAL: Route[] = ['notifications', 'team', 'security', 'settings', 'audit'];
+const GENERAL: Route[] = ['notifications', 'team', 'appearance', 'security', 'settings', 'audit'];
 
 export const initials = (name: string | undefined) =>
   (name ?? '').split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]!.toUpperCase()).join('') || '·';
@@ -48,7 +50,9 @@ export function Shell({ children, onSignOut }: { children: ReactNode; onSignOut(
   const me = useMe().data;
   const can = useCan();
   const online = useOnline();
-  const { pref, toggle } = useTheme();
+  const { pref } = useTheme();
+  const prefs = usePrefs((x) => x.prefs);
+  const toggle = () => { const dark = pref === 'dark' || (pref === 'system' && matchMedia?.('(prefers-color-scheme: dark)').matches); void usePrefs.getState().update({ theme: dark ? 'light' : 'dark' }); };
   const install = useInstallPrompt();
 
   // "g then x" navigation shortcuts (desktop keyboard-first).
@@ -67,7 +71,8 @@ export function Shell({ children, onSignOut }: { children: ReactNode; onSignOut(
     return () => removeEventListener('keydown', onKey);
   }, [go]);
 
-  const visible = NAV.filter((n) => !n.perm || can(...n.perm));
+  const hidden = new Set(prefs.hiddenModules ?? []);
+  const visible = NAV.filter((n) => (!n.perm || can(...n.perm)) && (n.route === 'home' || n.route === 'appearance' || !hidden.has(n.route)));
   const menu = visible.filter((n) => !GENERAL.includes(n.route));
   const general = visible.filter((n) => GENERAL.includes(n.route));
 
@@ -127,6 +132,7 @@ export function Shell({ children, onSignOut }: { children: ReactNode; onSignOut(
             </a>
           </div>
         </header>
+        <AnnouncementBanner />
         {!online && (
           <div role="status" className="mx-3 mt-2 flex items-center gap-2 rounded-xl bg-surface-alt px-4 py-1.5 text-sm"><WifiOff size={14} aria-hidden /> {t('common.offline')}</div>
         )}

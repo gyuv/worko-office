@@ -462,6 +462,43 @@ export interface paths {
         };
         get: operations["listRoles"];
         put?: never;
+        /** @description Custom role (firm admin). Grants must be ones the caller holds (403 role_escalation) unless the caller is a Partner. */
+        post: operations["createRole"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/roles/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Delete a custom role nobody holds (built-in roles cannot be deleted). */
+        delete: operations["deleteRole"];
+        options?: never;
+        head?: never;
+        /** @description Edit a role (the Partner role is locked). Takes effect on the next request of every holder. */
+        patch: operations["updateRole"];
+        trace?: never;
+    };
+    "/me/ui-prefs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The caller's display preferences. */
+        get: operations["getUiPrefs"];
+        /** @description Replace the caller's display preferences (theme, accent, text size, density, motion, glass, hidden sidebar modules, sidebar). Audited. */
+        put: operations["setUiPrefs"];
         post?: never;
         delete?: never;
         options?: never;
@@ -6367,6 +6404,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/platform/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Per firm (keyed by firm id): active users and last time anyone used the app. */
+        get: operations["platformActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/tenants/{id}/name": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Rename a firm (firm ID unchanged). Audited in platform AND firm logs. */
+        put: operations["platformRenameTenant"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/announcements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description All announcements (newest first). */
+        get: operations["platformAnnouncements"];
+        put?: never;
+        /** @description Announce to every firm (tenantId null) or one firm; level info|warning|critical; optional end time. Audited. */
+        post: operations["platformCreateAnnouncement"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform/announcements/{id}/active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** @description End or resume an announcement. Audited. */
+        put: operations["platformAnnouncementActive"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/announcements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Active platform announcements for the caller's firm (shown as a banner). */
+        get: operations["listAnnouncements"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/platform/overview": {
         parameters: {
             query?: never;
@@ -7056,6 +7179,22 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        UiPrefs: {
+            /** @enum {string} */
+            theme?: "system" | "light" | "dark";
+            /** @enum {string} */
+            accent?: "green" | "blue" | "teal" | "indigo" | "violet" | "rose" | "amber" | "slate";
+            /** @enum {string} */
+            fontScale?: "sm" | "md" | "lg" | "xl";
+            /** @enum {string} */
+            density?: "comfortable" | "compact";
+            /** @enum {string} */
+            motion?: "full" | "reduced";
+            glass?: boolean;
+            hiddenModules?: string[];
+            /** @enum {string} */
+            sidebar?: "expanded" | "compact";
+        };
         ApiKey: {
             /** Format: uuid */
             id?: string;
@@ -9721,6 +9860,149 @@ export interface operations {
                     "application/json": components["schemas"]["Role"][];
                 };
             };
+        };
+    };
+    createRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    key: string;
+                    name: string;
+                    grants: {
+                        module: string;
+                        action: string;
+                        scope: string;
+                        clientGroupIds?: string[];
+                    }[];
+                    hiddenFields?: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    deleteRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+        };
+    };
+    updateRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name?: string;
+                    grants?: {
+                        module: string;
+                        action: string;
+                        scope: string;
+                        clientGroupIds?: string[];
+                    }[];
+                    hiddenFields?: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description Updated */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    getUiPrefs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UiPrefs"];
+                };
+            };
+        };
+    };
+    setUiPrefs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UiPrefs"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UiPrefs"];
+                };
+            };
+            400: components["responses"]["Error"];
         };
     };
     listAudit: {
@@ -21106,6 +21388,171 @@ export interface operations {
             };
             401: components["responses"]["Error"];
             404: components["responses"]["Error"];
+        };
+    };
+    platformActivity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            401: components["responses"]["Error"];
+        };
+    };
+    platformRenameTenant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    platformAnnouncements: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>[];
+                };
+            };
+            401: components["responses"]["Error"];
+        };
+    };
+    platformCreateAnnouncement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    title: string;
+                    body?: string;
+                    /** @enum {string} */
+                    level?: "info" | "warning" | "critical";
+                    tenantId?: string | null;
+                    /** Format: date-time */
+                    endsAt?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    platformAnnouncementActive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    active: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    listAnnouncements: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id?: string;
+                        title?: string;
+                        body?: string;
+                        level?: string;
+                    }[];
+                };
+            };
+            401: components["responses"]["Error"];
         };
     };
     platformOverview: {

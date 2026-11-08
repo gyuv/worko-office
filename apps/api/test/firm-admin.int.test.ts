@@ -88,4 +88,26 @@ describe('super-admin firm management', () => {
     const log = (await t.http().get(`/v1/platform/audit?tenantId=${tenantId}`).set(bearer(admin)).expect(200)).body;
     expect(JSON.stringify(log)).toMatch(/platform\.user_disabled/);
   });
+
+  it('announcements reach all firms or one firm and can be ended; rename and activity work', async () => {
+    const other = await t.signup('otherann');
+    const all = (await t.http().post('/v1/platform/announcements').set(bearer(admin)).send({ title: 'Maintenance tonight', body: '10pm to 11pm', level: 'warning' }).expect(201)).body.id;
+    await t.http().post('/v1/platform/announcements').set(bearer(admin)).send({ title: 'Only for Rao', tenantId }).expect(201);
+    const owner = (await t.http().post('/v1/auth/login').send({ firm: 'rao-iyer', email: 'lakshmi@raoiyer.in', password: NEW_PW, device: { platform: 'web' } }).expect(200)).body;
+    const mine = (await t.http().get('/v1/announcements').set(bearer(owner.accessToken)).expect(200)).body.map((a: { title: string }) => a.title);
+    expect(mine.sort()).toEqual(['Maintenance tonight', 'Only for Rao']);
+    expect((await t.http().get('/v1/announcements').set(bearer(other.accessToken)).expect(200)).body.map((a: { title: string }) => a.title)).toEqual(['Maintenance tonight']);
+    await t.http().put(`/v1/platform/announcements/${all}/active`).set(bearer(admin)).send({ active: false }).expect(200);
+    expect((await t.http().get('/v1/announcements').set(bearer(other.accessToken)).expect(200)).body).toEqual([]);
+    // firm tokens can't create announcements
+    await t.http().post('/v1/platform/announcements').set(bearer(owner.accessToken)).send({ title: 'nope nope' }).expect((r) => { expect([401, 403]).toContain(r.status); });
+
+    await t.http().put(`/v1/platform/tenants/${tenantId}/name`).set(bearer(admin)).send({ name: 'Rao Iyer & Associates' }).expect(200);
+    expect((await t.http().get('/v1/me').set(bearer(owner.accessToken)).expect(200)).body.firmName).toBe('Rao Iyer & Associates');
+    const act = (await t.http().get('/v1/platform/activity').set(bearer(admin)).expect(200)).body;
+    expect(act[tenantId].users).toBeGreaterThanOrEqual(1);
+    expect(act[tenantId].lastActive).toBeTruthy();
+    const ov = (await t.http().get('/v1/platform/overview').set(bearer(admin)).expect(200)).body;
+    expect(ov.topFirms.length).toBeGreaterThan(0);
+  });
 });
