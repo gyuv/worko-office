@@ -169,7 +169,7 @@ export function PublicEsign({ token }: { token: string }) {
   const q = useQuery({ queryKey: ['esign-link', token], retry: false, queryFn: () => as<{ documentName: string; signerName: string; signingUrl: string | null }>(api.GET('/esign/sign/{token}', { params: { path: { token } } })) });
   const mock = !!q.data?.signingUrl && /\.mock\.invalid\//.test(q.data.signingUrl);
   return (
-    <main className="mx-auto min-h-screen max-w-xl space-y-4 bg-bg p-4 text-fg">
+    <main className="mx-auto min-h-screen max-w-xl space-y-4 p-4 text-fg">
       <h1 className="text-xl font-semibold">{t('p8.pub.title')}</h1>
       {q.isError && <p role="alert" className="card p-4">{errCode(q.error) === 'not_your_turn' || errStatus(q.error) === 409 ? t('p8.pub.notYourTurn') : t('p8.pub.invalid')}</p>}
       {!q.data && !q.isError && <p className="text-muted">{t('common.loading')}</p>}

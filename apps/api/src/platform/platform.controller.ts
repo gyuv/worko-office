@@ -32,6 +32,7 @@ const createFirmB = z.object({
 }).strict();
 const resetPwB = z.object({ password: z.string().min(8).max(200) }).strict();
 const exportB = z.object({ reason: z.string().trim().min(5).max(500) }).strict();
+const userStatusB = z.object({ status: z.enum(['active', 'disabled']) }).strict();
 const meta = (req: Request) => ({ ip: req.ip ?? null, userAgent: req.headers['user-agent'] });
 
 /**
@@ -123,6 +124,14 @@ export class PlatformController {
   /** Provision a firm: firm ID (slug), first admin user (Partner) and seat limit. */
   @Post('tenants')
   createFirm(@CurrentPlatform() p: PlatformActor, @Body(new ZodPipe(createFirmB)) b: z.infer<typeof createFirmB>) { return this.firms.createFirm(p, b); }
+
+  @Get('overview')
+  overview(@CurrentPlatform() p: PlatformActor) { return this.firms.overview(p); }
+
+  @Post('tenants/:id/users/:userId/status') @HttpCode(200)
+  userStatus(@CurrentPlatform() p: PlatformActor, @Param('id', uuid) id: string, @Param('userId', uuid) userId: string, @Body(new ZodPipe(userStatusB)) b: z.infer<typeof userStatusB>) {
+    return this.firms.setUserStatus(p, id, userId, b.status);
+  }
 
   @Get('tenants/:id/users')
   firmUsers(@CurrentPlatform() p: PlatformActor, @Param('id', uuid) id: string) { return this.firms.users(p, id); }

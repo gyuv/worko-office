@@ -2,40 +2,100 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Glass UI. Surfaces are see-through (tailwind `surface` = 82% of the theme surface) with a backdrop blur, over a
+ * slowly moving colour field. Motion is transform/opacity only (GPU-composited, no layout), and switches off for
+ * prefers-reduced-motion; prefers-reduced-transparency gets solid surfaces.
+ */
+:root { --glass-border: rgba(255, 255, 255, 0.65); --glass-shadow: 0 1px 2px rgba(16, 24, 20, 0.05), 0 8px 24px -12px rgba(16, 24, 20, 0.12); --blob-a: rgba(34, 163, 90, 0.42); --blob-b: rgba(20, 184, 166, 0.36); --blob-c: rgba(163, 230, 53, 0.34); }
+[data-theme='dark'] { --glass-border: rgba(255, 255, 255, 0.08); --glass-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 30px -12px rgba(0, 0, 0, 0.55); --blob-a: rgba(34, 197, 94, 0.30); --blob-b: rgba(20, 184, 166, 0.24); --blob-c: rgba(132, 204, 22, 0.16); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) { --glass-border: rgba(255, 255, 255, 0.08); --glass-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 30px -12px rgba(0, 0, 0, 0.55); --blob-a: rgba(34, 197, 94, 0.30); --blob-b: rgba(20, 184, 166, 0.24); --blob-c: rgba(132, 204, 22, 0.16); }
+}
+
+html { background: var(--w-bg); }
 html, body, #root { height: 100%; }
-body { font-family: Inter, 'Segoe UI', system-ui, -apple-system, 'Noto Sans', sans-serif; font-size: 13px; -webkit-font-smoothing: antialiased; background: var(--w-bg); color: var(--w-text); }
+body { position: relative; font-family: Inter, 'Segoe UI', system-ui, -apple-system, 'Noto Sans', sans-serif; font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; color: var(--w-text); background: transparent; }
+/* Live background: two soft colour fields drifting slowly behind everything. */
+body::before, body::after { content: ''; position: fixed; inset: -20%; z-index: -1; pointer-events: none; will-change: transform; }
+body::before {
+  background: radial-gradient(40% 35% at 20% 25%, var(--blob-a), transparent 70%), radial-gradient(35% 30% at 80% 15%, var(--blob-b), transparent 70%);
+  animation: w-float-a 28s ease-in-out infinite alternate;
+}
+body::after {
+  background: radial-gradient(38% 34% at 75% 80%, var(--blob-a), transparent 70%), radial-gradient(30% 28% at 15% 85%, var(--blob-c), transparent 70%);
+  animation: w-float-b 34s ease-in-out infinite alternate;
+}
+::selection { background: var(--w-primary-soft); }
 :focus-visible { outline: 2px solid var(--w-focus); outline-offset: 2px; }
+
 @layer components {
-  .btn { @apply inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-3.5 py-1.5 font-medium transition-colors duration-150 hover:bg-surface-alt disabled:opacity-50; }
-  .btn-primary { @apply border-transparent bg-primary text-primary-fg hover:opacity-90 hover:bg-primary; }
+  .glass { background: color-mix(in srgb, var(--w-surface) 64%, transparent); border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow); -webkit-backdrop-filter: blur(20px) saturate(160%); backdrop-filter: blur(20px) saturate(160%); }
+  .card { @apply rounded-2xl; background: color-mix(in srgb, var(--w-surface) 64%, transparent); border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow); -webkit-backdrop-filter: blur(18px) saturate(160%); backdrop-filter: blur(18px) saturate(160%); animation: w-rise .45s cubic-bezier(.2,.7,.2,1) both; }
+
+  .btn { @apply inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-3.5 py-1.5 font-medium disabled:opacity-50; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); transition: transform .18s ease, background-color .18s ease, box-shadow .18s ease, border-color .18s ease; }
+  .btn:hover:not(:disabled) { @apply bg-surface-solid; transform: translateY(-1px); box-shadow: 0 6px 16px -8px rgba(16, 24, 20, .25); }
+  .btn:active:not(:disabled) { transform: translateY(0) scale(.97); }
+  .btn-primary { @apply border-transparent bg-primary text-primary-fg; background-image: linear-gradient(135deg, var(--w-primary), var(--w-accent)); background-size: 200% 200%; transition: transform .18s ease, box-shadow .18s ease, background-position .5s ease; }
+  .btn-primary:hover:not(:disabled) { @apply bg-primary; background-position: 100% 0; box-shadow: 0 8px 20px -8px var(--w-primary); }
   .btn-danger { @apply text-overdue; }
-  .input { @apply w-full rounded-lg border border-border bg-surface px-2.5 py-1.5 text-fg placeholder:text-muted; }
+  .input { @apply w-full rounded-xl border border-border bg-surface px-3 py-2 text-fg placeholder:text-muted; transition: border-color .15s ease, box-shadow .2s ease, background-color .15s ease; }
+  .input:focus { @apply bg-surface-solid; border-color: var(--w-primary); box-shadow: 0 0 0 4px var(--w-primary-soft); outline: none; }
   .label { @apply mb-1 block text-sm font-medium text-muted; }
-  .card { @apply rounded-2xl border border-border bg-surface shadow-[0_1px_2px_rgba(16,24,20,0.04)]; }
-  .table th { @apply border-b border-border px-3 py-1.5 text-left text-xs font-semibold uppercase tracking-wide text-muted; }
-  .table td { @apply border-b border-border px-3 py-1.5; }
+  .table th { @apply border-b border-border px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted; }
+  .table td { @apply border-b border-border px-3 py-2; }
+  .table tbody tr { transition: background-color .15s ease; animation: w-fade .35s ease both; }
+  .table tbody tr:hover { @apply bg-surface-alt; }
 
   /* Dashboard */
-  .tile { @apply card p-5 transition duration-200 ease-out; }
-  .tile-hover { @apply hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(16,24,20,0.08)]; }
-  .hero { background: linear-gradient(135deg, var(--w-primary-strong) 0%, var(--w-primary) 100%); color: #fff; border-color: transparent; }
-  .icon-btn { @apply inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface text-fg transition-colors hover:bg-surface-alt; }
-  .pill { @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium; }
-  .stripes { background-image: repeating-linear-gradient(135deg, var(--w-primary) 0 2px, transparent 2px 7px); opacity: .35; }
+  .tile { @apply card p-5; transition: transform .25s cubic-bezier(.2,.7,.2,1), box-shadow .25s ease; }
+  .tile-hover:hover { transform: translateY(-3px); box-shadow: 0 14px 34px -14px rgba(16, 24, 20, .3); }
+  .hero { background: linear-gradient(135deg, var(--w-primary-strong) 0%, var(--w-primary) 60%, var(--w-accent) 140%); background-size: 160% 160%; animation: w-rise .45s cubic-bezier(.2,.7,.2,1) both, w-sheen 9s ease-in-out infinite alternate; color: #fff; border-color: transparent; }
+  .icon-btn { @apply inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface text-fg; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); transition: transform .18s ease, background-color .18s ease; }
+  .icon-btn:hover { @apply bg-surface-solid; transform: translateY(-1px) rotate(-6deg); }
+  .pill { @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold; }
+  .stripes { background-image: repeating-linear-gradient(135deg, var(--w-primary) 0 2px, transparent 2px 7px); opacity: .4; }
   .skeleton { @apply rounded-lg bg-surface-alt; background-image: linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent); background-size: 200% 100%; animation: w-shimmer 1.4s infinite; }
 }
 
+/* Stagger: cards and rows in the same list come in one after another (capped so long lists don't wait). */
+:where(.grid, .space-y-1, .space-y-2, .space-y-3, .space-y-4, ul, .flex) > .card:nth-child(2) { animation-delay: 50ms; }
+:where(.grid, .space-y-1, .space-y-2, .space-y-3, .space-y-4, ul, .flex) > .card:nth-child(3) { animation-delay: 100ms; }
+:where(.grid, .space-y-1, .space-y-2, .space-y-3, .space-y-4, ul, .flex) > .card:nth-child(4) { animation-delay: 150ms; }
+:where(.grid, .space-y-1, .space-y-2, .space-y-3, .space-y-4, ul, .flex) > .card:nth-child(5) { animation-delay: 200ms; }
+:where(.grid, .space-y-1, .space-y-2, .space-y-3, .space-y-4, ul, .flex) > .card:nth-child(n+6) { animation-delay: 250ms; }
+.table tbody tr:nth-child(2) { animation-delay: 30ms; } .table tbody tr:nth-child(3) { animation-delay: 60ms; } .table tbody tr:nth-child(4) { animation-delay: 90ms; }
+.table tbody tr:nth-child(5) { animation-delay: 120ms; } .table tbody tr:nth-child(n+6) { animation-delay: 150ms; }
+
 @keyframes w-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes w-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes w-page { from { opacity: 0; transform: translateY(8px) scale(.995); } to { opacity: 1; transform: none; } }
+@keyframes w-pop { from { opacity: 0; transform: translateY(12px) scale(.97); } to { opacity: 1; transform: none; } }
+@keyframes w-toast { from { opacity: 0; transform: translateY(16px) scale(.96); } to { opacity: 1; transform: none; } }
 @keyframes w-grow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
 @keyframes w-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @keyframes w-drift { from { transform: translateX(0); } to { transform: translateX(-50%); } }
-@keyframes w-pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@keyframes w-pulse-dot { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .45; transform: scale(.8); } }
+@keyframes w-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.18); } }
+@keyframes w-sheen { from { background-position: 0% 50%; } to { background-position: 100% 50%; } }
+@keyframes w-float-a { from { transform: translate3d(0, 0, 0) rotate(0deg); } to { transform: translate3d(6%, 4%, 0) rotate(8deg); } }
+@keyframes w-float-b { from { transform: translate3d(0, 0, 0) rotate(0deg); } to { transform: translate3d(-5%, -6%, 0) rotate(-6deg); } }
 .rise { animation: w-rise .45s cubic-bezier(.2,.7,.2,1) both; }
+.page { animation: w-page .35s cubic-bezier(.2,.7,.2,1) both; }
+.pop { animation: w-pop .25s cubic-bezier(.2,.8,.2,1) both; }
+.fade { animation: w-fade .2s ease both; }
+.toast-in { animation: w-toast .3s cubic-bezier(.2,.8,.2,1) both; }
 .grow { transform-origin: bottom; animation: w-grow .7s cubic-bezier(.2,.7,.2,1) both; }
 .drift { animation: w-drift 18s linear infinite; }
 .pulse-dot { animation: w-pulse-dot 1.4s ease-in-out infinite; }
+.breathe { animation: w-breathe 3.2s ease-in-out infinite; }
+.nav-link svg { transition: transform .2s ease; }
+.nav-link:hover svg { transform: translateX(2px) scale(1.08); }
 
 @media (prefers-reduced-motion: reduce) {
-  .rise, .grow, .drift, .pulse-dot, .skeleton { animation: none !important; }
-  .tile, .btn { transition: none !important; }
+  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+  body::before, body::after { animation: none !important; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .card, .glass, .btn, .icon-btn { background: var(--w-surface) !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
 }

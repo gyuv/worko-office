@@ -35,7 +35,7 @@ function NavLink({ n, active }: { n: NavItem; active: boolean }) {
     <li className="relative">
       {active && <span aria-hidden className="absolute -left-3 top-1.5 h-6 w-1 rounded-r-full bg-primary" />}
       <a href={`#/${n.route}`} aria-current={active ? 'page' : undefined}
-        className={`flex items-center gap-2.5 rounded-xl px-2.5 py-2 transition-colors ${active ? 'bg-primary-soft font-semibold text-fg' : 'text-muted hover:bg-surface-alt hover:text-fg'}`}>
+        className={`nav-link flex items-center gap-2.5 rounded-xl px-2.5 py-2 transition-colors duration-200 ${active ? 'bg-primary-soft font-semibold text-fg' : 'text-muted hover:bg-surface-alt hover:text-fg'}`}>
         <n.icon size={17} aria-hidden className={active ? 'text-primary' : ''} /> <span className="truncate">{t(n.label)}</span>
       </a>
     </li>
@@ -72,12 +72,12 @@ export function Shell({ children, onSignOut }: { children: ReactNode; onSignOut(
   const general = visible.filter((n) => GENERAL.includes(n.route));
 
   return (
-    <div className="flex h-full bg-bg">
+    <div className="flex h-full">
       <nav aria-label="Main" className="hidden w-60 shrink-0 flex-col p-3 md:flex">
-        <div className="flex h-full flex-col rounded-2xl border border-border bg-surface">
+        <div className="glass flex h-full flex-col rounded-2xl">
           <div className="flex items-center gap-2.5 px-5 pb-4 pt-5">
             <span aria-hidden className="flex h-9 w-9 items-center justify-center rounded-full border-[3px] border-primary">
-              <span className="h-3 w-3 rounded-full bg-primary" />
+              <span className="breathe h-3 w-3 rounded-full bg-primary" />
             </span>
             <div className="min-w-0">
               <div className="text-lg font-bold leading-tight">{t('app.name')}</div>
@@ -111,7 +111,7 @@ export function Shell({ children, onSignOut }: { children: ReactNode; onSignOut(
         </div>
       </nav>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="m-3 mb-0 flex items-center gap-2 rounded-2xl border border-border bg-surface px-3 py-2.5 md:ml-0">
+        <header className="glass m-3 mb-0 flex items-center gap-2 rounded-2xl px-3 py-2.5 md:ml-0">
           <button className="flex h-10 flex-1 items-center gap-2 rounded-full bg-surface-alt px-4 text-left text-muted transition-colors hover:text-fg md:max-w-md" onClick={() => dispatchEvent(new Event('worko:palette'))}>
             <Search size={16} aria-hidden className="shrink-0" /> <span className="truncate">{t('palette.placeholder')}</span>
             <kbd className="ml-auto hidden rounded-md border border-border bg-surface px-1.5 py-0.5 text-[10px] font-semibold sm:block">Ctrl K</kbd>
@@ -130,8 +130,8 @@ export function Shell({ children, onSignOut }: { children: ReactNode; onSignOut(
         {!online && (
           <div role="status" className="mx-3 mt-2 flex items-center gap-2 rounded-xl bg-surface-alt px-4 py-1.5 text-sm"><WifiOff size={14} aria-hidden /> {t('common.offline')}</div>
         )}
-        <main className="min-h-0 flex-1 overflow-auto p-3 md:pl-0">{children}</main>
-        <nav aria-label="Main" className="grid grid-cols-5 border-t border-border bg-surface md:hidden">
+        <main className="min-h-0 flex-1 overflow-auto p-3 md:pl-0"><div key={route} className="page">{children}</div></main>
+        <nav aria-label="Main" className="glass grid grid-cols-5 rounded-t-2xl md:hidden">
           {NAV.filter((n) => ['home', 'tasks', 'clients', 'notifications', 'security'].includes(n.route) && (!n.perm || can(...n.perm))).map((n) => (
             <a key={n.route} href={`#/${n.route}`} className={`flex flex-col items-center py-2 text-xs ${route === n.route ? 'text-primary' : 'text-muted'}`}>
               <n.icon size={18} aria-hidden /> {t(n.label)}

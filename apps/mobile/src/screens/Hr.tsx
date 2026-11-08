@@ -318,7 +318,7 @@ export function Attendance({ theme, onBack }: { theme: Theme; onBack?: () => voi
     <View style={{ flex: 1 }}>
       <Header theme={theme} title={t('m.att.title')} onBack={onBack} />
       <Text style={s.muted}>{t('m.att.privacy')}</Text>
-      <View style={{ padding: 12, marginTop: 12, borderRadius: 8, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
+      <View style={{ padding: 12, marginTop: 12, borderRadius: 8, borderWidth: 1, borderColor: theme.glassBorder, backgroundColor: theme.glass }}>
         <Text style={s.text}>{today}</Text>
         <Text style={[s.text, { color: toneColor, fontWeight: '600' }]}>{t(`m.att.status.${v.statusKey}`)}</Text>
         {a && <Text style={s.muted}>{t('m.att.times', { in: fmtTime(a.checkInAt ?? a.deviceCheckInAt), out: fmtTime(a.checkOutAt ?? a.deviceCheckOutAt) })}</Text>}

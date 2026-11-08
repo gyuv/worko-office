@@ -30,9 +30,9 @@ export function Dialog({ title, onClose, children, wide }: { title: string; onCl
   }, []);
 
   return (
-    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-auto bg-black/30 p-4 pt-[8vh]" onMouseDown={onClose}>
+    <div className="fade fixed inset-0 z-40 flex items-start justify-center overflow-auto bg-black/25 p-4 pt-[8vh] backdrop-blur-[3px]" onMouseDown={onClose}>
       <div ref={box} role="dialog" aria-modal="true" aria-labelledby={id} onMouseDown={(e) => e.stopPropagation()}
-        className={`card w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} shadow-xl`}>
+        className={`card pop w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} shadow-2xl`}>
         <div className="flex items-center justify-between border-b border-border px-4 py-2">
           <h2 id={id} className="font-semibold">{title}</h2>
           <button type="button" className="rounded p-1 text-muted hover:text-fg" aria-label={t('common.close')} onClick={onClose}><X size={16} /></button>

@@ -116,7 +116,7 @@ function DryRunCard({ theme, data, onConfirm, onCancel, busy }: { theme: Theme; 
   const s = ui(theme);
   const d = dryRunSummary(data);
   return (
-    <View style={{ marginTop: 8, padding: 10, borderRadius: 6, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
+    <View style={{ marginTop: 8, padding: 10, borderRadius: 6, borderWidth: 1, borderColor: theme.glassBorder, backgroundColor: theme.glass }}>
       <Text style={[s.text, { fontWeight: '600' }]}>{t('m.auto.previewTitle')}</Text>
       <Text style={s.text}>{[t('m.auto.dry.evaluated', { count: d.evaluated }), t('m.auto.dry.matched', { count: d.matched }), t('m.auto.dry.skipped', { count: d.skipped })].join(' · ')}</Text>
       <Text style={s.text}>{t('m.auto.dry.actions', { count: d.actions })}{d.refused ? ` · ${t('m.auto.dry.refused', { count: d.refused })}` : ''}</Text>
@@ -266,7 +266,7 @@ export function SuggestionReview({ theme, sug, onDone }: { theme: Theme; sug: Su
   const acts = allowedActions(status);
   const busy = approve.isPending || reject.isPending;
   return (
-    <View style={{ marginTop: 8, padding: 10, borderRadius: 6, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface }}>
+    <View style={{ marginTop: 8, padding: 10, borderRadius: 6, borderWidth: 1, borderColor: theme.glassBorder, backgroundColor: theme.glass }}>
       <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
         <Text style={[s.chip, { fontWeight: '600' }]} accessibilityRole="text">{t('m.ai.badge')}</Text>
         {sug.mock && <Text style={s.chip}>{t('m.ai.mock')}</Text>}

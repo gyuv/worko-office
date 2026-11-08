@@ -66,4 +66,26 @@ describe('super-admin firm management', () => {
     const owner = await t.http().post('/v1/auth/login').send({ firm: 'rao-iyer', email: 'lakshmi@raoiyer.in', password: NEW_PW, device: { platform: 'web' } }).expect(200);
     await t.http().get(`/v1/platform/tenants/${tenantId}/users`).set(bearer(owner.body.accessToken)).expect((res) => { expect([401, 403]).toContain(res.status); });
   });
+
+  it('overview counts firms and users; disabling a user signs them out and blocks login, enabling respects the user limit', async () => {
+    const o = (await t.http().get('/v1/platform/overview').set(bearer(admin)).expect(200)).body;
+    expect(o.firms).toBeGreaterThanOrEqual(1);
+    expect(o.users).toBeGreaterThanOrEqual(2);
+    expect(o.recent.map((f: { slug: string }) => f.slug)).toContain('rao-iyer');
+
+    const users = (await t.http().get(`/v1/platform/tenants/${tenantId}/users`).set(bearer(admin)).expect(200)).body as Array<{ id: string; email: string }>;
+    const two = users.find((u) => u.email === 'two@raoiyer.in')!;
+    const s2 = await t.login('rao-iyer', 'two@raoiyer.in');
+    await t.http().post(`/v1/platform/tenants/${tenantId}/users/${two.id}/status`).set(bearer(admin)).send({ status: 'disabled' }).expect(200);
+    expect((await t.http().get('/v1/me').set(bearer(s2.accessToken))).status).toBe(401);
+    await t.http().post('/v1/auth/login').send({ firm: 'rao-iyer', email: 'two@raoiyer.in', password: PW, device: { platform: 'web' } }).expect((r) => { expect(r.status).toBeGreaterThanOrEqual(400); });
+
+    // With "two" disabled the firm has a free seat; fill it, then re-enabling "two" exceeds the limit of 2.
+    const owner = await t.http().post('/v1/auth/login').send({ firm: 'rao-iyer', email: 'lakshmi@raoiyer.in', password: NEW_PW, device: { platform: 'web' } }).expect(200);
+    await t.http().post('/v1/users').set(bearer(owner.body.accessToken)).send({ name: 'Three', email: 'three@raoiyer.in', password: PW, roleKeys: ['senior'] }).expect(201);
+    const again = await t.http().post(`/v1/platform/tenants/${tenantId}/users/${two.id}/status`).set(bearer(admin)).send({ status: 'active' });
+    expect(again.status).toBe(402);
+    const log = (await t.http().get(`/v1/platform/audit?tenantId=${tenantId}`).set(bearer(admin)).expect(200)).body;
+    expect(JSON.stringify(log)).toMatch(/platform\.user_disabled/);
+  });
 });

@@ -8,12 +8,12 @@ export type ThemeName = 'light' | 'dark';
 export const palette = {
   light: {
     bg: '#f3f5f3', surface: '#ffffff', surfaceAlt: '#eef3ef', border: '#e2e8e3',
-    text: '#111814', textMuted: '#56605a', primary: '#166534', primaryText: '#ffffff', focus: '#166534',
+    text: '#0d1410', textMuted: '#3f4943', primary: '#166534', primaryText: '#ffffff', focus: '#166534',
     primarySoft: '#dcf3e3', primaryStrong: '#0b3d22', accent: '#22a35a',
   },
   dark: {
     bg: '#0e1210', surface: '#151b17', surfaceAlt: '#1c241f', border: '#29332c',
-    text: '#e6ece8', textMuted: '#9aa8a0', primary: '#4ade80', primaryText: '#052e16', focus: '#4ade80',
+    text: '#f1f5f2', textMuted: '#b9c6be', primary: '#4ade80', primaryText: '#052e16', focus: '#4ade80',
     primarySoft: '#173a25', primaryStrong: '#0b2a18', accent: '#34d399',
   },
 } as const;

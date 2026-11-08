@@ -92,7 +92,7 @@ function KpiCard({ theme, w, onPress }: { theme: Theme; w: Widget; onPress?: () 
   const k = kpiTile(w);
   return (
     <Pressable onPress={onPress} disabled={!onPress} accessibilityRole="button" accessibilityLabel={`${k.title}: ${k.text}`}
-      style={{ flexBasis: '47%', flexGrow: 1, minHeight: 84, padding: 12, borderRadius: 6, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border }}>
+      style={{ flexBasis: '47%', flexGrow: 1, minHeight: 84, padding: 12, borderRadius: 6, backgroundColor: theme.glass, borderWidth: 1, borderColor: theme.border }}>
       <Text style={s.muted} numberOfLines={2}>{k.title}</Text>
       <Text style={{ fontSize: 22, fontWeight: '600', color: theme.text, marginTop: 4, fontVariant: ['tabular-nums'] }} numberOfLines={1} adjustsFontSizeToFit>{k.text}</Text>
       {k.note === 'hidden' && <Text style={s.muted}>{t('m.rep.hiddenValue')}</Text>}

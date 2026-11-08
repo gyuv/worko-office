@@ -7,6 +7,7 @@ import { I18nProvider, useT } from '../lib/i18n';
 import { apiBase, webTokenStorage } from '../lib/platform';
 import { bytes } from '../screens/settings/SubscriptionPanel';
 import { IMPERSONATION_KEY } from './banner';
+import { useCountUp } from '../screens/HomeScreen';
 
 const KEY = 'worko.platform';
 /** Platform tokens live in sessionStorage only (closing the tab signs out); they are never valid on firm routes (D178). */
@@ -75,30 +76,86 @@ function Console({ onSignOut }: { onSignOut(): void }) {
   const [open, setOpen] = useState<string | null>(null);
   return (
     <>
-      <header className="flex flex-wrap items-center gap-2"><h1 className="text-xl font-semibold">{t('p12a.pl.title')}</h1><button className="btn ml-auto" onClick={onSignOut}>{t('p12a.pl.signOut')}</button></header>
+      <header className="glass rise flex flex-wrap items-center gap-3 rounded-2xl px-4 py-3">
+        <span aria-hidden className="flex h-9 w-9 items-center justify-center rounded-full border-[3px] border-primary"><span className="breathe h-3 w-3 rounded-full bg-primary" /></span>
+        <h1 className="text-xl font-bold">{t('p12a.pl.title')}</h1>
+        <button className="btn ml-auto" onClick={onSignOut}>{t('p12a.pl.signOut')}</button>
+      </header>
       <Tabs label={t('p12a.pl.title')} value={view} onChange={(v) => { setView(v); setOpen(null); }} tabs={[['tenants', t('p12a.pl.tenants')], ['plans', t('p12a.pl.plans')], ['audit', t('p12a.pl.audit')]]} />
-      {view === 'tenants' && (open ? <TenantDetail id={open} onBack={() => setOpen(null)} /> : <Tenants onOpen={setOpen} />)}
-      {view === 'plans' && <Plans />}
-      {view === 'audit' && <Audit />}
+      <div key={`${view}:${open ?? ''}`} className="page space-y-4">
+        {view === 'tenants' && (open ? <TenantDetail id={open} onBack={() => setOpen(null)} /> : <><Overview onOpen={setOpen} /><Tenants onOpen={setOpen} /></>)}
+        {view === 'plans' && <Plans />}
+        {view === 'audit' && <Audit />}
+      </div>
     </>
+  );
+}
+
+type OverviewData = { firms: number; active: number; suspended: number; newThisMonth: number; users: number; activeUsers: number; recent: Array<{ id: string; name: string; slug: string; plan: string; createdAt: string }> };
+
+function Stat({ label, value, hero }: { label: string; value: number; hero?: boolean }) {
+  const n = useCountUp(value);
+  return (
+    <div className={`tile tile-hover ${hero ? 'hero' : ''}`}>
+      <div className={`text-sm font-semibold ${hero ? 'text-white/90' : 'text-muted'}`}>{label}</div>
+      <div className="mt-2 text-[36px] font-bold leading-none tabular-nums">{n}</div>
+    </div>
+  );
+}
+
+function Overview({ onOpen }: { onOpen(id: string): void }) {
+  const t = useT();
+  const o = useQuery({ queryKey: ['p', 'overview'], queryFn: () => pfetch<OverviewData>('/platform/overview') });
+  if (!o.data) return <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">{[0, 1, 2, 3, 4].map((k) => <div key={k} className="skeleton h-24" />)}</div>;
+  const d = o.data;
+  return (
+    <section className="space-y-3" aria-label={t('p12a.pl.overview')}>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <Stat hero label={t('p12a.pl.ov.firms')} value={d.firms} />
+        <Stat label={t('p12a.pl.ov.active')} value={d.active} />
+        <Stat label={t('p12a.pl.ov.suspended')} value={d.suspended} />
+        <Stat label={t('p12a.pl.ov.users')} value={d.activeUsers} />
+        <Stat label={t('p12a.pl.ov.new')} value={d.newThisMonth} />
+      </div>
+      {d.recent.length > 0 && (
+        <div className="card flex flex-wrap items-center gap-2 p-3 text-sm">
+          <span className="font-semibold">{t('p12a.pl.ov.recent')}</span>
+          {d.recent.map((f) => <button key={f.id} className="btn py-1" onClick={() => onOpen(f.id)}>{f.name} <span className="text-muted">({f.slug})</span></button>)}
+        </div>
+      )}
+    </section>
   );
 }
 
 function Tenants({ onOpen }: { onOpen(id: string): void }) {
   const t = useT();
   const [q, setQ] = useState('');
-  const list = useQuery({ queryKey: ['p', 'tenants', q], queryFn: () => pfetch<TenantRow[]>(`/platform/tenants?q=${encodeURIComponent(q)}`) });
+  const [status, setStatus] = useState<'' | 'active' | 'suspended'>('');
+  const list = useQuery({ queryKey: ['p', 'tenants', q, status], placeholderData: (prev) => prev,
+    queryFn: () => pfetch<TenantRow[]>(`/platform/tenants?q=${encodeURIComponent(q)}${status ? `&status=${status}` : ''}`) });
+  const exportCsv = () => {
+    const rows = [['Firm', 'Firm ID', 'Plan', 'Status', 'Subscription', 'Created'], ...(list.data ?? []).map((r) => [r.name, r.slug, r.plan, r.status, r.subStatus, r.createdAt.slice(0, 10)])];
+    const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    const a = document.createElement('a'); a.href = url; a.download = `firms-${new Date().toISOString().slice(0, 10)}.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
   const [creating, setCreating] = useState(false);
   const [done, setDone] = useState<string | null>(null);
   return (
     <section className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         <input className="input max-w-sm" aria-label={t('p12a.pl.search')} placeholder={t('p12a.pl.search')} value={q} onChange={(e) => setQ(e.target.value)} />
-        {!creating && <button className="btn ml-auto" onClick={() => { setCreating(true); setDone(null); }}>+ {t('p12a.pl.newFirm')}</button>}
+        <div className="flex gap-1" role="group" aria-label={t('p12a.pl.filter')}>
+          {([['', t('p12a.pl.filterAll')], ['active', t('p12a.pl.filterActive')], ['suspended', t('p12a.pl.filterSuspended')]] as const).map(([k, label]) => (
+            <button key={k} className={`btn ${status === k ? 'btn-primary' : ''}`} aria-pressed={status === k} onClick={() => setStatus(k)}>{label}</button>
+          ))}
+        </div>
+        <button className="btn ml-auto" onClick={exportCsv} disabled={!list.data?.length}>{t('p12a.pl.exportCsv')}</button>
+        {!creating && <button className="btn btn-primary" onClick={() => { setCreating(true); setDone(null); }}>+ {t('p12a.pl.newFirm')}</button>}
       </div>
       {done && <p role="status" className="card p-2">{t('p12a.pl.created', { slug: done })}</p>}
       {creating && <CreateFirm onCancel={() => setCreating(false)} onCreated={(slug) => { setCreating(false); setDone(slug); }} />}
-      <table className="card w-full text-left text-sm"><thead><tr><th className="p-2">{t('p12a.pl.col.firm')}</th><th>{t('p12a.pl.col.plan')}</th><th>{t('p12a.pl.col.status')}</th><th>{t('p12a.pl.col.sub')}</th><th>{t('p12a.pl.col.created')}</th></tr></thead>
+      <table className="table card w-full overflow-hidden text-left text-sm"><thead><tr><th className="p-2">{t('p12a.pl.col.firm')}</th><th>{t('p12a.pl.col.plan')}</th><th>{t('p12a.pl.col.status')}</th><th>{t('p12a.pl.col.sub')}</th><th>{t('p12a.pl.col.created')}</th></tr></thead>
         <tbody>{(list.data ?? []).map((r) => (
           <tr key={r.id} className="cursor-pointer border-t border-border hover:bg-surface-alt" onClick={() => onOpen(r.id)}>
             <td className="p-2">{r.name} <span className="text-muted">({r.slug})</span></td><td>{r.plan}</td><td className={r.status === 'suspended' ? 'text-overdue' : ''}>{r.status}</td><td>{r.subStatus}</td><td>{formatDate(r.createdAt)}</td>
@@ -152,6 +209,12 @@ function FirmUsers({ id }: { id: string }) {
     mutationFn: (userId: string) => pfetch(`/platform/tenants/${id}/users/${userId}/reset-password`, { method: 'POST', body: { password: pw } }),
     onSuccess: () => { setResetFor(null); setPw(''); setMsg(t('p12a.pl.pwReset')); void users.refetch(); }, onError: (e) => setMsg((e as Error).message),
   });
+  const qc = useQueryClient();
+  const toggle = useMutation({
+    mutationFn: (x: { id: string; status: 'active' | 'disabled' }) => pfetch(`/platform/tenants/${id}/users/${x.id}/status`, { method: 'POST', body: { status: x.status } }),
+    onSuccess: (_r, x) => { setMsg(x.status === 'active' ? t('p12a.pl.enabled') : t('p12a.pl.disabled')); void users.refetch(); void qc.invalidateQueries({ queryKey: ['p', 'tenant', id] }); },
+    onError: (e) => setMsg((e as Error).message),
+  });
   return (
     <div className="card space-y-2 p-3"><h3 className="font-semibold">{t('p12a.pl.users')} ({users.data?.length ?? 0})</h3>
       {msg && <p role="status">{msg}</p>}
@@ -164,7 +227,11 @@ function FirmUsers({ id }: { id: string }) {
             ? <form className="flex gap-1" onSubmit={(e) => { e.preventDefault(); reset.mutate(u.id); }}>
                 <input className="input" type="password" autoComplete="new-password" aria-label={t('p12a.pl.newPassword')} placeholder={t('p12a.pl.newPassword')} value={pw} onChange={(e) => setPw(e.target.value)} minLength={8} required />
                 <button className="btn">{t('p12a.pl.save')}</button><button type="button" className="btn" onClick={() => setResetFor(null)}>{t('p12a.pl.cancel')}</button></form>
-            : <button className="btn ml-auto" onClick={() => { setResetFor(u.id); setPw(''); setMsg(null); }}>{t('p12a.pl.resetPw')}</button>}
+            : <span className="ml-auto flex gap-1">
+                <button className="btn" onClick={() => { setResetFor(u.id); setPw(''); setMsg(null); }}>{t('p12a.pl.resetPw')}</button>
+                <button className={`btn ${u.status === 'active' ? 'btn-danger' : ''}`} disabled={toggle.isPending} onClick={() => toggle.mutate({ id: u.id, status: u.status === 'active' ? 'disabled' : 'active' })}>
+                  {u.status === 'active' ? t('p12a.pl.disable') : t('p12a.pl.enable')}</button>
+              </span>}
         </li>))}</ul>
     </div>
   );
@@ -219,7 +286,7 @@ function TenantDetail({ id, onBack }: { id: string; onBack(): void }) {
     <section className="space-y-3 text-sm">
       <button className="btn" onClick={onBack}>← {t('p12a.pl.back')}</button>
       <h2 className="text-lg font-semibold">{tn.name} <span className="text-muted">({tn.slug})</span></h2>
-      <p>{tn.plan} · {tn.subStatus}{tn.trialEndsOn ? ` · trial ${formatDate(tn.trialEndsOn)}` : ''}{tn.periodEnd ? ` · period end ${formatDate(tn.periodEnd)}` : ''}</p>
+      <p>{tn.plan} · {tn.subStatus}{tn.subStatus === 'trial' && tn.trialEndsOn ? ` · trial ${formatDate(tn.trialEndsOn)}` : ''}{tn.periodEnd ? ` · period end ${formatDate(tn.periodEnd)}` : ''}</p>
       {tn.status === 'suspended' && <p role="status" className="card border-overdue p-2">{t('p12a.pl.suspended', { reason: tn.suspendedReason ?? '' })}</p>}
       {error && <p role="alert" className="text-overdue">{error}</p>}
       <div className="card space-y-1 p-3"><h3 className="font-semibold">{t('p12a.pl.usage')}</h3>

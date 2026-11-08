@@ -56,7 +56,7 @@ export function HomeScreen() {
   const loading = canTasks && !tasks.data;
 
   return (
-    <div className="mx-auto max-w-[1400px] space-y-4 rounded-2xl border border-border bg-surface p-4 md:p-6">
+    <div className="glass mx-auto max-w-[1400px] space-y-4 rounded-2xl p-4 md:p-6">
       <div className="rise flex flex-wrap items-end gap-3">
         <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
           <h1 className="text-[28px] font-bold leading-tight tracking-tight">{t('dash.title')}</h1>
@@ -101,7 +101,7 @@ export function HomeScreen() {
 function StatCard({ i, hero, label, value, note, href, loading }: { i: number; hero?: boolean; label: string; value: number; note: ReactNode; href: string; loading: boolean }) {
   const n = useCountUp(loading ? 0 : value);
   return (
-    <a href={href} className={`tile tile-hover rise group block ${hero ? 'hero' : ''}`} style={delay(i)}>
+    <a href={href} className={`tile tile-hover group block ${hero ? 'hero' : 'rise'}`} style={delay(i)}>
       <div className="flex items-start justify-between">
         <span className={`text-[13px] font-semibold sm:text-[15px] ${hero ? 'text-white' : ''}`}>{label}</span>
         <span aria-hidden className={`flex h-8 w-8 items-center justify-center rounded-full border transition-transform duration-200 group-hover:rotate-45 ${hero ? 'border-white/30 bg-white text-primary' : 'border-border'}`}>
