@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { uuidv7 } from '../db/ids.js';
 import { AuditService } from '../audit/audit.service.js';
 import { hashPassword } from '../auth/crypto.js';
 import type { PlatformActor } from '../auth/context.js';
@@ -61,10 +62,11 @@ export class FirmAdminService {
     const firms = (await this.db.systemTx((tx) => tx.query(
       `SELECT id, name, slug, status, sub_status AS "subStatus", plan, created_at AS "createdAt" FROM tenant ORDER BY created_at DESC`))).rows as Array<{ id: string; name: string; slug: string; status: string; subStatus: string; plan: string; createdAt: Date }>;
     let users = 0; let activeUsers = 0;
+    const sizes: Array<{ id: string; name: string; slug: string; users: number }> = [];
     for (const f of firms) {
       const c = (await this.db.tenantTx(f.id, (tx) => tx.query(
         `SELECT count(*)::int AS n, count(*) FILTER (WHERE status = 'active')::int AS a FROM app_user WHERE deleted_at IS NULL AND kind IN ('staff','freelancer')`))).rows[0];
-      users += c.n; activeUsers += c.a;
+      users += c.n; activeUsers += c.a; sizes.push({ id: f.id, name: f.name, slug: f.slug, users: c.a });
     }
     const month = new Date().toISOString().slice(0, 7);
     await this.paudit.record({ adminId: p.adminId, action: 'platform.overview_viewed', entity: 'platform', entityId: null, ip: p.ip });
@@ -75,7 +77,68 @@ export class FirmAdminService {
       newThisMonth: firms.filter((f) => new Date(f.createdAt).toISOString().slice(0, 7) === month).length,
       users, activeUsers,
       recent: firms.slice(0, 5).map((f) => ({ id: f.id, name: f.name, slug: f.slug, plan: f.plan, createdAt: f.createdAt })),
+      topFirms: sizes.sort((a, b) => b.users - a.users).slice(0, 5),
     };
+  }
+
+  /** Per firm: active users and when anyone last used the app (for the firm list). */
+  async activity() {
+    const firms = (await this.db.systemTx((tx) => tx.query('SELECT id FROM tenant'))).rows as Array<{ id: string }>;
+    const out: Record<string, { users: number; lastActive: string | null }> = {};
+    for (const f of firms) {
+      const r = (await this.db.tenantTx(f.id, (tx) => tx.query(
+        `SELECT (SELECT count(*)::int FROM app_user WHERE deleted_at IS NULL AND status = 'active' AND kind IN ('staff','freelancer')) AS users,
+                (SELECT max(last_seen_at) FROM device_session) AS last`))).rows[0];
+      out[f.id] = { users: r.users, lastActive: r.last ? new Date(r.last).toISOString() : null };
+    }
+    return out;
+  }
+
+  async rename(p: PlatformActor, tenantId: string, name: string) {
+    const before = await this.assertTenant(tenantId);
+    await this.db.systemTx(async (tx) => {
+      await tx.query('UPDATE tenant SET name = $2 WHERE id = $1', [tenantId, name]);
+      await this.paudit.recordTx(tx, { adminId: p.adminId, tenantId, action: 'platform.firm_renamed', entity: 'tenant', entityId: tenantId, diff: { from: before.name, to: name }, ip: p.ip });
+    });
+    await this.db.tenantTx(tenantId, (tx) => this.audit.record(tx, tenantId, { actorId: null, deviceId: 'platform', action: 'tenant.renamed', entity: 'tenant', entityId: tenantId, diff: { from: before.name, to: name, platformAdminId: p.adminId } }));
+    return { ok: true };
+  }
+
+  // ---------------- announcements ----------------
+
+  async announcements() {
+    return (await this.db.systemTx((tx) => tx.query(
+      `SELECT a.id, a.tenant_id AS "tenantId", t.name AS "firmName", a.title, a.body, a.level, a.starts_at AS "startsAt", a.ends_at AS "endsAt", a.active, a.created_at AS "createdAt"
+       FROM platform_announcement a LEFT JOIN tenant t ON t.id = a.tenant_id ORDER BY a.created_at DESC LIMIT 200`))).rows;
+  }
+
+  async createAnnouncement(p: PlatformActor, b: { title: string; body?: string; level: 'info' | 'warning' | 'critical'; tenantId?: string | null; endsAt?: string | null }) {
+    if (b.tenantId) await this.assertTenant(b.tenantId);
+    const id = uuidv7();
+    await this.db.systemTx(async (tx) => {
+      await tx.query('INSERT INTO platform_announcement (id, tenant_id, title, body, level, ends_at, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+        [id, b.tenantId ?? null, b.title, b.body ?? '', b.level, b.endsAt ?? null, p.adminId]);
+      await this.paudit.recordTx(tx, { adminId: p.adminId, tenantId: b.tenantId ?? null, action: 'platform.announcement_created', entity: 'announcement', entityId: id, diff: { title: b.title, level: b.level }, ip: p.ip });
+    });
+    return { id };
+  }
+
+  async setAnnouncementActive(p: PlatformActor, id: string, active: boolean) {
+    const r = await this.db.systemTx(async (tx) => {
+      const u = await tx.query('UPDATE platform_announcement SET active = $2 WHERE id = $1 RETURNING id', [id, active]);
+      if (u.rowCount) await this.paudit.recordTx(tx, { adminId: p.adminId, action: active ? 'platform.announcement_resumed' : 'platform.announcement_ended', entity: 'announcement', entityId: id, ip: p.ip });
+      return u.rowCount;
+    });
+    if (!r) throw new NotFoundException();
+    return { ok: true };
+  }
+
+  /** What a firm's users see: active announcements for everyone or for this firm. */
+  async forTenant(tenantId: string) {
+    return (await this.db.tenantTx(tenantId, (tx) => tx.query(
+      `SELECT id, title, body, level FROM platform_announcement
+       WHERE active AND starts_at <= now() AND (ends_at IS NULL OR ends_at > now()) AND (tenant_id IS NULL OR tenant_id = $1)
+       ORDER BY CASE level WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END, starts_at DESC LIMIT 5`, [tenantId]))).rows;
   }
 
   /** Enable or disable a firm user. Disabling signs them out everywhere; enabling still respects the firm's user limit. */

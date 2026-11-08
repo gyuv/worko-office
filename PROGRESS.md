@@ -59,3 +59,4 @@ Release builds: `.github/workflows/release-builds.yml` (unsigned Windows .exe, m
 - QA pass: automated contrast/console sweep of all web routes in light, dark and reduced-transparency (0 issues); fixed white-on-white (reduced-transparency rule, gradient contrast), color-mix fallback; dashboard stat cards deep-link filtered task lists (#/tasks?status=…, ?new=1).
 - Per-user Appearance (theme, 8 accents, text size, density, glass, motion, hidden sidebar modules), saved server-side (app_user.ui_prefs, GET/PUT /me/ui-prefs).
 - Team: members management (add/edit roles/disable, seat usage) + Roles & permissions matrix (POST/PATCH/DELETE /roles; Partner locked; no privilege escalation).
+- Platform console: announcements (all firms / one firm, levels, end time; firm-side dismissible banner; GET /announcements), firm list users + last active (GET /platform/activity), biggest-firms chart, rename firm, per-firm platform timeline; migration 0027.

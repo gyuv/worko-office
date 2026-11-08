@@ -33,6 +33,10 @@ const createFirmB = z.object({
 const resetPwB = z.object({ password: z.string().min(8).max(200) }).strict();
 const exportB = z.object({ reason: z.string().trim().min(5).max(500) }).strict();
 const userStatusB = z.object({ status: z.enum(['active', 'disabled']) }).strict();
+const renameB = z.object({ name: z.string().trim().min(2).max(200) }).strict();
+const annB = z.object({ title: z.string().trim().min(3).max(140), body: z.string().trim().max(1000).optional(), level: z.enum(['info', 'warning', 'critical']).default('info'),
+  tenantId: z.string().uuid().nullable().optional(), endsAt: z.string().datetime({ offset: true }).nullable().optional() }).strict();
+const annActiveB = z.object({ active: z.boolean() }).strict();
 const meta = (req: Request) => ({ ip: req.ip ?? null, userAgent: req.headers['user-agent'] });
 
 /**
@@ -125,6 +129,21 @@ export class PlatformController {
   @Post('tenants')
   createFirm(@CurrentPlatform() p: PlatformActor, @Body(new ZodPipe(createFirmB)) b: z.infer<typeof createFirmB>) { return this.firms.createFirm(p, b); }
 
+  @Get('activity')
+  activity() { return this.firms.activity(); }
+
+  @Put('tenants/:id/name')
+  rename(@CurrentPlatform() p: PlatformActor, @Param('id', uuid) id: string, @Body(new ZodPipe(renameB)) b: z.infer<typeof renameB>) { return this.firms.rename(p, id, b.name); }
+
+  @Get('announcements')
+  announcements() { return this.firms.announcements(); }
+
+  @Post('announcements')
+  createAnnouncement(@CurrentPlatform() p: PlatformActor, @Body(new ZodPipe(annB)) b: z.infer<typeof annB>) { return this.firms.createAnnouncement(p, b); }
+
+  @Put('announcements/:id/active')
+  announcementActive(@CurrentPlatform() p: PlatformActor, @Param('id', uuid) id: string, @Body(new ZodPipe(annActiveB)) b: z.infer<typeof annActiveB>) { return this.firms.setAnnouncementActive(p, id, b.active); }
+
   @Get('overview')
   overview(@CurrentPlatform() p: PlatformActor) { return this.firms.overview(p); }
 
@@ -163,7 +182,11 @@ const approveB = z.object({ writeConsent: z.boolean().default(false), minutes: z
 /** Firm side: Settings → Subscription (plan, seats, usage, invoices, upgrade requests) and support-access consent. */
 @Controller()
 export class SubscriptionController {
-  constructor(private saas: SaasService, private imp: ImpersonationService) {}
+  constructor(private saas: SaasService, private imp: ImpersonationService, private firms: FirmAdminService) {}
+
+  /** Platform announcements addressed to this firm (any signed-in staff user). */
+  @Get('announcements')
+  announcements(@CurrentActor() a: RequestActor) { return this.firms.forTenant(a.tenantId); }
 
   @Get('subscription') @Perm('settings', 'view')
   get(@CurrentActor() a: RequestActor) { return this.saas.subscription(a); }

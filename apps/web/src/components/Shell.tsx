@@ -6,6 +6,7 @@ import { useRoute, type Route } from '../lib/router';
 import { useTheme } from '../lib/theme';
 import { usePrefs } from '../lib/prefs';
 import { useOnline } from '../lib/useOnline';
+import { AnnouncementBanner } from './AnnouncementBanner';
 import { CommandPalette } from './CommandPalette';
 import { BellButton, SyncIndicator, Toasts } from './SyncIndicator';
 import { NAV, type NavItem } from './nav';
@@ -131,6 +132,7 @@ export function Shell({ children, onSignOut }: { children: ReactNode; onSignOut(
             </a>
           </div>
         </header>
+        <AnnouncementBanner />
         {!online && (
           <div role="status" className="mx-3 mt-2 flex items-center gap-2 rounded-xl bg-surface-alt px-4 py-1.5 text-sm"><WifiOff size={14} aria-hidden /> {t('common.offline')}</div>
         )}

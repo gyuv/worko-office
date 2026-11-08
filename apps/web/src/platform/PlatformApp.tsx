@@ -72,7 +72,7 @@ function Login({ onDone }: { onDone(t: string): void }) {
 
 function Console({ onSignOut }: { onSignOut(): void }) {
   const t = useT();
-  const [view, setView] = useState<'tenants' | 'plans' | 'audit'>('tenants');
+  const [view, setView] = useState<'tenants' | 'announcements' | 'plans' | 'audit'>('tenants');
   const [open, setOpen] = useState<string | null>(null);
   return (
     <>
@@ -81,9 +81,10 @@ function Console({ onSignOut }: { onSignOut(): void }) {
         <h1 className="text-xl font-bold">{t('p12a.pl.title')}</h1>
         <button className="btn ml-auto" onClick={onSignOut}>{t('p12a.pl.signOut')}</button>
       </header>
-      <Tabs label={t('p12a.pl.title')} value={view} onChange={(v) => { setView(v); setOpen(null); }} tabs={[['tenants', t('p12a.pl.tenants')], ['plans', t('p12a.pl.plans')], ['audit', t('p12a.pl.audit')]]} />
+      <Tabs label={t('p12a.pl.title')} value={view} onChange={(v) => { setView(v); setOpen(null); }} tabs={[['tenants', t('p12a.pl.tenants')], ['announcements', t('p12a.pl.ann')], ['plans', t('p12a.pl.plans')], ['audit', t('p12a.pl.audit')]]} />
       <div key={`${view}:${open ?? ''}`} className="page space-y-4">
         {view === 'tenants' && (open ? <TenantDetail id={open} onBack={() => setOpen(null)} /> : <><Overview onOpen={setOpen} /><Tenants onOpen={setOpen} /></>)}
+        {view === 'announcements' && <Announcements />}
         {view === 'plans' && <Plans />}
         {view === 'audit' && <Audit />}
       </div>
@@ -91,7 +92,7 @@ function Console({ onSignOut }: { onSignOut(): void }) {
   );
 }
 
-type OverviewData = { firms: number; active: number; suspended: number; newThisMonth: number; users: number; activeUsers: number; recent: Array<{ id: string; name: string; slug: string; plan: string; createdAt: string }> };
+type OverviewData = { topFirms: Array<{ id: string; name: string; slug: string; users: number }>; firms: number; active: number; suspended: number; newThisMonth: number; users: number; activeUsers: number; recent: Array<{ id: string; name: string; slug: string; plan: string; createdAt: string }> };
 
 function Stat({ label, value, hero }: { label: string; value: number; hero?: boolean }) {
   const n = useCountUp(value);
@@ -117,6 +118,21 @@ function Overview({ onOpen }: { onOpen(id: string): void }) {
         <Stat label={t('p12a.pl.ov.users')} value={d.activeUsers} />
         <Stat label={t('p12a.pl.ov.new')} value={d.newThisMonth} />
       </div>
+      {d.topFirms.length > 0 && (
+        <div className="card p-4 text-sm">
+          <div className="mb-2 font-semibold">{t('p12a.pl.ov.top')}</div>
+          <ul className="space-y-2">{d.topFirms.map((f) => {
+            const max = Math.max(1, d.topFirms[0]!.users);
+            return (
+              <li key={f.id}><button className="group flex w-full items-center gap-3 text-left" onClick={() => onOpen(f.id)}>
+                <span className="w-56 truncate group-hover:text-primary">{f.name}</span>
+                <span className="h-2.5 flex-1 overflow-hidden rounded-full bg-surface-alt"><span className="block h-full origin-left rounded-full bg-primary transition-all duration-700" style={{ width: `${Math.max(4, (f.users / max) * 100)}%` }} /></span>
+                <span className="w-10 text-right tabular-nums text-muted">{f.users}</span>
+              </button></li>
+            );
+          })}</ul>
+        </div>
+      )}
       {d.recent.length > 0 && (
         <div className="card flex flex-wrap items-center gap-2 p-3 text-sm">
           <span className="font-semibold">{t('p12a.pl.ov.recent')}</span>
@@ -133,6 +149,12 @@ function Tenants({ onOpen }: { onOpen(id: string): void }) {
   const [status, setStatus] = useState<'' | 'active' | 'suspended'>('');
   const list = useQuery({ queryKey: ['p', 'tenants', q, status], placeholderData: (prev) => prev,
     queryFn: () => pfetch<TenantRow[]>(`/platform/tenants?q=${encodeURIComponent(q)}${status ? `&status=${status}` : ''}`) });
+  const activity = useQuery({ queryKey: ['p', 'activity'], queryFn: () => pfetch<Record<string, { users: number; lastActive: string | null }>>('/platform/activity') });
+  const ago = (iso: string | null) => {
+    if (!iso) return t('p12a.pl.never');
+    const m = Math.round((Date.now() - Date.parse(iso)) / 60_000);
+    return m < 60 ? t('p12a.pl.minAgo', { n: Math.max(1, m) }) : m < 1440 ? t('p12a.pl.hAgo', { n: Math.round(m / 60) }) : t('p12a.pl.dAgo', { n: Math.round(m / 1440) });
+  };
   const exportCsv = () => {
     const rows = [['Firm', 'Firm ID', 'Plan', 'Status', 'Subscription', 'Created'], ...(list.data ?? []).map((r) => [r.name, r.slug, r.plan, r.status, r.subStatus, r.createdAt.slice(0, 10)])];
     const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -155,10 +177,10 @@ function Tenants({ onOpen }: { onOpen(id: string): void }) {
       </div>
       {done && <p role="status" className="card p-2">{t('p12a.pl.created', { slug: done })}</p>}
       {creating && <CreateFirm onCancel={() => setCreating(false)} onCreated={(slug) => { setCreating(false); setDone(slug); }} />}
-      <table className="table card w-full overflow-hidden text-left text-sm"><thead><tr><th className="p-2">{t('p12a.pl.col.firm')}</th><th>{t('p12a.pl.col.plan')}</th><th>{t('p12a.pl.col.status')}</th><th>{t('p12a.pl.col.sub')}</th><th>{t('p12a.pl.col.created')}</th></tr></thead>
+      <table className="table card w-full overflow-hidden text-left text-sm"><thead><tr><th className="p-2">{t('p12a.pl.col.firm')}</th><th>{t('p12a.pl.col.plan')}</th><th>{t('p12a.pl.col.status')}</th><th>{t('p12a.pl.col.sub')}</th><th>{t('p12a.pl.col.users')}</th><th>{t('p12a.pl.col.lastActive')}</th><th>{t('p12a.pl.col.created')}</th></tr></thead>
         <tbody>{(list.data ?? []).map((r) => (
           <tr key={r.id} className="cursor-pointer border-t border-border hover:bg-surface-alt" onClick={() => onOpen(r.id)}>
-            <td className="p-2">{r.name} <span className="text-muted">({r.slug})</span></td><td>{r.plan}</td><td className={r.status === 'suspended' ? 'text-overdue' : ''}>{r.status}</td><td>{r.subStatus}</td><td>{formatDate(r.createdAt)}</td>
+            <td className="p-2">{r.name} <span className="text-muted">({r.slug})</span></td><td>{r.plan}</td><td className={r.status === 'suspended' ? 'text-overdue' : ''}>{r.status}</td><td>{r.subStatus}</td><td className="tabular-nums">{activity.data?.[r.id]?.users ?? '…'}</td><td className="text-muted">{activity.data ? ago(activity.data[r.id]?.lastActive ?? null) : '…'}</td><td>{formatDate(r.createdAt)}</td>
           </tr>))}</tbody>
       </table>
     </section>
@@ -268,6 +290,8 @@ function TenantDetail({ id, onBack }: { id: string; onBack(): void }) {
   const [reason, setReason] = useState(''); const [plan, setPlan] = useState(''); const [seats, setSeats] = useState('');
   const [impReason, setImpReason] = useState(''); const [impWrite, setImpWrite] = useState(false); const [impMin, setImpMin] = useState(30);
   const [error, setError] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const timeline = useQuery({ queryKey: ['p', 'timeline', id], queryFn: () => pfetch<Array<{ seq: number; at: string; action: string; diff?: unknown }>>(`/platform/audit?tenantId=${id}&limit=50`) });
   const call = useMutation({ mutationFn: (x: { path: string; method?: string; body?: unknown }) => pfetch<unknown>(x.path, { method: x.method ?? 'POST', body: x.body ?? {} }),
     onSuccess: () => { setError(null); void qc.invalidateQueries({ queryKey: ['p'] }); }, onError: (e) => setError((e as Error).message) });
   const start = useMutation({
@@ -285,13 +309,23 @@ function TenantDetail({ id, onBack }: { id: string; onBack(): void }) {
   return (
     <section className="space-y-3 text-sm">
       <button className="btn" onClick={onBack}>← {t('p12a.pl.back')}</button>
-      <h2 className="text-lg font-semibold">{tn.name} <span className="text-muted">({tn.slug})</span></h2>
+      {renaming === null
+        ? <h2 className="flex flex-wrap items-center gap-2 text-lg font-semibold">{tn.name} <span className="text-muted">({tn.slug})</span><button className="btn py-0.5 text-xs" onClick={() => setRenaming(tn.name)}>{t('p12a.pl.rename')}</button></h2>
+        : <form className="flex flex-wrap gap-2" onSubmit={(e) => { e.preventDefault(); call.mutate({ path: `/platform/tenants/${id}/name`, method: 'PUT', body: { name: renaming } }, { onSuccess: () => setRenaming(null) }); }}>
+            <input className="input max-w-sm" aria-label={t('p12a.pl.firmName')} value={renaming} onChange={(e) => setRenaming(e.target.value)} minLength={2} required />
+            <button className="btn btn-primary">{t('p12a.pl.save')}</button><button type="button" className="btn" onClick={() => setRenaming(null)}>{t('p12a.pl.cancel')}</button></form>}
       <p>{tn.plan} · {tn.subStatus}{tn.subStatus === 'trial' && tn.trialEndsOn ? ` · trial ${formatDate(tn.trialEndsOn)}` : ''}{tn.periodEnd ? ` · period end ${formatDate(tn.periodEnd)}` : ''}</p>
       {tn.status === 'suspended' && <p role="status" className="card border-overdue p-2">{t('p12a.pl.suspended', { reason: tn.suspendedReason ?? '' })}</p>}
       {error && <p role="alert" className="text-overdue">{error}</p>}
       <div className="card space-y-1 p-3"><h3 className="font-semibold">{t('p12a.pl.usage')}</h3>
         <p>{t('p12a.pl.seats', { used: u.seatsUsed, limit: u.seatLimit ?? t('p12a.pl.unlimited') })} · {t('p12a.pl.storage', { used: bytes(u.storageBytes) })} · {t('p12a.pl.messages', { n: u.messages })} · {t('p12a.pl.ai', { n: u.aiCalls, cost: formatINR(u.aiCostPaise) })}</p></div>
       <FirmUsers id={id} />
+      <div className="card p-3"><h3 className="mb-2 font-semibold">{t('p12a.pl.timeline')}</h3>
+        {timeline.data?.length ? <ol className="relative space-y-2 border-l-2 border-border pl-4">{timeline.data.map((x) => (
+          <li key={x.seq} className="relative"><span aria-hidden className="absolute -left-[22px] top-1.5 h-2.5 w-2.5 rounded-full bg-primary" />
+            <span className="font-medium">{x.action.replace(/^platform\./, '').replace(/_/g, ' ')}</span> <span className="text-muted">· {formatDateTime(x.at)}</span></li>
+        ))}</ol> : <p className="text-muted">{t('p12a.pl.noTimeline')}</p>}
+      </div>
       <FirmExport id={id} slug={tn.slug} />
       <div className="card space-y-2 p-3">
         <h3 className="font-semibold">{t('p12a.pl.flags')}</h3><p className="text-muted">{t('p12a.pl.flagsHint')}</p>
@@ -331,6 +365,59 @@ function TenantDetail({ id, onBack }: { id: string; onBack(): void }) {
           <label className="flex items-center gap-1 self-end"><input type="checkbox" checked={impWrite} onChange={(e) => setImpWrite(e.target.checked)} />{t('p12a.pl.impWrite')}</label>
           <button className="btn self-end" disabled={impReason.trim().length < 10} onClick={() => call.mutate({ path: `/platform/tenants/${id}/impersonations`, body: { reason: impReason, write: impWrite, minutes: impMin } })}>{t('p12a.pl.impRequest')}</button>
         </div>
+      </div>
+    </section>
+  );
+}
+
+type AnnRow = { id: string; tenantId: string | null; firmName: string | null; title: string; body: string; level: 'info' | 'warning' | 'critical'; startsAt: string; endsAt: string | null; active: boolean; createdAt: string };
+
+function Announcements() {
+  const t = useT();
+  const qc = useQueryClient();
+  const list = useQuery({ queryKey: ['p', 'announcements'], queryFn: () => pfetch<AnnRow[]>('/platform/announcements') });
+  const firms = useQuery({ queryKey: ['p', 'tenants', '', ''], queryFn: () => pfetch<TenantRow[]>('/platform/tenants') });
+  const [f, setF] = useState({ title: '', body: '', level: 'info' as AnnRow['level'], tenantId: '', endsAt: '' });
+  const [error, setError] = useState<string | null>(null);
+  const create = useMutation({
+    mutationFn: () => pfetch('/platform/announcements', { method: 'POST', body: { title: f.title, body: f.body || undefined, level: f.level, tenantId: f.tenantId || null, endsAt: f.endsAt ? new Date(f.endsAt).toISOString() : null } }),
+    onSuccess: () => { setF({ title: '', body: '', level: 'info', tenantId: '', endsAt: '' }); setError(null); void qc.invalidateQueries({ queryKey: ['p', 'announcements'] }); },
+    onError: (e) => setError((e as Error).message),
+  });
+  const toggle = useMutation({ mutationFn: (x: { id: string; active: boolean }) => pfetch(`/platform/announcements/${x.id}/active`, { method: 'PUT', body: { active: x.active } }), onSuccess: () => void qc.invalidateQueries({ queryKey: ['p', 'announcements'] }) });
+  const live = (a: AnnRow) => a.active && (!a.endsAt || Date.parse(a.endsAt) > Date.now());
+  const dot = { info: 'bg-primary', warning: 'bg-amber-500', critical: 'bg-red-600' } as const;
+  return (
+    <section className="grid gap-4 lg:grid-cols-[1fr_1.2fr]">
+      <form className="card h-fit space-y-3 p-4 text-sm" onSubmit={(e) => { e.preventDefault(); create.mutate(); }} aria-label={t('p12a.pl.annNew')}>
+        <h2 className="text-base font-semibold">{t('p12a.pl.annNew')}</h2>
+        <Field label={t('p12a.pl.annTitle')}><input className="input" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} required minLength={3} maxLength={140} /></Field>
+        <Field label={t('p12a.pl.annBody')}><textarea className="input min-h-20" value={f.body} onChange={(e) => setF({ ...f, body: e.target.value })} maxLength={1000} /></Field>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Field label={t('p12a.pl.annLevel')}><select className="input" value={f.level} onChange={(e) => setF({ ...f, level: e.target.value as AnnRow['level'] })}>
+            <option value="info">{t('p12a.pl.annInfo')}</option><option value="warning">{t('p12a.pl.annWarning')}</option><option value="critical">{t('p12a.pl.annCritical')}</option></select></Field>
+          <Field label={t('p12a.pl.annTo')}><select className="input" value={f.tenantId} onChange={(e) => setF({ ...f, tenantId: e.target.value })}>
+            <option value="">{t('p12a.pl.annAll')}</option>{(firms.data ?? []).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>
+        </div>
+        <Field label={t('p12a.pl.annEnds')}><input className="input" type="datetime-local" value={f.endsAt} onChange={(e) => setF({ ...f, endsAt: e.target.value })} /></Field>
+        {error && <p role="alert" className="text-overdue">{error}</p>}
+        <button className="btn btn-primary" disabled={create.isPending}>{t('p12a.pl.annPublish')}</button>
+      </form>
+      <div className="card p-4 text-sm">
+        <h2 className="mb-3 text-base font-semibold">{t('p12a.pl.ann')}</h2>
+        {!list.data?.length ? <p className="text-muted">{t('p12a.pl.annNone')}</p> : (
+          <ul className="space-y-2">{list.data.map((a) => (
+            <li key={a.id} className={`flex items-start gap-3 rounded-xl border border-border p-3 ${live(a) ? '' : 'opacity-60'}`}>
+              <span aria-hidden className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${dot[a.level]}`} />
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold">{a.title}</div>
+                {a.body && <div className="text-muted">{a.body}</div>}
+                <div className="mt-1 text-xs text-muted">{a.firmName ?? t('p12a.pl.annAll')} · {formatDateTime(a.createdAt)}{a.endsAt ? ` → ${formatDateTime(a.endsAt)}` : ''} · {live(a) ? t('p12a.pl.annLive') : t('p12a.pl.annEnded')}</div>
+              </div>
+              <button className="btn py-1" onClick={() => toggle.mutate({ id: a.id, active: !a.active })}>{a.active ? t('p12a.pl.annEnd') : t('p12a.pl.annResume')}</button>
+            </li>
+          ))}</ul>
+        )}
       </div>
     </section>
   );
