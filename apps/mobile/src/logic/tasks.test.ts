@@ -2,7 +2,7 @@ import { ReminderScheduler, defaultPrefs } from '@worko/notify';
 import type { LocalRow } from '@worko/sync';
 import { describe, expect, it } from 'vitest';
 import {
-  buildTodoPatch, changeError, complianceDueThisMonth, groupMyTasks, planTaskReminders, reasonKey, sortTodos, statusOptions, toggleCheck,
+  buildTodoPatch, changeError, complianceDueThisMonth, groupMyTasks, matchClient, myDayGroups, planTaskReminders, reasonKey, sortTodos, statusOptions, toggleCheck,
   toTaskItem, todoTogglePatch, type TodoItem,
 } from './tasks';
 
@@ -92,5 +92,25 @@ describe('to-dos', () => {
     const now = new Date('2026-10-15T00:00:00Z');
     expect(todoTogglePatch(td('a', null), now)).toEqual({ done: true, done_at: now.toISOString() });
     expect(todoTogglePatch(td('a', null, true), now)).toEqual({ done: false, done_at: null });
+  });
+});
+
+describe('my day + quick add helpers', () => {
+  it('groups my open dated tasks, urgent first within a day', () => {
+    const g = myDayGroups([
+      task('late', { act_by: '2026-10-10' }), task('a', { act_by: TODAY }), task('b', { act_by: TODAY, priority: 'urgent' }),
+      task('soon', { act_by: '2026-10-20' }), task('far', { act_by: '2026-12-01' }), task('nodate'), task('x', { act_by: TODAY, assignee_id: 'x' }),
+    ], ME, TODAY);
+    expect(g.overdue.map((x) => x.id)).toEqual(['late']);
+    expect(g.today.map((x) => x.id)).toEqual(['b', 'a']);
+    expect(g.upcoming.map((x) => x.id)).toEqual(['soon']);
+    expect(g.tomorrow).toBe('2026-10-16');
+  });
+  it('matches clients by prefix, then substring', () => {
+    const cs = [{ id: '1', name: 'Bharat Traders' }, { id: '2', name: 'Acme Pvt Ltd' }];
+    expect(matchClient(cs, 'acme')?.id).toBe('2');
+    expect(matchClient(cs, 'traders')?.id).toBe('1');
+    expect(matchClient(cs, 'zzz')).toBeNull();
+    expect(matchClient(cs, null)).toBeNull();
   });
 });

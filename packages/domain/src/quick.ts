@@ -3,11 +3,11 @@
  * Pure: the caller passes today's IST date and the people list; client tokens are resolved by the caller (server search).
  */
 export type QuickPerson = { id: string; name: string };
-export type Priority = 'low' | 'normal' | 'high' | 'urgent';
+export type QuickPriority = 'low' | 'normal' | 'high' | 'urgent';
 export type QuickParse = {
   title: string;
   actBy: string | null;
-  priority: Priority;
+  priority: QuickPriority;
   assignee: QuickPerson | null;
   clientQuery: string | null;
   /** Tokens recognised, in input order, for the live preview chips. */
@@ -54,7 +54,7 @@ function dateAt(words: string[], today: string): [string, number] | null {
   return null;
 }
 
-const PRIO: Record<string, Priority> = { '!': 'high', '!!': 'high', '!!!': 'urgent', '!low': 'low', '!normal': 'normal', '!high': 'high', '!urgent': 'urgent', '!u': 'urgent', '!h': 'high', '!l': 'low' };
+const PRIO: Record<string, QuickPriority> = { '!': 'high', '!!': 'high', '!!!': 'urgent', '!low': 'low', '!normal': 'normal', '!high': 'high', '!urgent': 'urgent', '!u': 'urgent', '!h': 'high', '!l': 'low' };
 
 export function parseQuickTask(input: string, opts: { today: string; people: QuickPerson[]; me?: QuickPerson | null }): QuickParse {
   const words = input.trim().split(/\s+/).filter(Boolean);

@@ -141,3 +141,24 @@ export function buildTodoPatch(title: string, due: string): { ok: true; patch: R
 }
 export const todoTogglePatch = (t: TodoItem, now = new Date()) => ({ done: !t.done, done_at: t.done ? null : now.toISOString() });
 export const isTodoOverdue = (t: TodoItem, now = new Date()) => !t.done && !!t.dueAt && Date.parse(t.dueAt) < now.getTime();
+
+/** "My day" card: my open overdue / today / next-7-days tasks, most urgent first. */
+export function myDayGroups(items: TaskItem[], userId: string, today = todayIST()) {
+  const rank: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
+  const sort = (a: TaskItem, b: TaskItem) => (workDate(a) ?? '').localeCompare(workDate(b) ?? '') || (rank[a.priority] ?? 2) - (rank[b.priority] ?? 2);
+  const open = items.filter((x) => isOpen(x) && isMine(x, userId) && workDate(x));
+  const week = addDays(today, 7);
+  return {
+    overdue: open.filter((x) => workDate(x)! < today).sort(sort),
+    today: open.filter((x) => workDate(x) === today).sort(sort),
+    upcoming: open.filter((x) => workDate(x)! > today && workDate(x)! <= week).sort(sort).slice(0, 5),
+    tomorrow: addDays(today, 1),
+  };
+}
+
+/** Local client match for a quick-add `#token`: name starts with it, else contains it. */
+export function matchClient<T extends { id: string; name: string }>(clients: T[], q: string | null): T | null {
+  if (!q) return null;
+  const n = q.toLowerCase().trim();
+  return clients.find((c) => c.name.toLowerCase().startsWith(n)) ?? clients.find((c) => c.name.toLowerCase().includes(n)) ?? null;
+}

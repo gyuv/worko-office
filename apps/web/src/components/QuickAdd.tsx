@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDebounced } from '../lib/http';
 import { useT } from '../lib/i18n';
 import { useCan, useMe } from '../lib/me';
-import { parseQuickTask } from '../lib/quick-parse';
+import { parseQuickTask } from '@worko/domain';
 import { api, unwrap } from '../lib/session';
 import { istDate } from '../screens/home-logic';
 import { useRuleMessage, useUsers } from '../screens/tasks/shared';
