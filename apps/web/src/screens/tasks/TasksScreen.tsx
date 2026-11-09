@@ -35,7 +35,7 @@ export function TasksScreen() {
   // Deep links from the dashboard preset filters: #/tasks?status=done | in_progress,review | pending_client, ?overdue=true, ?new=1
   const [initial] = useState(() => hashQuery());
   const [status, setStatus] = useState(initial.get('status') ?? '');
-  const [assignee, setAssignee] = useState('');
+  const [assignee, setAssignee] = useState(initial.get('assignee') ?? '');
   const [client, setClient] = useState<PickedClient | null>(null);
   const [service, setService] = useState('');
   const [overdue, setOverdue] = useState(initial.get('overdue') === 'true');
