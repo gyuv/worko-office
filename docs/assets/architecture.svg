@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520" role="img" aria-label="Worko architecture: web, desktop, Android and client portal talk to one NestJS API backed by Postgres, Redis and object storage">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f0fdf4"/><stop offset="1" stop-color="#ecfeff"/></linearGradient>
+    <linearGradient id="api" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#15803d"/><stop offset="1" stop-color="#0f766e"/></linearGradient>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#16a34a"/></marker>
+    <style>
+      .t{font-family:Inter,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}
+      .card{fill:#fff;stroke:#bbf7d0;stroke-width:1.5}
+      .flow{stroke:#16a34a;stroke-width:2;fill:none;stroke-dasharray:6 6;animation:f 1.2s linear infinite}
+      @keyframes f{to{stroke-dashoffset:-24}}
+      @keyframes p{0%,100%{opacity:.35}50%{opacity:1}}
+      .pulse{animation:p 2.4s ease-in-out infinite}
+      @media (prefers-color-scheme:dark){.bgr{fill:#0b1f16}.card{fill:#11261c;stroke:#166534}.h{fill:#ecfdf5}.m{fill:#a7f3d0}}
+      @media (prefers-reduced-motion:reduce){*{animation:none!important}}
+    </style>
+  </defs>
+  <rect class="bgr" width="1200" height="520" rx="28" fill="url(#bg)"/>
+  <text class="t h" x="600" y="50" text-anchor="middle" font-size="22" font-weight="800" fill="#052e16">One backend · four apps · always in sync</text>
+  <!-- clients row -->
+  <g class="t">
+    <g transform="translate(70 90)"><rect class="card" width="230" height="96" rx="18"/><text class="h" x="22" y="40" font-size="18" font-weight="700" fill="#052e16">🌐 Web app</text><text class="m" x="22" y="66" font-size="13" fill="#166534">React · Vite · glass UI</text></g>
+    <g transform="translate(340 90)"><rect class="card" width="230" height="96" rx="18"/><text class="h" x="22" y="40" font-size="18" font-weight="700" fill="#052e16">🖥 Desktop</text><text class="m" x="22" y="66" font-size="13" fill="#166534">Electron · offline · deep links</text></g>
+    <g transform="translate(610 90)"><rect class="card" width="230" height="96" rx="18"/><text class="h" x="22" y="40" font-size="18" font-weight="700" fill="#052e16">📱 Android</text><text class="m" x="22" y="66" font-size="13" fill="#166534">Expo · SQLite · offline-first</text></g>
+    <g transform="translate(880 90)"><rect class="card" width="250" height="96" rx="18"/><text class="h" x="22" y="40" font-size="18" font-weight="700" fill="#052e16">🤝 Client portal</text><text class="m" x="22" y="66" font-size="13" fill="#166534">OTP login · white-label</text></g>
+  </g>
+  <path class="flow" d="M185 186 V250 H560" marker-end="url(#ar)"/>
+  <path class="flow" d="M455 186 V240" marker-end="url(#ar)"/>
+  <path class="flow" d="M725 186 V240" marker-end="url(#ar)"/>
+  <path class="flow" d="M1005 186 V250 H640" marker-end="url(#ar)"/>
+  <!-- api -->
+  <g transform="translate(300 250)">
+    <rect width="600" height="110" rx="22" fill="url(#api)"/>
+    <circle class="pulse" cx="40" cy="55" r="9" fill="#4ade80"/>
+    <text class="t" x="64" y="48" font-size="20" font-weight="800" fill="#fff">NestJS API</text>
+    <text class="t" x="64" y="74" font-size="13" fill="#dcfce7">Permissions · audit chain · sync · rule packs · jobs · webhooks · public API</text>
+  </g>
+  <path class="flow" d="M420 360 V410" marker-end="url(#ar)"/><path class="flow" d="M600 360 V410" marker-end="url(#ar)"/><path class="flow" d="M780 360 V410" marker-end="url(#ar)"/>
+  <g class="t">
+    <g transform="translate(320 412)"><rect class="card" width="200" height="74" rx="16"/><text class="h" x="20" y="32" font-size="16" font-weight="700" fill="#052e16">🐘 Postgres 16</text><text class="m" x="20" y="54" font-size="12" fill="#166534">Row-level security per firm</text></g>
+    <g transform="translate(500 412)" opacity="0"/>
+    <g transform="translate(540 412)"><rect class="card" width="120" height="74" rx="16"/><text class="h" x="20" y="32" font-size="16" font-weight="700" fill="#052e16">⚡ Redis</text><text class="m" x="20" y="54" font-size="12" fill="#166534">Realtime</text></g>
+    <g transform="translate(680 412)"><rect class="card" width="200" height="74" rx="16"/><text class="h" x="20" y="32" font-size="16" font-weight="700" fill="#052e16">🗄 Object storage</text><text class="m" x="20" y="54" font-size="12" fill="#166534">S3 / R2 / MinIO, encrypted</text></g>
+  </g>
+</svg>

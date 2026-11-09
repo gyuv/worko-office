@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseQuickTask } from './quick-parse';
+import { parseQuickTask } from './quick.js';
 
 // 2026-11-09 is a Monday.
 const today = '2026-11-09';

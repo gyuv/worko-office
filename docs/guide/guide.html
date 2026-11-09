@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Worko — User Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  @page { size: A4; margin: 0; }
+  :root { --g9:#052e16; --g8:#14532d; --g7:#15803d; --g6:#16a34a; --g4:#4ade80; --g1:#dcfce7; --g0:#f0fdf4; --t:#0f766e; --ink:#0f172a; --mut:#475569; --line:#e2e8f0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; font-family: Inter, 'Segoe UI', Roboto, Arial, sans-serif; color: var(--ink); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .page { width: 210mm; height: 297mm; padding: 18mm 18mm 16mm; position: relative; page-break-after: always; overflow: hidden; background: #fff; }
+  .page:last-child { page-break-after: auto; }
+  .page::before { content: ''; position: absolute; top: -60mm; right: -60mm; width: 140mm; height: 140mm; border-radius: 50%; background: radial-gradient(circle, rgba(74,222,128,.16), transparent 70%); }
+  .foot { position: absolute; left: 18mm; right: 18mm; bottom: 9mm; display: flex; justify-content: space-between; font-size: 8.5pt; color: var(--mut); border-top: 1px solid var(--line); padding-top: 3mm; }
+  .foot b { color: var(--g7); }
+  h1 { font-size: 26pt; line-height: 1.1; margin: 0 0 3mm; letter-spacing: -.02em; }
+  h2 { font-size: 13pt; margin: 6mm 0 2mm; color: var(--g8); }
+  p, li { font-size: 11pt; line-height: 1.55; }
+  .kicker { display: inline-block; font-size: 8.5pt; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--g7); background: var(--g1); padding: 1.2mm 3mm; border-radius: 99px; margin-bottom: 4mm; }
+  .lead { font-size: 12.5pt; color: var(--mut); margin: 0 0 6mm; }
+  .shot { width: 100%; border-radius: 4mm; border: 1px solid var(--line); box-shadow: 0 6px 22px rgba(15,23,42,.10); display: block; }
+  .cap { font-size: 9pt; color: var(--mut); text-align: center; margin: 2mm 0 0; }
+  .steps { list-style: none; padding: 0; margin: 4mm 0; counter-reset: s; }
+  .steps li { counter-increment: s; position: relative; padding: 0 0 3.5mm 12mm; }
+  .steps li::before { content: counter(s); position: absolute; left: 0; top: .2mm; width: 7.5mm; height: 7.5mm; border-radius: 50%; background: linear-gradient(135deg, var(--g6), var(--t)); color: #fff; font-weight: 700; font-size: 10pt; display: flex; align-items: center; justify-content: center; }
+  .tip { background: var(--g0); border: 1px solid #bbf7d0; border-left: 4px solid var(--g6); border-radius: 3mm; padding: 3mm 4mm; font-size: 10.5pt; margin: 4mm 0; }
+  .tip b { color: var(--g8); }
+  .warn { background: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #f59e0b; border-radius: 3mm; padding: 3mm 4mm; font-size: 10.5pt; margin: 4mm 0; }
+  kbd { font-family: inherit; font-size: 9.5pt; font-weight: 600; background: #fff; border: 1px solid #cbd5e1; border-bottom-width: 2px; border-radius: 1.5mm; padding: .3mm 1.8mm; }
+  code { white-space: nowrap; font-family: 'SFMono-Regular', Consolas, monospace; font-size: 10pt; background: #f1f5f9; padding: .4mm 1.6mm; border-radius: 1.2mm; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; align-items: start; }
+  table { width: 100%; border-collapse: collapse; font-size: 10.5pt; margin: 3mm 0; }
+  th, td { text-align: left; padding: 2.2mm 3mm; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 8.5pt; text-transform: uppercase; letter-spacing: .08em; color: var(--mut); }
+  /* cover */
+  .cover { background: linear-gradient(140deg, #0b3d23 0%, #14532d 50%, #0f766e 100%); color: #fff; padding: 22mm 20mm; }
+  .cover::before { background: radial-gradient(circle, rgba(74,222,128,.45), transparent 70%); width: 180mm; height: 180mm; top: -50mm; left: -60mm; right: auto; }
+  .cover::after { content: ''; position: absolute; bottom: -70mm; right: -50mm; width: 170mm; height: 170mm; border-radius: 50%; background: radial-gradient(circle, rgba(45,212,191,.4), transparent 70%); }
+  .logo { display: flex; align-items: center; gap: 5mm; position: relative; z-index: 1; }
+  .logo .ring { width: 16mm; height: 16mm; border-radius: 50%; border: 3.4mm solid #4ade80; display: flex; align-items: center; justify-content: center; }
+  .logo .ring i { width: 5mm; height: 5mm; border-radius: 50%; background: #4ade80; }
+  .logo span { font-size: 34pt; font-weight: 800; letter-spacing: -.03em; }
+  .cover h1 { font-size: 44pt; margin-top: 40mm; position: relative; z-index: 1; }
+  .cover .sub { font-size: 15pt; color: #bbf7d0; max-width: 140mm; position: relative; z-index: 1; }
+  .cover .glass { position: relative; z-index: 1; margin-top: 18mm; width: 120mm; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.25); border-radius: 6mm; padding: 6mm 7mm; }
+  .cover .glass div { display: flex; gap: 4mm; align-items: center; font-size: 11.5pt; padding: 1.6mm 0; }
+  .cover .glass s { opacity: .65; }
+  .dotc { width: 5mm; height: 5mm; border-radius: 50%; border: .6mm solid #bbf7d0; flex: none; }
+  .dotc.on { background: #4ade80; border-color: #4ade80; }
+  .cover .meta { position: absolute; bottom: 18mm; left: 20mm; right: 20mm; display: flex; justify-content: space-between; font-size: 10pt; color: #bbf7d0; z-index: 1; }
+  /* contents */
+  .toc { list-style: none; padding: 0; margin: 6mm 0 0; }
+  .toc li { display: flex; align-items: baseline; gap: 3mm; padding: 2.6mm 0; border-bottom: 1px dashed var(--line); font-size: 12pt; }
+  .toc li span:first-child { font-weight: 800; color: var(--g6); width: 9mm; }
+  .toc li span:nth-child(2) { flex: 1; font-weight: 600; }
+  .toc li em { font-style: normal; color: var(--mut); font-size: 10pt; }
+  .phone { width: 62mm; border-radius: 6mm; border: 1px solid var(--line); box-shadow: 0 8px 24px rgba(15,23,42,.14); }
+  .chips { display: flex; flex-wrap: wrap; gap: 2mm; margin: 2mm 0 4mm; }
+  .chip { font-size: 9.5pt; font-weight: 600; padding: 1mm 3mm; border-radius: 99px; }
+  .c1 { background: #e0f2fe; color: #075985; } .c2 { background: var(--g1); color: var(--g8); } .c3 { background: #fef3c7; color: #92400e; } .c4 { background: #ede9fe; color: #5b21b6; }
+</style>
+</head>
+<body>
+
+<!-- COVER -->
+<section class="page cover">
+  <div class="logo"><div class="ring"><i></i></div><span>Worko</span></div>
+  <h1>User Guide</h1>
+  <p class="sub">Everything you need for a smooth day at the firm — in simple steps, with pictures.</p>
+  <div class="glass">
+    <div style="font-weight:700;font-size:13pt">☀ My day</div>
+    <div><span class="dotc on"></span><s>Sign in to Worko</s></div>
+    <div><span class="dotc on"></span><s>Add a task in one line</s></div>
+    <div><span class="dotc"></span>Tick it off when done</div>
+  </div>
+  <div class="meta"><span>Web · Desktop · Android</span><span>Version 2026.11</span></div>
+</section>
+
+<!-- CONTENTS -->
+<section class="page">
+  <span class="kicker">Contents</span>
+  <h1>What's in this guide</h1>
+  <p class="lead">Read pages 3–6 first. They cover 90% of a normal day.</p>
+  <ol class="toc">
+    <li><span>01</span><span>Sign in</span><em>3</em></li>
+    <li><span>02</span><span>Your dashboard</span><em>4</em></li>
+    <li><span>03</span><span>Add a task in one line</span><em>5</em></li>
+    <li><span>04</span><span>Finish your day with “My day”</span><em>6</em></li>
+    <li><span>05</span><span>Find anything fast</span><em>7</em></li>
+    <li><span>06</span><span>Tasks</span><em>8</em></li>
+    <li><span>07</span><span>Clients</span><em>9</em></li>
+    <li><span>08</span><span>Compliance</span><em>10</em></li>
+    <li><span>09</span><span>Billing</span><em>11</em></li>
+    <li><span>10</span><span>Time</span><em>12</em></li>
+    <li><span>11</span><span>Reports</span><em>13</em></li>
+    <li><span>12</span><span>Team &amp; roles (for admins)</span><em>14</em></li>
+    <li><span>13</span><span>Make it yours</span><em>15</em></li>
+    <li><span>14</span><span>On your phone</span><em>16</em></li>
+    <li><span>15</span><span>Shortcuts &amp; help</span><em>17</em></li>
+  </ol>
+  <div class="foot"><span><b>Worko</b> User Guide</span><span>2</span></div>
+</section>
+
+<!-- 1 SIGN IN -->
+<section class="page">
+  <span class="kicker">01 · Start</span>
+  <h1>Sign in</h1>
+  <p class="lead">Your admin gives you three things: a Firm ID, your email and a password.</p>
+  <img class="shot" src="../assets/screens/01-login.jpg" alt="Sign-in screen">
+  <ol class="steps">
+    <li>Open Worko in your browser, the desktop app or the Android app.</li>
+    <li>Type your <b>Firm ID</b> (for example <code>sharma-associates</code>).</li>
+    <li>Type your <b>email</b> and <b>password</b>, then press <b>Sign in</b>.</li>
+    <li>If asked, type the 6-digit code from your authenticator app.</li>
+  </ol>
+  <div class="tip"><b>Tip:</b> no password? Tap <b>Use phone OTP instead</b> to get a code by SMS (if your firm has SMS turned on).</div>
+  <div class="foot"><span><b>Worko</b> User Guide</span><span>3</span></div>
+</section>
+
+<!-- 2 DASHBOARD -->
+<section class="page">
+  <span class="kicker">02 · Home</span>
+  <h1>Your dashboard</h1>
+  <p class="lead">One screen tells you what matters today.</p>
+  <img class="shot" src="../assets/screens/02-dashboard.jpg" alt="Dashboard">
+  <table>
+    <tr><th>Part</th><th>What it shows</th></tr>
+    <tr><td><b>My day</b></td><td>Your overdue, today and coming-week tasks. Tick to finish.</td></tr>
+    <tr><td><b>Number cards</b></td><td>Total, completed, in progress, waiting on client. <b>Tap a card</b> to see those tasks.</td></tr>
+    <tr><td><b>Due soon</b></td><td>The next deadlines across the firm.</td></tr>
+    <tr><td><b>Top bar</b></td><td>Search, <b>+</b> quick add, timer, sync status, messages, alerts, theme.</td></tr>
+  </table>
+  <div class="tip"><b>Green “Synced”</b> means everything is saved. If it says <b>Offline</b>, keep working — Worko saves and sends later.</div>
+  <div class="foot"><span><b>Worko</b> User Guide</span><span>4</span></div>
+</section>
+
+<!-- 3 QUICK ADD -->
+<section class="page">
+  <span class="kicker">03 · Fastest way to work</span>
+  <h1>Add a task in one line</h1>
+  <p class="lead">No long form. Just type what you'd say out loud.</p>
+  <img class="shot" src="../assets/screens/03b-quick-add-dialog.jpg" alt="Quick add">
+  <ol class="steps">
+    <li>Press <kbd>N</kbd> on your keyboard, or tap the green <b>+</b>.</li>
+    <li>Type, for example: <code>File GSTR-3B #acme tomorrow !! @ravi</code></li>
+    <li>Check the coloured chips, then press <kbd>Enter</kbd>. Type the next one.</li>
+  </ol>
+  <div class="chips"><span class="chip c1">#acme → client</span><span class="chip c2">tomorrow → date</span><span class="chip c3">!! → high</span><span class="chip c4">@ravi → person</span></div>
+  <table>
+    <tr><th>Dates you can type</th><th>Priority</th><th>People</th></tr>
+    <tr><td><code>today</code> <code>tomorrow</code> <code>fri</code> <code>next week</code> <code>in 3 days</code> <code>15/11</code> <code>20 dec</code></td><td><code>!</code> high<br><code>!!!</code> urgent</td><td><code>@name</code><br><code>@me</code> (you)</td></tr>
+  </table>
+  <div class="tip"><b>Need more fields?</b> Click <b>Add more details</b> for the full form (service, statutory date, reviewer).</div>
+  <div class="foot"><span><b>Worko</b> User Guide</span><span>5</span></div>
+</section>
+
+<!-- 4 MY DAY -->
+<section class="page">
+  <span class="kicker">04 · Finish fast</span>
+  <h1>Finish your day with “My day”</h1>
+  <p class="lead">Only your work. One tap to finish.</p>
+  <img class="shot" style="width:80%;margin:0 auto" src="../assets/screens/04-my-day.jpg" alt="My day">
+  <ol class="steps" style="margin-top:6mm">
+    <li><b>Tick the circle</b> when a task is done. It strikes through and slides away.</li>
+    <li><b>Tap the moon</b> to move a task to tomorrow.</li>
+    <li>Made a mistake? Tap <b>Undo</b> on the message that pops up.</li>
+    <li>Tap the task name to open all its details.</li>
+  </ol>
+  <div class="tip"><b>Ring at the top</b> = how much of today you've cleared. Aim for a full circle.</div>
+  <div class="warn"><b>Checklist not finished?</b> Ticking opens the task so you can finish the required checks first.</div>
+  <div class="foot"><span><b>Worko</b> User Guide</span><span>6</span></div>
+</section>
+
+<!-- 5 FIND -->
+<section class="page">
+  <span class="kicker">05 · Search</span>
+  <h1>Find anything fast</h1>
+  <p class="lead">One search box opens any client, task, invoice or screen.</p>
+  <img class="shot" src="../assets/screens/14-command-palette.jpg" alt="Command palette">
+  <ol class="steps">
+    <li>Press <kbd>Ctrl</kbd> + <kbd>K</kbd> (<kbd>⌘</kbd> + <kbd>K</kbd> on Mac), or click the search bar.</li>
+    <li>Type a few letters — a client name, PAN, GSTIN, or a screen like “billing”.</li>
+    <li>Use the arrow keys and press <kbd>Enter</kbd>.</li>
+  </ol>
+  <div class="tip"><b>Jump keys:</b> press <kbd>G</kbd> then a letter, e.g. <kbd>G</kbd> <kbd>T</kbd> for Tasks.</div>
+  <div class="foot"><span><b>Worko</b> User Guide</span><span>7</span></div>
+</section>
+
+<!-- 6 TASKS -->
+<section class="page">
+  <span class="kicker">06 · Work</span>
+  <h1>Tasks</h1>
+  <p class="lead">All firm work in one place. Pick the view you like.</p>
+  <img class="shot" src="../assets/screens/05-tasks.jpg" alt="Tasks">
+  <table>
+    <tr><th>View</th><th>Best for</th></tr>
+    <tr><td><b>List</b></td><td>Filtering and bulk changes (select rows, change status or person at once).</td></tr>
+    <tr><td><b>Kanban</b></td><td>Dragging work from Open → In progress → Review → Done.</td></tr>
+    <tr><td><b>Calendar</b></td><td>Seeing deadlines by date.</td></tr>
+    <tr><td><b>Gantt / Sprint</b></td><td>Planning the month and staff load.</td></tr>
+  </table>
+  <div class="tip"><b>Auto-create</b> makes all of a month's statutory tasks (GST, TDS…) for every client in one go.</div>
+  <div class="foot"><span><b>Worko</b> User Guide</span><span>8</span></div>
+</section>
+
+<!-- 7 CLIENTS -->
+<section class="page">
+  <span class="kicker">07 · People you serve</span>
+  <h1>Clients</h1>
+  <p class="lead">Everything about a client on one page: details, tasks, documents, bills, messages.</p>
+  <img class="shot" src="../assets/screens/06-clients.jpg" alt="Clients">
+  <ol class="steps">
+    <li>Click <b>New client</b>. Type the name and PAN — Worko checks the format for you.</li>
+    <li>Add GSTINs and registrations. Pick the services you provide.</li>
+    <li>Open the client to see the full 360° view.</li>
+  </ol>
+  <div class="tip"><b>Many clients?</b> Use <b>Import data</b> on the dashboard to load a spreadsheet.</div>
+  <div class="foot"><span><b>Worko</b> User Guide</span><span>9</span></div>
+</section>
+
+<!-- 8 COMPLIANCE -->
+<section class="page">
+  <span class="kicker">08 · Deadlines</span>
+  <h1>Compliance</h1>
+  <p class="lead">A grid of every client against every return. Red means late.</p>
+  <img class="shot" src="../assets/screens/07-compliance.jpg" alt="Compliance">
+  <ol class="steps">
+    <li>Pick the month and the return type.</li>
+    <li>Each cell shows status. Click a cell to open the task.</li>
+    <li>When the government extends a date, add it under <b>Extensions</b> — all tasks update.</li>
+  </ol>
+  <div class="foot"><span><b>Worko</b> User Guide</span><span>10</span></div>
+</section>
+
+<!-- 9 BILLING -->
+<section class="page">
+  <span class="kicker">09 · Get paid</span>
+  <h1>Billing</h1>
+  <p class="lead">GST-ready invoices, receipts and follow-ups.</p>
+  <img class="shot" src="../assets/screens/08-billing.jpg" alt="Billing">
+  <ol class="steps">
+    <li>Click <b>New invoice</b>, pick the client and add lines. GST splits itself (CGST/SGST or IGST).</li>
+    <li><b>Issue</b> it to give it a number. Download the PDF or send it.</li>
+    <li>Record money under <b>Receipts</b> — TDS is handled.</li>
+    <li>See who owes what in <b>Ageing</b>. Export to Tally anytime.</li>
+  </ol>
+  <div class="tip"><b>Unbilled</b> lists finished work that has no invoice yet — nothing slips through.</div>
+  <div class="foot"><span><b>Worko</b> User Guide</span><span>11</span></div>
+</section>
+
+<!-- 10 TIME -->
+<section class="page">
+  <span class="kicker">10 · Hours</span>
+  <h1>Time</h1>
+  <p class="lead">Track hours with one click. See profit per job.</p>
+  <img class="shot" src="../assets/screens/09-time.jpg" alt="Time">
+  <ol class="steps">
+    <li>Press <b>Start timer</b> in the top bar. Pick the task.</li>
+    <li>Press <b>Stop</b> when done. It becomes a draft entry.</li>
+    <li>Submit your week. Your manager approves it.</li>
+  </ol>
+  <div class="tip"><b>Forgot to start the timer?</b> Add the hours by hand on the Timesheet tab.</div>
+  <div class="foot"><span><b>Worko</b> User Guide</span><span>12</span></div>
+</section>
+
+<!-- 11 REPORTS -->
+<section class="page">
+  <span class="kicker">11 · Insight</span>
+  <h1>Reports</h1>
+  <p class="lead">Ready-made reports, your own reports, and scheduled emails.</p>
+  <img class="shot" src="../assets/screens/10-reports.jpg" alt="Reports">
+  <ol class="steps">
+    <li>Open a report from the <b>Catalogue</b>.</li>
+    <li>Change filters and columns. Click any number to see the rows behind it.</li>
+    <li>Export to CSV, Excel or PDF — or set it up under <b>Schedules</b> to arrive every week.</li>
+  </ol>
+  <div class="foot"><span><b>Worko</b> User Guide</span><span>13</span></div>
+</section>
+
+<!-- 12 TEAM -->
+<section class="page">
+  <span class="kicker">12 · For admins</span>
+  <h1>Team &amp; roles</h1>
+  <p class="lead">Add people and decide exactly what each role can see and do.</p>
+  <img class="shot" src="../assets/screens/11-team.jpg" alt="Team">
+  <ol class="steps">
+    <li>Go to <b>Team</b> → <b>Add member</b>. Enter the name, email and role.</li>
+    <li>Open <b>Roles &amp; permissions</b> to tick what each role can view, create, edit or delete.</li>
+    <li>Turn a person off any time when they leave.</li>
+  </ol>
+  <div class="warn"><b>Seat limit:</b> your plan sets how many users you can have. The platform admin can raise it.</div>
+  <div class="foot"><span><b>Worko</b> User Guide</span><span>14</span></div>
+</section>
+
+<!-- 13 APPEARANCE -->
+<section class="page">
+  <span class="kicker">13 · Personal</span>
+  <h1>Make it yours</h1>
+  <p class="lead">Your settings follow you to every device.</p>
+  <img class="shot" src="../assets/screens/12-appearance.jpg" alt="Appearance">
+  <table>
+    <tr><th>Setting</th><th>Choices</th></tr>
+    <tr><td><b>Theme</b></td><td>System, light or dark.</td></tr>
+    <tr><td><b>Accent colour</b></td><td>8 colours, all easy to read.</td></tr>
+    <tr><td><b>Text size</b></td><td>Small to extra large.</td></tr>
+    <tr><td><b>Layout</b></td><td>Compact rows, glass effect, animations on or off.</td></tr>
+    <tr><td><b>Modules</b></td><td>Hide menu items you never use.</td></tr>
+  </table>
+  <div class="foot"><span><b>Worko</b> User Guide</span><span>15</span></div>
+</section>
+
+<!-- 14 PHONE -->
+<section class="page">
+  <span class="kicker">14 · Mobile</span>
+  <h1>On your phone</h1>
+  <p class="lead">The Android app works without internet and syncs when you're back online.</p>
+  <div class="grid2" style="grid-template-columns:auto 1fr;gap:8mm">
+    <div style="display:flex;gap:4mm"><img class="phone" src="../assets/screens/16-phone-home.jpg" alt="Phone home"><img class="phone" src="../assets/screens/17-phone-quick-add.jpg" alt="Phone quick add"></div>
+    <div>
+      <ol class="steps">
+        <li>Tap the round green <b>+</b> to quick-add a task.</li>
+        <li>Use <b>My day</b> on Home: tick to finish, moon for tomorrow.</li>
+        <li>The bottom bar has Home, Tasks, Clients, Inbox and More.</li>
+        <li>Upload documents and capture signatures right from the phone.</li>
+      </ol>
+      <div class="tip"><b>No signal?</b> Keep working. A small strip shows how many changes are waiting to sync.</div>
+    </div>
+  </div>
+  <div class="foot"><span><b>Worko</b> User Guide</span><span>16</span></div>
+</section>
+
+<!-- 15 SHORTCUTS + HELP -->
+<section class="page">
+  <span class="kicker">15 · Cheat sheet</span>
+  <h1>Shortcuts &amp; help</h1>
+  <table>
+    <tr><th>Keys</th><th>Does</th></tr>
+    <tr><td><kbd>N</kbd></td><td>Quick add a task</td></tr>
+    <tr><td><kbd>Ctrl</kbd> + <kbd>K</kbd></td><td>Search everything</td></tr>
+    <tr><td><kbd>G</kbd> then <kbd>H</kbd> / <kbd>T</kbd> / <kbd>C</kbd> / <kbd>D</kbd></td><td>Go to Home / Tasks / Clients / Documents</td></tr>
+    <tr><td><kbd>Enter</kbd> · <kbd>Esc</kbd></td><td>Save · close</td></tr>
+  </table>
+  <h2>Something not right?</h2>
+  <table>
+    <tr><th>Problem</th><th>Try this</th></tr>
+    <tr><td>“Details did not match”</td><td>Check the Firm ID spelling. Ask your admin to reset your password.</td></tr>
+    <tr><td>Can't see a client or menu item</td><td>Your role may not include it. Ask your admin, or check <b>Appearance → Modules</b>.</td></tr>
+    <tr><td>A module says “not available”</td><td>It needs an outside service (payments, WhatsApp, e-sign, AI). Your admin can connect it.</td></tr>
+    <tr><td>Changes not showing on another device</td><td>Check the sync badge in the top bar; tap it to sync now.</td></tr>
+    <tr><td>Can't mark a task done</td><td>Finish the required checklist items, or the UDIN for audit tasks.</td></tr>
+  </table>
+  <div class="tip"><b>Still stuck?</b> Your firm admin can see an activity log of every change and help you quickly.</div>
+  <div class="foot"><span><b>Worko</b> User Guide</span><span>17</span></div>
+</section>
+
+</body>
+</html>

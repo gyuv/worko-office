@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="380" viewBox="0 0 1200 380" role="img" aria-label="Worko — practice and office management for CA/CS firms">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b3d23"/><stop offset=".55" stop-color="#14532d"/><stop offset="1" stop-color="#0f766e"/>
+    </linearGradient>
+    <radialGradient id="g1" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#4ade80" stop-opacity=".55"/><stop offset="1" stop-color="#4ade80" stop-opacity="0"/></radialGradient>
+    <radialGradient id="g2" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#2dd4bf" stop-opacity=".5"/><stop offset="1" stop-color="#2dd4bf" stop-opacity="0"/></radialGradient>
+    <radialGradient id="g3" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#bef264" stop-opacity=".35"/><stop offset="1" stop-color="#bef264" stop-opacity="0"/></radialGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".16"/><stop offset="1" stop-color="#fff" stop-opacity=".05"/></linearGradient>
+    <clipPath id="r"><rect width="1200" height="380" rx="28"/></clipPath>
+    <style>
+      .t{font-family:Inter,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}
+      @keyframes a{0%,100%{transform:translate(0,0)}50%{transform:translate(60px,30px)}}
+      @keyframes b{0%,100%{transform:translate(0,0)}50%{transform:translate(-70px,-25px)}}
+      @keyframes c{0%,100%{transform:translate(0,0)}50%{transform:translate(40px,-40px)}}
+      @keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.25)}}
+      @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+      @keyframes tick{0%,40%{stroke-dashoffset:24}60%,100%{stroke-dashoffset:0}}
+      @keyframes wave{from{transform:translateX(0)}to{transform:translateX(-400px)}}
+      .ba{animation:a 9s ease-in-out infinite}.bb{animation:b 11s ease-in-out infinite}.bc{animation:c 13s ease-in-out infinite}
+      .dot{transform-origin:118px 150px;animation:breathe 3.2s ease-in-out infinite}
+      .r1{animation:rise .8s .1s both}.r2{animation:rise .8s .3s both}.r3{animation:rise .8s .5s both}.r4{animation:rise .8s .7s both}
+      .ck{stroke-dasharray:24;animation:tick 3s ease-in-out infinite}
+      .wv{animation:wave 14s linear infinite}
+      @media (prefers-reduced-motion:reduce){*{animation:none!important}}
+    </style>
+  </defs>
+  <g clip-path="url(#r)">
+    <rect width="1200" height="380" fill="url(#bg)"/>
+    <circle class="ba" cx="180" cy="80" r="260" fill="url(#g1)"/>
+    <circle class="bb" cx="1000" cy="320" r="280" fill="url(#g2)"/>
+    <circle class="bc" cx="760" cy="40" r="220" fill="url(#g3)"/>
+    <g class="wv" opacity=".18" fill="none" stroke="#86efac" stroke-width="1">
+      <path d="M0 300 Q100 270 200 300 T400 300 T600 300 T800 300 T1000 300 T1200 300 T1400 300 T1600 300"/>
+      <path d="M0 320 Q100 290 200 320 T400 320 T600 320 T800 320 T1000 320 T1200 320 T1400 320 T1600 320"/>
+      <path d="M0 340 Q100 310 200 340 T400 340 T600 340 T800 340 T1000 340 T1200 340 T1400 340 T1600 340"/>
+    </g>
+    <!-- logo -->
+    <g class="r1">
+      <circle cx="118" cy="150" r="34" fill="none" stroke="#4ade80" stroke-width="8"/>
+      <circle class="dot" cx="118" cy="150" r="12" fill="#4ade80"/>
+    </g>
+    <text class="t r1" x="172" y="168" font-size="56" font-weight="800" fill="#fff" letter-spacing="-1.5">Worko</text>
+    <text class="t r2" x="88" y="232" font-size="26" font-weight="600" fill="#dcfce7">Practice &amp; office management for Indian CA / CS firms</text>
+    <text class="t r3" x="88" y="270" font-size="18" fill="#bbf7d0" opacity=".9">Web · Desktop · Android — online or offline, always in sync.</text>
+    <!-- glass card: My day -->
+    <g transform="translate(842 70)"><g class="r4">
+      <rect width="290" height="196" rx="20" fill="url(#glass)" stroke="#fff" stroke-opacity=".25"/>
+      <text class="t" x="22" y="38" font-size="17" font-weight="700" fill="#fff">☀ My day</text>
+      <text class="t" x="22" y="58" font-size="12" fill="#bbf7d0">3 of 5 cleared today</text>
+      <g transform="translate(22 80)">
+        <circle cx="11" cy="11" r="10" fill="#4ade80"/><path class="ck" d="M6 11.5l3.5 3.5L16.5 8" fill="none" stroke="#052e16" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+        <text class="t" x="32" y="16" font-size="14" fill="#dcfce7" text-decoration="line-through" opacity=".7">Review ITR draft</text>
+      </g>
+      <g transform="translate(22 116)">
+        <circle cx="11" cy="11" r="10" fill="none" stroke="#bbf7d0" stroke-width="2"/>
+        <text class="t" x="32" y="16" font-size="14" fill="#fff">File GSTR-3B</text>
+        <rect x="134" y="2" width="44" height="18" rx="9" fill="#fbbf24" fill-opacity=".9"/><text class="t" x="156" y="15" font-size="10" font-weight="700" fill="#422006" text-anchor="middle">HIGH</text>
+      </g>
+      <g transform="translate(22 152)">
+        <circle cx="11" cy="11" r="10" fill="none" stroke="#bbf7d0" stroke-width="2"/>
+        <text class="t" x="32" y="16" font-size="14" fill="#fff">TDS return · Fri</text>
+      </g>
+    </g></g>
+  </g>
+</svg>

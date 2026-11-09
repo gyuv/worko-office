@@ -15,6 +15,7 @@ import { themeFor, type Theme } from './theme';
 import { flushSignatures } from './net';
 import { useBillingPerms } from './screens/Billing';
 import { Stack } from './screens/Stack';
+import { MyDayCard, QuickAddFab } from './screens/Today';
 import { useChatUnread } from './screens/Comm';
 import { useLeadPerms } from './screens/Leads';
 import { PortalRoot } from './portal/PortalApp';
@@ -113,6 +114,8 @@ function Tabs({ theme }: { theme: Theme }) {
   const current = TABS.find((x) => x.key === tab)!;
   const [sub, setSub] = useState<'registers' | 'collections' | 'hr' | 'chat' | 'calendar' | 'appointments' | 'practice' | 'leads' | 'automation' | 'aiInbox' | null>(null);
   const [deep, setDeep] = useState<Phase10Route | null>(null);
+  const [taskOpen, setTaskOpen] = useState<string | null>(null);
+  const openTask = (id: string) => { setTaskOpen(id); setTab('tasks'); };
   const [homeRoot, setHomeRoot] = useState<{ name: 'dashboard' } | { name: 'reportDownloads'; token?: string; exportId?: string }>({ name: 'dashboard' });
   useReportLinks((token) => { setHomeRoot({ name: 'reportDownloads', token }); setTab('home'); });
   const openLink = (r: Phase10Route) => { setDeep(r); setSub(r.name); setTab('more'); };
@@ -122,7 +125,7 @@ function Tabs({ theme }: { theme: Theme }) {
       <StatusStrip theme={theme} />
       <View style={{ flex: 1, padding: 16 }}>
         <FadeIn key={`${tab}:${sub ?? ''}`}>
-        {tab === 'home' ? <Home theme={theme} root={homeRoot} /> : tab === 'tasks' ? <Stack theme={theme} root={{ name: 'tasks' }} /> : tab === 'clients' ? <Stack theme={theme} root={{ name: 'clients' }} />
+        {tab === 'home' ? <Home theme={theme} root={homeRoot} onOpenTask={openTask} /> : tab === 'tasks' ? <Stack key={taskOpen ?? 'tasks'} theme={theme} root={taskOpen ? { name: 'task', id: taskOpen } : { name: 'tasks' }} /> : tab === 'clients' ? <Stack theme={theme} root={{ name: 'clients' }} />
           : tab === 'more' ? (sub ? <View style={{ flex: 1 }}>
             <Pressable onPress={() => { setSub(null); setDeep(null); }} accessibilityRole="button" style={{ minHeight: 48, justifyContent: 'center' }}>
               <Text style={{ color: theme.primary, fontWeight: '600' }}>{t('nav.more')}</Text></Pressable>
@@ -131,9 +134,10 @@ function Tabs({ theme }: { theme: Theme }) {
           : <Text style={s.muted}>{t('home.comingSoon', { module: t(current.label), phase: current.phase ?? 0 })}</Text>}
         </FadeIn>
       </View>
+      {(tab === 'home' || tab === 'tasks') && <QuickAddFab theme={theme} />}
       <View style={s.tabbar} accessibilityRole="tablist">
         {TABS.map((x) => (
-          <Pressable key={x.key} style={s.tab} onPress={() => setTab(x.key)} accessibilityRole="tab" accessibilityState={{ selected: tab === x.key }}>
+          <Pressable key={x.key} style={s.tab} onPress={() => { setTab(x.key); if (x.key === 'tasks') setTaskOpen(null); }} accessibilityRole="tab" accessibilityState={{ selected: tab === x.key }}>
             <Feather name={x.icon} size={20} color={tab === x.key ? theme.primary : theme.textMuted} />
             <Text style={{ fontSize: 11, color: tab === x.key ? theme.primary : theme.textMuted }}>{t(x.label)}</Text>
           </Pressable>
@@ -226,13 +230,14 @@ function useReportLinks(onToken: (token: string) => void) {
   }, []);
 }
 
-function Home({ theme, root }: { theme: Theme; root: { name: 'dashboard' } | { name: 'reportDownloads'; token?: string; exportId?: string } }) {
+function Home({ theme, root, onOpenTask }: { theme: Theme; root: { name: 'dashboard' } | { name: 'reportDownloads'; token?: string; exportId?: string }; onOpenTask(id: string): void }) {
   const s = styles(theme);
   const me = useMe().data;
   return (
     <View style={{ flex: 1 }}>
       <Text style={s.h1}>{me ? t('home.greeting', { partOfDay: 'day', name: me.name.split(' ')[0] ?? '' }) : t('common.loading')}</Text>
       <Text style={[s.muted, { marginBottom: 8 }]}>{me?.firmName}</Text>
+      {root.name === 'dashboard' && <MyDayCard theme={theme} onOpen={onOpenTask} />}
       {/* Phase 11: dashboard (cached for offline KPIs), catalogue, Ask and scheduled-report links. */}
       <Stack key={JSON.stringify(root)} theme={theme} root={root} />
     </View>

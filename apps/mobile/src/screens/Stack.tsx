@@ -122,6 +122,7 @@ function render(r: Route, nav: Nav, theme: Theme, isRoot: boolean, placeholder =
 
 /** Notification deep links: a root carrying an id opens its detail on top (back returns to the list). */
 function initialStack(root: Route): Route[] {
+  if (root.name === 'task') return [{ name: 'tasks' }, root];
   if (root.name === 'automation' && root.runId) return [{ name: 'automation' }, { name: 'autoRun', id: root.runId }];
   if (root.name === 'reportDownloads' && (root.token || root.exportId)) return [{ name: 'dashboard' }, root];
   if (root.name === 'aiInbox' && root.id) return [{ name: 'aiInbox' }, { name: 'aiSuggestion', id: root.id }];
