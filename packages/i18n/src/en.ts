@@ -1262,6 +1262,16 @@ export const en = {
   'p12a.pv.saveDays': 'Save', 'p12a.pv.masked': 'Address', 'p12a.pv.consentStatus': 'Status', 'p12a.pv.source': 'Source',
   // phase12 A — end
 
+  // ---- quick capture + my day ----
+  'quick.title': 'Quick add', 'quick.placeholder': 'What needs doing? e.g. GST return #acme tomorrow !high @ravi',
+  'quick.hint': 'Type naturally. {date} dates · #client · @person · ! or !! for priority. Enter adds, Esc closes.',
+  'quick.add': 'Add', 'quick.more': 'Add more details', 'quick.added': 'Added “{title}”', 'quick.open': 'Open',
+  'quick.justAdded': 'Just added', 'quick.clientNotFound': 'No client matches “{q}”', 'quick.datesEg': 'today, tomorrow, fri, 15/11, in 3 days',
+  'quick.button': 'Quick add (N)',
+  'myday.title': 'My day', 'myday.sub': '{done} of {total} cleared today', 'myday.overdue': 'Overdue', 'myday.today': 'Today', 'myday.upcoming': 'Coming up',
+  'myday.empty': 'All clear. Enjoy the calm.', 'myday.emptyHint': 'Nothing assigned to you is due this week.',
+  'myday.complete': 'Mark “{title}” done', 'myday.snooze': 'Move to tomorrow', 'myday.done': 'Done: {title}', 'myday.snoozed': 'Moved to tomorrow',
+  'myday.undo': 'Undo', 'myday.needsDetail': 'Finish the checklist first — opening the task', 'myday.all': 'All my tasks',
   // ---- extension (extension agent adds keys here, if any) ----
 } as const;
 export type MessageKey = keyof typeof en;

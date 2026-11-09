@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { LogOut, Mail, Moon, Search, Smartphone, Sun, WifiOff } from 'lucide-react';
+import { LogOut, Mail, Moon, Plus, Search, Smartphone, Sun, WifiOff } from 'lucide-react';
 import { useT } from '../lib/i18n';
 import { useMe, useCan, useFeature, useIntegration } from '../lib/me';
 import { useRoute, type Route } from '../lib/router';
@@ -11,6 +11,7 @@ import { CommandPalette } from './CommandPalette';
 import { BellButton, SyncIndicator, Toasts } from './SyncIndicator';
 import { NAV, type NavItem } from './nav';
 import { StepUpDialog } from './StepUpDialog';
+import { QuickAdd, openQuickAdd } from './QuickAdd';
 import { TimerWidget } from '../screens/time/TimerWidget';
 
 /** Sidebar sections: everything is "Menu" except the account/admin pages under "General". */
@@ -125,6 +126,7 @@ export function Shell({ children, onSignOut }: { children: ReactNode; onSignOut(
             <kbd className="ml-auto hidden rounded-md border border-border bg-surface px-1.5 py-0.5 text-[10px] font-semibold sm:block">Ctrl K</kbd>
           </button>
           <div className="ml-auto flex items-center gap-2">
+            {can('tasks', 'create') && <button className="icon-btn hidden bg-primary text-primary-fg hover:opacity-90 sm:inline-flex" aria-label={t('quick.button')} title={t('quick.button')} onClick={openQuickAdd}><Plus size={17} aria-hidden /></button>}
             <span className="hidden md:contents"><TimerWidget /><SyncIndicator /></span>
             <a className="icon-btn hidden sm:inline-flex" href="#/chat" aria-label={t('p7.nav.chat')}><Mail size={16} aria-hidden /></a>
             <BellButton />
@@ -148,6 +150,11 @@ export function Shell({ children, onSignOut }: { children: ReactNode; onSignOut(
           ))}
         </nav>
       </div>
+      {can('tasks', 'create') && (
+        <button className="fixed bottom-20 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-fg shadow-xl transition-transform active:scale-95 md:hidden"
+          aria-label={t('quick.button')} onClick={openQuickAdd}><Plus size={24} aria-hidden /></button>
+      )}
+      <QuickAdd />
       <CommandPalette onSignOut={onSignOut} />
       <Toasts />
       <StepUpDialog />

@@ -37,3 +37,21 @@ export function weekBars(items: Task[], now: Date) {
     return { label: DAY[day.getUTCDay()]!, date, count: counts.get(date) ?? 0, today: date === today, future: false };
   });
 }
+
+const addDays = (iso: string, n: number) => new Date(Date.parse(`${iso}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+
+/** The signed-in user's day: open tasks assigned to them, split overdue / today / next 7 days, plus what they cleared today. */
+export function myDay(items: Task[], meId: string | undefined, now: Date) {
+  const today = istDate(now);
+  const week = addDays(today, 7);
+  const mine = items.filter((x) => meId && x.assigneeId === meId && x.status !== 'cancelled' && !x.outcome);
+  const open = mine.filter((x) => x.status !== 'done');
+  const due = (x: Task) => x.actBy ?? x.statutoryDue ?? null;
+  const rank = { urgent: 0, high: 1, normal: 2, low: 3 } as Record<string, number>;
+  const sort = (a: Task, b: Task) => (due(a) ?? '').localeCompare(due(b) ?? '') || (rank[a.priority] ?? 2) - (rank[b.priority] ?? 2);
+  const overdue = open.filter((x) => { const d = due(x); return !!d && d < today; }).sort(sort);
+  const todayList = open.filter((x) => due(x) === today).sort(sort);
+  const upcoming = open.filter((x) => { const d = due(x); return !!d && d > today && d <= week; }).sort(sort).slice(0, 5);
+  const doneToday = mine.filter((x) => x.status === 'done' && (x.completedAt ?? x.closedAt) && istDate(new Date((x.completedAt ?? x.closedAt)!)) === today).length;
+  return { today, tomorrow: addDays(today, 1), overdue, todayList, upcoming, doneToday };
+}

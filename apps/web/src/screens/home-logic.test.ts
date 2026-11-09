@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dashboardStats, weekBars } from './home-logic';
+import { dashboardStats, myDay, weekBars } from './home-logic';
 import type { Task } from './tasks/logic';
 
 const task = (p: Partial<Task>): Task => ({ id: Math.random().toString(36), title: 't', status: 'open', priority: 'normal', checks: [], source: 'manual', version: 1, ...p } as Task);
@@ -33,5 +33,23 @@ describe('week bars', () => {
     expect(b.map((x) => x.label).join('')).toBe('TFSSMTW');
     expect(b.map((x) => x.count)).toEqual([1, 0, 0, 0, 0, 0, 2]);
     expect(b.filter((x) => x.today).map((x) => x.date)).toEqual(['2026-11-11']);
+  });
+});
+
+describe('myDay', () => {
+  const now = new Date('2026-11-09T06:00:00Z');
+  const base = { status: 'open', priority: 'normal', assigneeId: 'me' };
+  const mk = (id: string, x: Record<string, unknown>) => ({ id, title: id, ...base, ...x }) as never;
+  it('splits my open tasks and counts what I cleared today', () => {
+    const r = myDay([
+      mk('late', { actBy: '2026-11-01' }), mk('now', { actBy: '2026-11-09', priority: 'low' }), mk('urgent', { actBy: '2026-11-09', priority: 'urgent' }),
+      mk('soon', { statutoryDue: '2026-11-12' }), mk('far', { actBy: '2026-12-30' }), mk('other', { actBy: '2026-11-09', assigneeId: 'x' }),
+      mk('fin', { status: 'done', completedAt: '2026-11-09T04:00:00Z' }), mk('old', { status: 'done', completedAt: '2026-11-01T04:00:00Z' }),
+    ], 'me', now);
+    expect(r.overdue.map((x: { id: string }) => x.id)).toEqual(['late']);
+    expect(r.todayList.map((x: { id: string }) => x.id)).toEqual(['urgent', 'now']);
+    expect(r.upcoming.map((x: { id: string }) => x.id)).toEqual(['soon']);
+    expect(r.doneToday).toBe(1);
+    expect(r.tomorrow).toBe('2026-11-10');
   });
 });

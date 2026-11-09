@@ -15,6 +15,8 @@ import type { Task } from './tasks/logic';
 import { elapsed, startTimerFor } from './time/TimerWidget';
 import { invalidateTime } from './time/shared';
 import { dashboardStats, weekBars } from './home-logic';
+import { MyDay } from './MyDay';
+import { openQuickAdd } from '../components/QuickAdd';
 
 /** Staggered entrance: each card rises in a little after the previous one. */
 const delay = (i: number): CSSProperties => ({ animationDelay: `${i * 60}ms` });
@@ -64,8 +66,13 @@ export function HomeScreen() {
             {t('home.greeting', { partOfDay, name: me?.name.split(' ')[0] ?? '' })} · {new Intl.DateTimeFormat('en-IN', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' }).format(new Date(now))}
           </h2>
         </div>
-        {canTasks && <a href="#/tasks?new=1" className="btn btn-primary px-5 py-2.5"><Plus size={16} aria-hidden /> {t('dash.addTask')}</a>}
+        {can('tasks', 'create') && <button type="button" onClick={openQuickAdd} title={t('quick.button')} className="btn btn-primary px-5 py-2.5"><Plus size={16} aria-hidden /> {t('dash.addTask')}</button>}
         <a href="#/clients/import" className="btn px-5 py-2.5"><Upload size={15} aria-hidden /> {t('dash.import')}</a>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[1.7fr_1fr]">
+        {canTasks && <MyDay items={items} now={now} loading={loading} style={delay(0)} />}
+        <Reminder i={1} />
       </div>
 
       {canTasks && (
@@ -81,9 +88,8 @@ export function HomeScreen() {
         </div>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr_1fr]">
+      <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
         {canTasks && <Analytics i={4} items={items} now={now} loading={loading} />}
-        <Reminder i={5} />
         {canTasks && <DueSoon i={6} items={items} now={now} loading={loading} />}
       </div>
 
@@ -198,7 +204,7 @@ function DueSoon({ i, items, now, loading }: { i: number; items: Task[]; now: nu
   const due = items.filter((x) => x.status !== 'done' && (x.actBy ?? x.statutoryDue))
     .sort((a, b) => (a.actBy ?? a.statutoryDue ?? '').localeCompare(b.actBy ?? b.statutoryDue ?? '')).slice(0, 5);
   return (
-    <Card i={i} title={t('dash.dueSoon')} action={<a href="#/tasks?new=1" className="btn py-1 text-sm"><Plus size={14} aria-hidden /> {t('dash.new')}</a>}>
+    <Card i={i} title={t('dash.dueSoon')} action={<button type="button" onClick={openQuickAdd} className="btn py-1 text-sm"><Plus size={14} aria-hidden /> {t('dash.new')}</button>}>
       {loading ? <div className="space-y-3">{[0, 1, 2, 3].map((k) => <div key={k} className="skeleton h-9" />)}</div> : due.length === 0 ? <p className="text-muted">{t('dash.nothingDue')}</p> : (
         <ul className="space-y-3">
           {due.map((x, k) => {
