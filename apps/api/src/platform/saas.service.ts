@@ -5,6 +5,7 @@ import {
 } from '@worko/domain';
 import { AuditService } from '../audit/audit.service.js';
 import type { PlatformActor, RequestActor } from '../auth/context.js';
+import { integrations } from '../common/integrations.js';
 import { PAYMENT_PROVIDERS, defaultPaymentProvider, type PaymentProvider } from '../billing/providers.js';
 import { Clock } from '../common/clock.js';
 import { DbService, type Tx } from '../db/db.service.js';
@@ -47,7 +48,10 @@ export async function assertSeatAvailable(tx: Tx, tenantId: string, adding = 1) 
 export async function tenantFeatures(tx: Tx, tenantId: string): Promise<FeatureMap> {
   const t = (await tx.query('SELECT plan, feature_flags FROM tenant WHERE id = $1', [tenantId])).rows[0];
   const plan = t ? (await tx.query(`${planSql} WHERE key = $1`, [t.plan])).rows[0] : null;
-  return effectiveFeatures(plan, t?.feature_flags ?? {});
+  const f = effectiveFeatures(plan, t?.feature_flags ?? {});
+  // A module that needs an outside service is off until this deployment is connected to it.
+  const ok = integrations();
+  return { ...f, ai: f.ai && ok.ai, payments: f.payments && ok.payments, whatsapp: f.whatsapp && ok.whatsapp, esign: f.esign && ok.esign, portal: f.portal && ok.portal };
 }
 
 @Injectable()

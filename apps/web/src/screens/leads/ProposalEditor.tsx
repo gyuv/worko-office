@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { Dialog, Field } from '../../components/Dialog';
 import { todayIst } from '../../lib/http';
 import { useT } from '../../lib/i18n';
-import { useCan } from '../../lib/me';
+import { useCan, useIntegration } from '../../lib/me';
 import { useRoute } from '../../lib/router';
 import { api } from '../../lib/session';
 import { as, asFull, body, useCrmSettings, type Conversion, type Proposal } from './api';
@@ -209,7 +209,9 @@ function Versions({ p }: { p: Proposal }) {
 function SendDialog({ p, onClose }: { p: Proposal; onClose(): void }) {
   const t = useT();
   const qc = useQueryClient();
-  const [channel, setChannel] = useState<'email' | 'whatsapp' | 'sms'>('email');
+  const integration = useIntegration();
+  const channels = (['email', 'whatsapp', 'sms'] as const).filter((c) => integration(c));
+  const [channel, setChannel] = useState<'email' | 'whatsapp' | 'sms'>(channels[0] ?? 'email');
   const [templateId, setTemplateId] = useState('');
   const tpls = useQuery({ queryKey: ['comm', 'templates'], queryFn: () => as<Tpl[]>(api.GET('/comm/templates')), retry: false, staleTime: 60_000 });
   const send = useMutation({
@@ -227,8 +229,9 @@ function SendDialog({ p, onClose }: { p: Proposal; onClose(): void }) {
         </div>
       ) : (
         <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); send.mutate(); }}>
-          <Field label={t('p9.send.channel')}><select className="input" value={channel} onChange={(e) => { setChannel(e.target.value as typeof channel); setTemplateId(''); }}>
-            {(['email', 'whatsapp', 'sms'] as const).map((c) => <option key={c} value={c}>{t(`p9.ch.${c}` as MessageKey)}</option>)}</select></Field>
+          {channels.length > 0 ? <Field label={t('p9.send.channel')}><select className="input" value={channel} onChange={(e) => { setChannel(e.target.value as typeof channel); setTemplateId(''); }}>
+            {channels.map((c) => <option key={c} value={c}>{t(`p9.ch.${c}` as MessageKey)}</option>)}</select></Field>
+            : <p className="rounded-xl bg-surface-alt p-2 text-sm">{t('integrations.shareLink')}</p>}
           <Field label={t('p9.send.template')} hint={t('p9.send.templateHint')}><select className="input" value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
             <option value="">{t('p9.send.defaultMsg')}</option>{options.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>
           <p className="text-xs text-muted">{t('p9.send.freeze')}</p>

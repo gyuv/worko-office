@@ -3,7 +3,7 @@ import { ArrowLeftRight, Moon, LogOut, Plus, Upload, type LucideIcon } from 'luc
 import { useT } from '../lib/i18n';
 import { useRoute } from '../lib/router';
 import { useTheme } from '../lib/theme';
-import { useCan } from '../lib/me';
+import { useCan, useFeature, useIntegration } from '../lib/me';
 import { NAV } from './nav';
 
 type Cmd = { id: string; label: string; hint?: string; run(): void; icon: LucideIcon };
@@ -14,6 +14,8 @@ export function CommandPalette({ onSignOut }: { onSignOut(): void }) {
   const go = useRoute((s) => s.go);
   const toggleTheme = useTheme((s) => s.toggle);
   const can = useCan();
+  const feature = useFeature();
+  const integration = useIntegration();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(0);
@@ -31,7 +33,7 @@ export function CommandPalette({ onSignOut }: { onSignOut(): void }) {
   useEffect(() => { if (open) { setQ(''); setSel(0); setTimeout(() => input.current?.focus()); } }, [open]);
 
   const cmds = useMemo<Cmd[]>(() => [
-    ...NAV.filter((n) => !n.perm || can(...n.perm)).map((n) => ({ id: n.route, label: t('palette.goto', { page: t(n.label) }), hint: n.shortcut, icon: n.icon, run: () => go(n.route) })),
+    ...NAV.filter((n) => (!n.perm || can(...n.perm)) && (!n.feature || feature(n.feature)) && (!n.integration || integration(n.integration))).map((n) => ({ id: n.route, label: t('palette.goto', { page: t(n.label) }), hint: n.shortcut, icon: n.icon, run: () => go(n.route) })),
     ...(can('clients', 'create') ? [
       { id: 'new-client', label: t('palette.newClient'), icon: Plus, run: () => { go('clients'); setTimeout(() => dispatchEvent(new Event('worko:new-client'))); } },
       { id: 'import-clients', label: t('palette.importClients'), icon: Upload, run: () => go('clients/import') },
@@ -39,7 +41,7 @@ export function CommandPalette({ onSignOut }: { onSignOut(): void }) {
     ...(can('registers', 'view') ? [{ id: 'go-registers', label: t('palette.registers'), icon: ArrowLeftRight, run: () => go('registers') }] : []),
     { id: 'theme', label: t('palette.toggleTheme'), icon: Moon, run: toggleTheme },
     { id: 'signout', label: t('common.signOut'), icon: LogOut, run: onSignOut },
-  ], [t, go, toggleTheme, onSignOut, can]);
+  ], [t, go, toggleTheme, onSignOut, can, feature, integration]);
 
   const list = cmds.filter((c) => c.label.toLowerCase().includes(q.toLowerCase()));
   if (!open) return null;

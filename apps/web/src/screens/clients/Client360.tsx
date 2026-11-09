@@ -13,7 +13,7 @@ import { DocumentsPanel } from '../documents/DocumentsPanel';
 import { RegisterList } from '../registers/RegisterList';
 import { CredentialsTab } from './CredentialsTab';
 import { ClientServicesTab } from './ClientServicesTab';
-import { useCan } from '../../lib/me';
+import { useCan, useFeature } from '../../lib/me';
 import { useEntityLabel } from './labels';
 import { ClientBillingTab } from '../billing/ClientBillingTab';
 import { TimelineTab } from '../comm/TimelineTab';
@@ -31,6 +31,7 @@ export function Client360({ id }: { id: string }) {
   const qc = useQueryClient();
   const entity = useEntityLabel();
   const can = useCan();
+  const feature = useFeature();
   const q = useQuery({ queryKey: ['client', id], queryFn: () => unwrap(api.GET('/clients/{id}', { params: { path: { id } } })), retry: false });
   const [tab, setTab] = useState<Tab>('overview');
   const [seen, setSeen] = useState<Set<Tab>>(new Set(['overview']));
@@ -54,7 +55,7 @@ export function Client360({ id }: { id: string }) {
     ...(c.can.vault ? [['credentials', `${t('client360.credentials')} (${c.counts.secrets})`] as [Tab, string]] : []),
     ...(c.counts.inward !== null ? [['registers', `${t('nav.registers')} (${c.counts.inward + (c.counts.outward ?? 0)})`] as [Tab, string]] : []),
     ...(c.can.edit ? [['access', t('client360.access')] as [Tab, string]] : []),
-    ...(can('clients', 'view') ? [['portal', t('p9.cp.tab')] as [Tab, string]] : []),
+    ...(can('clients', 'view') && feature('portal') ? [['portal', t('p9.cp.tab')] as [Tab, string]] : []),
     ...(c.can.delete ? [['merge', t('client360.merge')] as [Tab, string]] : []),
   ];
   const panel = (k: Tab, node: ReactNode) => seen.has(k) && <div role="tabpanel" hidden={tab !== k} aria-label={tabs.find(([x]) => x === k)?.[1]}>{node}</div>;

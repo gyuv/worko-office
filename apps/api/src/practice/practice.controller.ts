@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { requireIntegration } from '../common/integrations.js';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { NOTICE_AUTHORITY_KEYS, NOTICE_OUTCOMES, NOTICE_STATUSES, SIGNOFF_LEVELS, udinSchema } from '@worko/domain';
 import type { Request } from 'express';
@@ -47,6 +48,7 @@ export class NoticesController {
   @Get('reports/ageing') @Perm('notices', 'view') ageing(@CurrentActor() a: RequestActor, @Query(new ZodPipe(z.object({ asOf: isoDate.optional() }))) q: { asOf?: string }) { return this.notices.ageing(a, q.asOf); }
   @Post('extract') @Perm('notices', 'create') @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD, files: 1 } }))
   extract(@CurrentActor() a: RequestActor, @UploadedFile() file: Express.Multer.File, @Body(new ZodPipe(extractB)) b: z.infer<typeof extractB>, @Req() req: Request) {
+    requireIntegration('noticeExtraction');
     return this.notices.extract(a, file, b, req.ip ?? null);
   }
   @Get('extractions/:id') @Perm('notices', 'view') extraction(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string) { return this.notices.getExtraction(a, id); }

@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, Header, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query, Req, Res, StreamableFile } from '@nestjs/common';
+import { requireIntegration } from '../common/integrations.js';
 import { Throttle } from '@nestjs/throttler';
 import { COMM_CHANNELS, ENTITY_TYPES, TEMPLATE_CATEGORIES, TEMPLATE_STATUSES, TIMELINE_CHANNELS } from '@worko/domain';
 import type { Request, Response } from 'express';
@@ -88,6 +89,7 @@ export class CommController {
   @Post('connections') @Perm('communication', 'create')
   async connect(@CurrentActor() a: RequestActor, @Body(new ZodPipe(z.object({ provider: z.enum(['mock', 'google', 'microsoft']), purpose: z.enum(['mail', 'calendar']) }).strict())) b: { provider: 'mock'; purpose: 'mail' },
     @Res({ passthrough: true }) res: Response) {
+    requireIntegration('calendarSync');
     const { binding, ...out } = await this.connections.start(a, b);
     res.setHeader('Set-Cookie', `${OAUTH_COOKIE}=${binding}; HttpOnly; Secure; SameSite=Lax; Path=/v1/comm/oauth; Max-Age=900`);
     return out;

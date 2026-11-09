@@ -11,7 +11,7 @@ import { Dialog, Field, Tabs } from '../../components/Dialog';
 import { toast } from '../../components/Toast';
 import { todayIst } from '../../lib/http';
 import { useT } from '../../lib/i18n';
-import { useCan } from '../../lib/me';
+import { useCan, useFeature, useIntegration } from '../../lib/me';
 import { useRoute } from '../../lib/router';
 import { api, unwrap } from '../../lib/session';
 import { ServicesSettings } from '../settings/ServicesSettings';
@@ -32,10 +32,12 @@ export function SettingsRoute() {
   const params = useRoute((s) => s.params);
   const go = useRoute((s) => s.go);
   const can = useCan();
-  const view = params[0] === 'billing' && can('billing', 'view') ? 'billing' : params[0] === 'hr' && can('hr', 'view') ? 'hr' : params[0] === 'comm' && can('communication', 'view') ? 'comm' : params[0] === 'practice' ? 'practice' : params[0] === 'portal' ? 'portal' : params[0] === 'ai' ? 'ai' : params[0] === 'developers' && can('settings', 'view') ? 'developers' : params[0] === 'subscription' && can('settings', 'view') ? 'subscription' : params[0] === 'privacy' && can('settings', 'view') ? 'privacy' : 'services';
+  const feature = useFeature();
+  const integration = useIntegration();
+  const view = params[0] === 'billing' && can('billing', 'view') ? 'billing' : params[0] === 'hr' && can('hr', 'view') ? 'hr' : params[0] === 'comm' && can('communication', 'view') && integration('messaging') ? 'comm' : params[0] === 'practice' ? 'practice' : params[0] === 'portal' && feature('portal') ? 'portal' : params[0] === 'ai' && feature('ai') ? 'ai' : params[0] === 'developers' && can('settings', 'view') ? 'developers' : params[0] === 'subscription' && can('settings', 'view') ? 'subscription' : params[0] === 'privacy' && can('settings', 'view') ? 'privacy' : 'services';
   const tabs: Array<['services' | 'billing' | 'hr' | 'comm' | 'practice' | 'portal' | 'ai' | 'developers' | 'subscription' | 'privacy', string]> = [['services', t('svc.title')], ...(can('billing', 'view') ? [['billing', t('nav.billing')] as ['billing', string]] : []),
-    ...(can('hr', 'view') ? [['hr', t('p6.hs.tab')] as ['hr', string]] : []), ...(can('communication', 'view') ? [['comm', t('p7.cs.tab')] as ['comm', string]] : []),
-    ['practice', t('p8.ps.tab')], ['portal', t('p9.ps.tab')], ['ai', t('p10.as.tab')], ...(can('settings', 'view') ? [['developers', t('p12b.tab')] as ['developers', string]] : []),
+    ...(can('hr', 'view') ? [['hr', t('p6.hs.tab')] as ['hr', string]] : []), ...(can('communication', 'view') && integration('messaging') ? [['comm', t('p7.cs.tab')] as ['comm', string]] : []),
+    ['practice', t('p8.ps.tab')], ...(feature('portal') ? [['portal', t('p9.ps.tab')] as ['portal', string]] : []), ...(feature('ai') ? [['ai', t('p10.as.tab')] as ['ai', string]] : []), ...(can('settings', 'view') ? [['developers', t('p12b.tab')] as ['developers', string]] : []),
     ...(can('settings', 'view') ? [['subscription', t('p12a.sub.tab')] as ['subscription', string], ['privacy', t('p12a.pv.tab')] as ['privacy', string]] : [])];
   return (
     <div className="space-y-3">

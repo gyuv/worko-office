@@ -208,7 +208,7 @@ describe('phase 11 dashboards & reports', () => {
     location.hash = `#/reports/builder/${RID}`;
     render(<App />);
     expect(await screen.findByTestId('builder-masked')).toBeInTheDocument();
-    expect(within(screen.getByTestId('filter-0')).getByLabelText('Value')).toHaveValue('[hidden], [hidden]');
+    expect(within(await screen.findByTestId('filter-0')).getByLabelText('Value')).toHaveValue('[hidden], [hidden]');
     expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Save new version' })).toBeNull();
   });
