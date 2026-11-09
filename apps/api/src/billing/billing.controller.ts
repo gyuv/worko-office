@@ -1,4 +1,5 @@
 import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query, Req, Res } from '@nestjs/common';
+import { requireIntegration } from '../common/integrations.js';
 import { gstinSchema, INVOICE_KINDS, INVOICE_PREFIX_REGEX, INVOICE_STATUSES, panSchema, RECEIPT_MODES, TALLY_ACCOUNTS } from '@worko/domain';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
@@ -159,7 +160,7 @@ export class BillingController {
   send(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(sendB)) b: z.infer<typeof sendB>) { return this.collections.send(a, id, b.channel); }
 
   @Post('invoices/:id/payment-link') @Perm('billing', 'edit')
-  paymentLink(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string) { return this.collections.paymentLink(a, id); }
+  paymentLink(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string) { requireIntegration('payments'); return this.collections.paymentLink(a, id); }
 
   @Get('invoices/:id/pdf') @Perm('billing', 'print')
   async pdf(@CurrentActor() a: RequestActor, @Param('id', ParseUUIDPipe) id: string, @Res() res: Response) { sendPdf(res, await this.invoices.pdf(a, a.tenantId, id)); }

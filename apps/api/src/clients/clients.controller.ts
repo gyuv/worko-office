@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
+import { requireIntegration } from '../common/integrations.js';
 import { isValidGstin } from '@worko/domain';
 import { z } from 'zod';
 import { CurrentActor, Perm, type RequestActor } from '../auth/context.js';
@@ -62,7 +63,7 @@ export class ClientsController {
   }
 
   @Get('lookup/gstin/:gstin') @Perm('clients', 'create')
-  lookup(@Param('gstin', new ZodPipe(z.string().toUpperCase().refine(isValidGstin, 'Invalid GSTIN'))) gstin: string) { return this.clients.lookupGstin(gstin); }
+  lookup(@Param('gstin', new ZodPipe(z.string().toUpperCase().refine(isValidGstin, 'Invalid GSTIN'))) gstin: string) { requireIntegration('gstinLookup'); return this.clients.lookupGstin(gstin); }
 
   @Get('client-groups') @Perm('clients', 'view')
   groups(@CurrentActor() a: RequestActor) { return this.clients.groups(a); }

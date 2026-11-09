@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Field } from '../../components/Dialog';
 import { toast } from '../../components/Toast';
 import { useT } from '../../lib/i18n';
-import { useCan, useMe } from '../../lib/me';
+import { useCan, useMe, useIntegration } from '../../lib/me';
 import { api } from '../../lib/session';
 import { MockBadge } from '../billing/shared';
 import { as, body, usePracticeSettings, useP8Error, type EsignRow, type PracticeSettings as PS } from './api';
@@ -14,6 +14,7 @@ type RunResult = { day: string; escalations: number; expiryAlerts: number; renew
 /** Settings → Practice: notice buffer, expiry thresholds, PBC reminders, extractor (explicit AI opt-in), e-sign provider status, daily run. */
 export function PracticeSettings() {
   const t = useT();
+  const integration = useIntegration();
   const can = useCan();
   const err = useP8Error();
   const qc = useQueryClient();
@@ -66,16 +67,16 @@ export function PracticeSettings() {
           <Field label={t('p8.ps.pbcEvery')}><input type="number" min={1} className="input" value={s.pbc.reminderEveryDays} onChange={(e) => setS({ ...s, pbc: { ...s.pbc, reminderEveryDays: Math.max(1, num(e.target.value)) } })} /></Field>
           <Field label={t('p8.ps.pbcMax')}><input type="number" min={0} className="input" value={s.pbc.maxReminders} onChange={(e) => setS({ ...s, pbc: { ...s.pbc, maxReminders: num(e.target.value) } })} /></Field>
           <Field label={t('p8.ps.pbcChannel')}><select className="input" value={s.pbc.channel} onChange={(e) => setS({ ...s, pbc: { ...s.pbc, channel: e.target.value as 'email' } })}>
-            {(['email', 'whatsapp', 'sms'] as const).map((c) => <option key={c} value={c}>{t(`p7.channel.${c}`)}</option>)}</select></Field>
+            {(['email', 'whatsapp', 'sms'] as const).filter((c) => integration(c) || s.pbc.channel === c).map((c) => <option key={c} value={c}>{t(`p7.channel.${c}`)}</option>)}</select></Field>
         </section>
-        <section className="card space-y-2 p-3" aria-label={t('p8.ps.extractor')}>
+        {integration('ai') && <section className="card space-y-2 p-3" aria-label={t('p8.ps.extractor')}>
           <h2 className="font-medium">{t('p8.ps.extractor')}</h2>
           <p className="text-sm">{t('p8.ps.extractorDefault')}</p>
           <label className="flex items-center gap-2"><input type="checkbox" checked={s.ai.noticeExtraction} onChange={(e) => { setS({ ...s, ai: { noticeExtraction: e.target.checked } }); setAiAck(false); }} /> {t('p8.ps.aiToggle')}</label>
           <p className="rounded border border-due-soon p-2 text-sm" data-testid="ai-privacy">{t('p8.ps.aiPrivacy')}</p>
           {aiTurningOn && <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={aiAck} onChange={(e) => setAiAck(e.target.checked)} /> {t('p8.ps.aiAck')}</label>}
           <p className="text-xs text-muted">{t('p8.ps.aiServer')}</p>
-        </section>
+        </section>}
       </fieldset>
       <section className="card space-y-1 p-3" aria-label={t('p8.ps.esign')}>
         <h2 className="font-medium">{t('p8.ps.esign')}</h2>

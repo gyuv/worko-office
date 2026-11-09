@@ -6,6 +6,7 @@ import { ApiKeysService } from '../publicapi/api-keys.service.js';
 import { PUBLIC_API } from '../publicapi/decorators.js';
 import { EXTENSION_OK, FEATURE, IS_PUBLIC, PERM, PLATFORM_ROUTE, PORTAL_ALLOWED, type PortalActor, type RequestActor } from './context.js';
 import { ImpersonationService } from '../platform/impersonation.service.js';
+import { requireIntegration, type IntegrationKey } from '../common/integrations.js';
 import { PlatformAuthService } from '../platform/platform-auth.service.js';
 import { loadTeamIds, loadUserRoles } from './roles.repo.js';
 import { TokenService } from './token.service.js';
@@ -92,6 +93,8 @@ export class AuthGuard implements CanActivate {
     if (feature && !effectiveFeatures(t.modules === null ? null : { modules: t.modules }, t.feature_flags)[feature]) {
       throw new ForbiddenException({ code: 'feature_disabled', message: `The ${feature} module is not enabled on this firm's plan` });
     }
+    // Modules that need an outside service stay off until this deployment is connected to it.
+    if (feature && (['ai', 'payments', 'whatsapp', 'esign', 'portal'] as const).includes(feature as never)) requireIntegration(feature as IntegrationKey);
   }
 
   private async portal(token: string): Promise<PortalActor> {

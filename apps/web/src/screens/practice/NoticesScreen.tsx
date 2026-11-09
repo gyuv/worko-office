@@ -9,7 +9,7 @@ import { Dialog, Field, Tabs } from '../../components/Dialog';
 import { toast } from '../../components/Toast';
 import { multipart, todayIst } from '../../lib/http';
 import { useT } from '../../lib/i18n';
-import { useCan } from '../../lib/me';
+import { useCan, useIntegration } from '../../lib/me';
 import { isUuid, useRoute } from '../../lib/router';
 import { api } from '../../lib/session';
 import { Money, RupeeInput } from '../billing/shared';
@@ -29,6 +29,7 @@ export function NoticesScreen() {
   const params = useRoute((s) => s.params);
   const go = useRoute((s) => s.go);
   const [uploading, setUploading] = useState(false);
+  const integration = useIntegration();
   const [creating, setCreating] = useState(false);
   if (!can('notices', 'view')) return <p className="card p-6 text-muted">{t('p8.noAccess')}</p>;
   if (isUuid(params[0])) return <NoticeView id={params[0]} />;
@@ -38,7 +39,7 @@ export function NoticesScreen() {
       <header className="flex flex-wrap items-center gap-2"><h1 className="text-xl font-semibold">{t('p8.nav.notices')}</h1>
         {can('notices', 'create') && <div className="ml-auto flex gap-2">
           <button className="btn" onClick={() => setCreating(true)}><Plus size={14} aria-hidden /> {t('p8.n.new')}</button>
-          <button className="btn btn-primary" onClick={() => setUploading(true)}><FileUp size={14} aria-hidden /> {t('p8.n.upload')}</button>
+          {integration('noticeExtraction') && <button className="btn btn-primary" onClick={() => setUploading(true)}><FileUp size={14} aria-hidden /> {t('p8.n.upload')}</button>}
         </div>}</header>
       <Tabs<View> label={t('p8.nav.notices')} value={view} onChange={(v) => go(v === 'list' ? 'notices' : 'notices/ageing')} tabs={[['list', t('p8.n.list')], ['ageing', t('p8.n.ageing')]]} />
       {view === 'list' ? <NoticeList /> : <AgeingView />}
@@ -343,6 +344,7 @@ function CloseNotice({ n, onClose, onSubmit }: { n: Notice; onClose(): void; onS
 }
 
 function NoticeDocuments({ n, editable, onReExtract }: { n: NoticeDetail; editable: boolean; onReExtract(): void }) {
+  const integration = useIntegration();
   const t = useT();
   const err = useP8Error();
   const label = useP8Label();
@@ -369,7 +371,7 @@ function NoticeDocuments({ n, editable, onReExtract }: { n: NoticeDetail; editab
           {['reply', 'order', 'evidence', 'notice', 'other'].map((k) => <option key={k} value={k}>{label('dkind', k)}</option>)}</select></Field>
         <label className="btn cursor-pointer"><FileUp size={14} aria-hidden /> {t('p8.n.uploadReply')}
           <input type="file" className="sr-only" aria-label={t('p8.n.uploadReply')} onChange={(e) => { const f = e.target.files?.[0]; if (f) up.mutate(f); e.target.value = ''; }} /></label>
-        <button className="btn" onClick={onReExtract}>{t('p8.x.titleUpdate')}</button>
+        {integration('noticeExtraction') && <button className="btn" onClick={onReExtract}>{t('p8.x.titleUpdate')}</button>}
       </div>}
     </section>
   );

@@ -7,7 +7,8 @@ import type { RequestActor } from '../auth/context.js';
 import { hashPassword } from '../auth/crypto.js';
 import { DbService } from '../db/db.service.js';
 import { uuidv7 } from '../db/ids.js';
-import { assertSeatAvailable } from '../platform/saas.service.js';
+import { assertSeatAvailable, tenantFeatures } from '../platform/saas.service.js';
+import { integrations } from '../common/integrations.js';
 import { PasswordPolicyService } from '../auth/password-policy.js';
 
 export type CreateUser = { name: string; email: string; phone?: string; password: string; roleKeys: string[]; branchId?: string };
@@ -29,7 +30,8 @@ export class UsersService {
       const u = (await tx.query(
         `SELECT u.id, u.name, u.email, u.phone, u.totp_enabled AS "totpEnabled", t.name AS "firmName", t.slug AS "firmSlug"
          FROM app_user u JOIN tenant t ON t.id = u.tenant_id WHERE u.id = $1`, [a.userId])).rows[0];
-      return { ...u, roles: a.roles.map((r) => r.key), grants: a.roles.flatMap((r) => r.grants), impersonation: a.impersonation ?? null };
+      return { ...u, roles: a.roles.map((r) => r.key), grants: a.roles.flatMap((r) => r.grants), impersonation: a.impersonation ?? null,
+        features: await tenantFeatures(tx, a.tenantId), integrations: integrations() };
     });
   }
 

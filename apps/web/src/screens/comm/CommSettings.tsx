@@ -6,7 +6,7 @@ import { Field, Tabs } from '../../components/Dialog';
 import { toast } from '../../components/Toast';
 import { todayIst } from '../../lib/http';
 import { useT } from '../../lib/i18n';
-import { useCan } from '../../lib/me';
+import { useCan, useIntegration } from '../../lib/me';
 import { apiBase } from '../../lib/platform';
 import { api, useSession } from '../../lib/session';
 import { as, body, CATEGORIES, CHANNELS, useCommError, useCommSettings, useLabel, useTemplates, type Channel, type CommSettings as Settings, type Connection, type Rate } from './api';
@@ -170,6 +170,7 @@ const CONNECT: Array<{ key: string; provider: 'google' | 'microsoft' | 'mock'; p
 ];
 
 function Connections() {
+  const integration = useIntegration();
   const t = useT();
   const can = useCan();
   const qc = useQueryClient();
@@ -203,7 +204,7 @@ function Connections() {
     <div className="space-y-3">
       <p className="text-sm text-muted">{t('p7.conn.hint')}</p>
       {can('communication', 'create') && <div className="flex flex-wrap gap-2">
-        {CONNECT.map((c) => <button key={c.key} className="btn" disabled={start.isPending} onClick={() => start.mutate({ provider: c.provider, purpose: c.purpose })}>{t(`p7.conn.connect.${c.key}` as 'p7.conn.connect.gmail')}</button>)}
+        {!integration('calendarSync') ? <p className="text-muted">{t('integrations.notConnected')}</p> : CONNECT.filter((c) => c.provider !== 'mock').map((c) => <button key={c.key} className="btn" disabled={start.isPending} onClick={() => start.mutate({ provider: c.provider, purpose: c.purpose })}>{t(`p7.conn.connect.${c.key}` as 'p7.conn.connect.gmail')}</button>)}
       </div>}
       <div className="card overflow-auto"><table className="table w-full" aria-label={t('p7.cs.connections')}>
         <thead><tr><th>{t('p7.conn.provider')}</th><th>{t('p7.conn.purpose')}</th><th>{t('p7.conn.account')}</th><th>{t('p6.f.status')}</th><th>{t('p7.conn.lastSync')}</th><th /></tr></thead>

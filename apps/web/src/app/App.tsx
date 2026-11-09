@@ -5,6 +5,7 @@ import { NAV } from '../components/nav';
 import { Shell } from '../components/Shell';
 import { I18nProvider, useT } from '../lib/i18n';
 import { useRoute } from '../lib/router';
+import { useFeature, useIntegration } from '../lib/me';
 import { api, useSession } from '../lib/session';
 import { AuditScreen } from '../screens/AuditScreen';
 import { ComingSoon, HomeScreen } from '../screens/HomeScreen';
@@ -53,6 +54,13 @@ import { ImpersonationBanner, isPlatformHash } from '../platform/banner';
 function Routes() {
   const t = useT();
   const route = useRoute((s) => s.route);
+  const feature = useFeature();
+  const integration = useIntegration();
+  // A module that isn't switched on, or needs an outside service this server isn't connected to, isn't reachable by URL either.
+  const item = NAV.find((n) => n.route === route);
+  if (item && ((item.feature && !feature(item.feature)) || (item.integration && !integration(item.integration)))) {
+    return <div className="card mx-auto mt-8 max-w-lg p-6 text-center"><h1 className="text-lg font-semibold">{t(item.label)}</h1><p className="mt-2 text-muted">{t('integrations.moduleOff')}</p><a href="#/home" className="btn btn-primary mt-4">{t('nav.home')}</a></div>;
+  }
   switch (route) {
     case 'home': return <HomeScreen />;
     case 'security': return <SecurityScreen />;

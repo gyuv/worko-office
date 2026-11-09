@@ -7,7 +7,7 @@ import { Dialog, Field } from '../../components/Dialog';
 import { toast } from '../../components/Toast';
 import { errStatus, todayIst } from '../../lib/http';
 import { useT } from '../../lib/i18n';
-import { useCan } from '../../lib/me';
+import { useCan, useIntegration } from '../../lib/me';
 import { useRoute } from '../../lib/router';
 import { api, unwrap } from '../../lib/session';
 import { allowedActions, paiseToInput, parseRupees, taxRows, type InvoiceAction } from './logic';
@@ -168,6 +168,7 @@ export function InvoiceView({ id }: { id: string }) {
   const [dialog, setDialog] = useState<InvoiceAction | null>(null);
   const refresh = () => { void qc.invalidateQueries({ queryKey: ['billing'] }); };
   const del = useMutation({ mutationFn: () => unwrap(api.DELETE('/billing/invoices/{id}', { params: { path: { id } } })), onSuccess: () => { refresh(); go('billing'); }, onError: err });
+  const integration = useIntegration();
   const link = useMutation({
     mutationFn: () => unwrap(api.POST('/billing/invoices/{id}/payment-link', { params: { path: { id } } })),
     onSuccess: (r) => { refresh(); void navigator.clipboard?.writeText(r.url).catch(() => undefined); toast({ text: t('bill.linkCreated'), tone: 'ok' }); }, onError: err,
@@ -187,8 +188,8 @@ export function InvoiceView({ id }: { id: string }) {
         <span className="text-muted">{inv.clientName}</span>
         <div className="ml-auto flex flex-wrap gap-2">
           {has('pdf') && <button className="btn" onClick={() => void openPdf(`/billing/invoices/${id}/pdf`).catch(err)}><FileDown size={14} aria-hidden /> {t('bill.pdf')}</button>}
-          {has('send') && <button className="btn" onClick={() => setDialog('send')}>{t('bill.send')}</button>}
-          {has('paymentLink') && <button className="btn" disabled={link.isPending} onClick={() => link.mutate()}>{t('bill.paymentLink')}</button>}
+          {has('send') && (integration('email') || integration('whatsapp')) && <button className="btn" onClick={() => setDialog('send')}>{t('bill.send')}</button>}
+          {has('paymentLink') && integration('payments') && <button className="btn" disabled={link.isPending} onClick={() => link.mutate()}>{t('bill.paymentLink')}</button>}
           {has('followUp') && <button className="btn" onClick={() => setDialog('followUp')}>{t('bill.followUp')}</button>}
           {has('note') && <button className="btn" onClick={() => setDialog('note')}>{t('bill.note')}</button>}
           {has('cancel') && <button className="btn" onClick={() => setDialog('cancel')}>{t('bill.cancelInvoice')}</button>}
@@ -387,6 +388,7 @@ function FollowUpDialog({ inv, onClose, onDone }: { inv: Detail; onClose(): void
 
 function SendDialog({ id, onClose, onDone }: { id: string; onClose(): void; onDone(): void }) {
   const t = useT();
+  const integration = useIntegration();
   const err = useErr();
   const [result, setResult] = useState<string | null>(null);
   const m = useMutation({
@@ -398,8 +400,8 @@ function SendDialog({ id, onClose, onDone }: { id: string; onClose(): void; onDo
       <div className="space-y-3">
         <p className="text-sm text-muted">{t('bill.sendHint')}</p>
         <div className="flex gap-2">
-          <button className="btn" disabled={m.isPending} onClick={() => m.mutate('email')}>{t('bill.sendEmail')}</button>
-          <button className="btn" disabled={m.isPending} onClick={() => m.mutate('whatsapp')}>{t('bill.sendWhatsApp')}</button><MockBadge />
+          {integration('email') && <button className="btn" disabled={m.isPending} onClick={() => m.mutate('email')}>{t('bill.sendEmail')}</button>}
+          {integration('whatsapp') && <button className="btn" disabled={m.isPending} onClick={() => m.mutate('whatsapp')}>{t('bill.sendWhatsApp')}</button>}<MockBadge />
         </div>
         {result && <p role="status" className="text-done">{t('bill.sendResult', { status: result })}</p>}
       </div>

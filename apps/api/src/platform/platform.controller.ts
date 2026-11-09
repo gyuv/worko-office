@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { CurrentActor, CurrentPlatform, Perm, PlatformRoute, Public, type PlatformActor, type RequestActor } from '../auth/context.js';
 import { Clock } from '../common/clock.js';
 import { ZodPipe } from '../common/zod.pipe.js';
+import { integrations } from '../common/integrations.js';
 import { FirmAdminService } from './firm-admin.service.js';
 import { ImpersonationService } from './impersonation.service.js';
 import { PlatformAuditService } from './platform-audit.service.js';
@@ -128,6 +129,10 @@ export class PlatformController {
   /** Provision a firm: firm ID (slug), first admin user (Partner) and seat limit. */
   @Post('tenants')
   createFirm(@CurrentPlatform() p: PlatformActor, @Body(new ZodPipe(createFirmB)) b: z.infer<typeof createFirmB>) { return this.firms.createFirm(p, b); }
+
+  /** Which outside services this deployment is connected to (modules needing the others are hidden). */
+  @Get('integrations')
+  integrations() { return integrations(); }
 
   @Get('activity')
   activity() { return this.firms.activity(); }

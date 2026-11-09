@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { useIntegration } from '../../lib/me';
 import { ENTITY_TYPES, entityHintFromPan, GST_STATES, isValidGstin, isValidPan, panFromGstin, type EntityType } from '@worko/domain';
 import { AlertTriangle } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -45,10 +46,11 @@ export function NewClientDialog({ onClose, onCreated }: { onClose(): void; onCre
   const pan = f.pan.trim().toUpperCase();
   const panError = pan.length >= 10 && !isValidPan(pan) ? t('clients.panInvalid') : null;
 
+  const integration = useIntegration();
   const lookup = useQuery({
     queryKey: ['gstin', gstin],
     queryFn: () => unwrap(api.GET('/lookup/gstin/{gstin}', { params: { path: { gstin } } })),
-    enabled: gstinOk, retry: false, staleTime: Infinity,
+    enabled: gstinOk && integration('gstinLookup'), retry: false, staleTime: Infinity,
   });
   // GSTIN → PAN (chars 3–12) and state; lookup → entity type. Never overwrite what the user typed after the fact.
   useEffect(() => {

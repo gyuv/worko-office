@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { LogOut, Mail, Moon, Search, Smartphone, Sun, WifiOff } from 'lucide-react';
 import { useT } from '../lib/i18n';
-import { useMe, useCan } from '../lib/me';
+import { useMe, useCan, useFeature, useIntegration } from '../lib/me';
 import { useRoute, type Route } from '../lib/router';
 import { useTheme } from '../lib/theme';
 import { usePrefs } from '../lib/prefs';
@@ -72,7 +72,10 @@ export function Shell({ children, onSignOut }: { children: ReactNode; onSignOut(
   }, [go]);
 
   const hidden = new Set(prefs.hiddenModules ?? []);
-  const visible = NAV.filter((n) => (!n.perm || can(...n.perm)) && (n.route === 'home' || n.route === 'appearance' || !hidden.has(n.route)));
+  const feature = useFeature();
+  const integration = useIntegration();
+  const visible = NAV.filter((n) => (!n.perm || can(...n.perm)) && (!n.feature || feature(n.feature)) && (!n.integration || integration(n.integration))
+    && (n.route === 'home' || n.route === 'appearance' || !hidden.has(n.route)));
   const menu = visible.filter((n) => !GENERAL.includes(n.route));
   const general = visible.filter((n) => GENERAL.includes(n.route));
 

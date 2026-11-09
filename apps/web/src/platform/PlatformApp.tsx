@@ -291,6 +291,9 @@ function TenantDetail({ id, onBack }: { id: string; onBack(): void }) {
   const [impReason, setImpReason] = useState(''); const [impWrite, setImpWrite] = useState(false); const [impMin, setImpMin] = useState(30);
   const [error, setError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
+  const integ = useQuery({ queryKey: ['p', 'integrations'], queryFn: () => pfetch<Record<string, boolean>>('/platform/integrations') });
+  // Modules that need an outside service are only offered once this server is connected to it.
+  const connected = (f: string) => !['ai', 'payments', 'whatsapp', 'esign', 'portal'].includes(f) || integ.data?.[f] !== false;
   const timeline = useQuery({ queryKey: ['p', 'timeline', id], queryFn: () => pfetch<Array<{ seq: number; at: string; action: string; diff?: unknown }>>(`/platform/audit?tenantId=${id}&limit=50`) });
   const call = useMutation({ mutationFn: (x: { path: string; method?: string; body?: unknown }) => pfetch<unknown>(x.path, { method: x.method ?? 'POST', body: x.body ?? {} }),
     onSuccess: () => { setError(null); void qc.invalidateQueries({ queryKey: ['p'] }); }, onError: (e) => setError((e as Error).message) });
@@ -329,13 +332,14 @@ function TenantDetail({ id, onBack }: { id: string; onBack(): void }) {
       <FirmExport id={id} slug={tn.slug} />
       <div className="card space-y-2 p-3">
         <h3 className="font-semibold">{t('p12a.pl.flags')}</h3><p className="text-muted">{t('p12a.pl.flagsHint')}</p>
-        <ul className="flex flex-wrap gap-3">{SAAS_FEATURES.map((f) => {
+        <ul className="flex flex-wrap gap-3">{SAAS_FEATURES.filter((f) => connected(f)).map((f) => {
           const over = tn.featureOverrides?.[f];
           return (<li key={f} className="flex items-center gap-1">
             <label className="flex items-center gap-1"><input type="checkbox" checked={!!d.data.features[f]} onChange={(e) => call.mutate({ path: `/platform/tenants/${id}/flags`, method: 'PUT', body: { overrides: { [f]: e.target.checked } } })} />{f}</label>
             {over !== undefined && <button className="text-xs underline" title={t('p12a.pl.clear')} onClick={() => call.mutate({ path: `/platform/tenants/${id}/flags`, method: 'PUT', body: { overrides: { [f]: null } } })}>({t('p12a.pl.override')} ×)</button>}
           </li>);
         })}</ul>
+        {SAAS_FEATURES.some((f) => !connected(f)) && <p className="text-xs text-muted">{t('p12a.pl.notConnected', { list: SAAS_FEATURES.filter((f) => !connected(f)).join(', ') })}</p>}
       </div>
       <div className="card grid gap-2 p-3 sm:grid-cols-3">
         <Field label={t('p12a.pl.col.plan')}><select className="input" value={plan || tn.plan} onChange={(e) => setPlan(e.target.value)}>{(plans.data ?? []).map((p) => <option key={p.key} value={p.key}>{p.name}</option>)}</select></Field>
