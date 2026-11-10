@@ -7,6 +7,8 @@ import type { TokenPair } from '@worko/api-client';
 export type DesktopBridge = {
   platform: 'desktop';
   apiBase: string;
+  /** Change the server this install talks to (validated + saved by the main process, then the window reloads). */
+  setApiBase?(url: string | null): Promise<boolean>;
   tokens: { get(): Promise<TokenPair | null>; set(t: TokenPair | null): Promise<void> };
   notify(n: { title: string; body: string; id?: string }): void;
   setBadge(count: number): void;

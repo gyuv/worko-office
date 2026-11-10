@@ -1,5 +1,5 @@
 import { createWorkoClient, type TokenPair } from '@worko/api-client';
-import Constants from 'expo-constants';
+import { DEFAULT_API_BASE, loadServer, serverFetch } from './server-base';
 import * as SecureStore from 'expo-secure-store';
 import { create } from 'zustand';
 
@@ -15,17 +15,18 @@ type State = { tokens: TokenPair | null; ready: boolean; wiped: boolean; setToke
 export const useSession = create<State>((set) => ({
   tokens: null, ready: false, wiped: false,
   setTokens(t) { set({ tokens: t }); void storage.save(t); },
-  async init() { set({ tokens: await storage.load(), ready: true }); },
+  async init() { await loadServer(); set({ tokens: await storage.load(), ready: true }); },
 }));
 
 /** Set by ./sync (avoids a session ↔ sync import cycle). Fallback just signs out. */
 let wipeHandler: () => Promise<void> | void = () => useSession.setState({ tokens: null, wiped: true });
 export const setWipeHandler = (fn: () => Promise<void>) => { wipeHandler = fn; };
 
-export const apiBase = (Constants.expoConfig?.extra?.apiBase as string | undefined) ?? 'http://10.0.2.2:3000/v1';
+export { apiBase, DEFAULT_API_BASE, loadServer, normaliseServer, setServer } from './server-base';
 
 export const api = createWorkoClient({
-  baseUrl: apiBase,
+  baseUrl: DEFAULT_API_BASE,
+  fetch: serverFetch,
   tokens: { get: () => useSession.getState().tokens, set: (t) => useSession.getState().setTokens(t) },
   // Remote wipe: erase the encrypted DB, its key and scheduled reminders (handler registered by ./sync).
   onWipe: () => void wipeHandler(),

@@ -2,13 +2,13 @@ import { FadeIn, GlassBackdrop } from './glass';
 import { Feather } from '@expo/vector-icons';
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { PRODUCT } from '@worko/domain';
-import { createTranslator, relativeTime, type MessageKey } from '@worko/i18n';
+import { createTranslator, relativeTime } from '@worko/i18n';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, TextInput, useColorScheme, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, useColorScheme, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { TABS, type Tab } from './nav';
-import { api, unwrap, useSession } from './session';
+import { api, apiBase, DEFAULT_API_BASE, normaliseServer, setServer, unwrap, useSession } from './session';
 import { getEngine, getStore, startSync, stopSync, syncNow, toReminder, useSync } from './sync';
 import { setupNotifications } from './notifications';
 import { themeFor, type Theme } from './theme';
@@ -67,45 +67,91 @@ export function App() {
 function Login({ theme, onClient }: { theme: Theme; onClient(): void }) {
   const s = styles(theme);
   const { setTokens, wiped } = useSession();
+  const [mode, setMode] = useState<'email' | 'phone'>('email');
   const [firm, setFirm] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [totp, setTotp] = useState('');
+  const [needTotp, setNeedTotp] = useState(false);
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
   const [sent, setSent] = useState(false);
-  const [error, setError] = useState<MessageKey | null>(wiped ? 'auth.wiped' : null);
+  const [error, setError] = useState<string | null>(wiped ? t('auth.wiped') : null);
   const [busy, setBusy] = useState(false);
+  const [editServer, setEditServer] = useState(false);
+  const [server, setServerText] = useState(apiBase);
+  const device = { platform: 'android' as const, label: 'Android' };
 
-  // Phone OTP is the default on mobile (spec: "less input"); email+password is on web/desktop.
+  // Email + password works on every server; phone OTP needs an SMS provider to be connected.
   async function submit() {
     setBusy(true); setError(null);
     try {
-      if (!sent) { await unwrap(api.POST('/auth/otp/request', { body: { firm, phone } })); setSent(true); }
-      else setTokens(await unwrap(api.POST('/auth/otp/verify', { body: { firm, phone, code, device: { platform: 'android', label: 'Android' } } })));
+      if (mode === 'email') {
+        setTokens(await unwrap(api.POST('/auth/login', { body: { firm: firm.trim(), email: email.trim(), password, ...(needTotp && totp ? { totp } : {}), device } })));
+      } else if (!sent) { await unwrap(api.POST('/auth/otp/request', { body: { firm: firm.trim(), phone } })); setSent(true); }
+      else setTokens(await unwrap(api.POST('/auth/otp/verify', { body: { firm: firm.trim(), phone, code, device } })));
     } catch (e) {
-      const status = (e as { status?: number }).status;
-      setError(status === 429 ? 'auth.locked' : status && status < 500 ? 'auth.invalid' : 'common.error');
+      const { status, code: c } = e as { status?: number; code?: string };
+      if (c === 'MFA_REQUIRED') { setNeedTotp(true); setError(t('auth.mfaRequired')); }
+      else if (status === 429) setError(t('auth.locked'));
+      else if (status && status < 500) setError(t('auth.invalid'));
+      else setError(t('auth.unreachable', { server: apiBase.replace(/^https?:\/\//, '') }));
     } finally { setBusy(false); }
+  }
+  async function saveServer(reset = false) {
+    if (reset) { await setServer(null); setServerText(apiBase); setEditServer(false); setError(t('auth.serverChanged')); return; }
+    const v = normaliseServer(server);
+    if (!v) { setError(t('auth.serverInvalid')); return; }
+    await setServer(v); setServerText(v); setEditServer(false); setError(t('auth.serverChanged'));
   }
 
   return (
-    <View style={s.center}>
+    <ScrollView contentContainerStyle={[s.center, { flexGrow: 1 }]} keyboardShouldPersistTaps="handled">
       <Text style={s.h1}>{t('app.name')}</Text>
       <Text style={s.muted}>{t('auth.title')}</Text>
-      {error && <Text accessibilityRole="alert" style={s.alert}>{t(error)}</Text>}
+      {error && <Text accessibilityRole="alert" style={s.alert}>{error}</Text>}
       <Text style={s.label}>{t('auth.firm')}</Text>
-      <TextInput style={s.input} value={firm} onChangeText={setFirm} autoCapitalize="none" placeholder={t('auth.firmHint')} placeholderTextColor={theme.textMuted} accessibilityLabel={t('auth.firm')} />
-      <Text style={s.label}>{t('auth.phone')}</Text>
-      <TextInput style={s.input} value={phone} onChangeText={setPhone} keyboardType="phone-pad" autoComplete="tel" placeholder="+91" placeholderTextColor={theme.textMuted} accessibilityLabel={t('auth.phone')} />
-      {sent && <>
-        <Text style={s.label}>{t('auth.otp')}</Text>
-        <TextInput style={s.input} value={code} onChangeText={setCode} keyboardType="number-pad" autoComplete="sms-otp" textContentType="oneTimeCode" maxLength={6} accessibilityLabel={t('auth.otp')} />
+      <TextInput style={s.input} value={firm} onChangeText={setFirm} autoCapitalize="none" autoCorrect={false} placeholder={t('auth.firmHint')} placeholderTextColor={theme.textMuted} accessibilityLabel={t('auth.firm')} />
+      {mode === 'email' ? <>
+        <Text style={s.label}>{t('auth.email')}</Text>
+        <TextInput style={s.input} value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" autoComplete="email" accessibilityLabel={t('auth.email')} />
+        <Text style={s.label}>{t('auth.password')}</Text>
+        <TextInput style={s.input} value={password} onChangeText={setPassword} secureTextEntry autoComplete="password" accessibilityLabel={t('auth.password')} onSubmitEditing={submit} />
+        {needTotp && <>
+          <Text style={s.label}>{t('auth.totp')}</Text>
+          <TextInput style={s.input} value={totp} onChangeText={setTotp} keyboardType="number-pad" maxLength={6} autoComplete="one-time-code" accessibilityLabel={t('auth.totp')} />
+        </>}
+      </> : <>
+        <Text style={s.label}>{t('auth.phone')}</Text>
+        <TextInput style={s.input} value={phone} onChangeText={setPhone} keyboardType="phone-pad" autoComplete="tel" placeholder="+91" placeholderTextColor={theme.textMuted} accessibilityLabel={t('auth.phone')} />
+        {sent && <>
+          <Text style={s.label}>{t('auth.otp')}</Text>
+          <TextInput style={s.input} value={code} onChangeText={setCode} keyboardType="number-pad" autoComplete="sms-otp" textContentType="oneTimeCode" maxLength={6} accessibilityLabel={t('auth.otp')} />
+        </>}
       </>}
       <Pressable style={[s.button, busy && { opacity: 0.5 }]} disabled={busy} onPress={submit} accessibilityRole="button">
-        <Text style={s.buttonText}>{sent ? t('auth.signIn') : t('auth.sendOtp')}</Text>
+        {busy ? <ActivityIndicator color={theme.primaryText} /> : <Text style={s.buttonText}>{mode === 'phone' && !sent ? t('auth.sendOtp') : t('auth.signIn')}</Text>}
       </Pressable>
-      <Pressable style={{ minHeight: 48, justifyContent: 'center', marginTop: 16 }} onPress={onClient} accessibilityRole="button" accessibilityHint={t('m.portal.clientEntryHint')}>
+      <Pressable style={{ minHeight: 44, justifyContent: 'center', marginTop: 8 }} onPress={() => { setMode(mode === 'email' ? 'phone' : 'email'); setError(null); setSent(false); }} accessibilityRole="button">
+        <Text style={{ color: theme.primary, textAlign: 'center' }}>{mode === 'email' ? t('auth.usePhone') : t('auth.useEmail')}</Text>
+      </Pressable>
+      <Pressable style={{ minHeight: 44, justifyContent: 'center' }} onPress={onClient} accessibilityRole="button" accessibilityHint={t('m.portal.clientEntryHint')}>
         <Text style={{ color: theme.primary, textAlign: 'center', fontWeight: '600' }}>{t('m.portal.clientEntry')}</Text>
       </Pressable>
-    </View>
+      {editServer ? (
+        <View style={{ marginTop: 12 }}>
+          <Text style={s.label}>{t('auth.server')}</Text>
+          <TextInput style={s.input} value={server} onChangeText={setServerText} autoCapitalize="none" autoCorrect={false} keyboardType="url" placeholder={t('auth.serverHint')} placeholderTextColor={theme.textMuted} accessibilityLabel={t('auth.server')} />
+          <Pressable style={s.button} onPress={() => void saveServer()} accessibilityRole="button"><Text style={s.buttonText}>{t('auth.serverSave')}</Text></Pressable>
+          {apiBase !== DEFAULT_API_BASE && <Pressable style={{ minHeight: 44, justifyContent: 'center' }} onPress={() => void saveServer(true)} accessibilityRole="button">
+            <Text style={{ color: theme.textMuted, textAlign: 'center' }}>{t('auth.serverReset')}</Text></Pressable>}
+        </View>
+      ) : (
+        <Pressable style={{ minHeight: 44, justifyContent: 'center', marginTop: 12 }} onPress={() => setEditServer(true)} accessibilityRole="button" accessibilityLabel={t('auth.server')}>
+          <Text style={[s.muted, { textAlign: 'center' }]}>{t('auth.server')}: {apiBase.replace(/^https?:\/\//, '')}</Text>
+        </Pressable>
+      )}
+    </ScrollView>
   );
 }
 

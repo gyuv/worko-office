@@ -140,3 +140,17 @@ describe('in-app updater', () => {
     expect((await u.check()).phase).toBe('current');
   });
 });
+
+import { normaliseServer, withApiInCsp } from './settings';
+describe('server address + CSP', () => {
+  it('normalises typed server addresses', () => {
+    expect(normaliseServer('worko-api.onrender.com')).toBe('https://worko-api.onrender.com/v1');
+    expect(normaliseServer('https://api.firm.in/v1/')).toBe('https://api.firm.in/v1');
+    expect(normaliseServer('http://evil.example')).toBeNull();
+    expect(normaliseServer('ftp://x')).toBeNull();
+  });
+  it('adds the API origin to connect-src', () => {
+    const html = `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' http://localhost:3000">`;
+    expect(withApiInCsp(html, 'https://a.example/v1')).toContain("connect-src 'self' https://a.example wss://a.example http://localhost:3000");
+  });
+});
