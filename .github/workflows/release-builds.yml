@@ -125,7 +125,7 @@ jobs:
         run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a,x86_64
       - name: Rename APK
         run: |
-          v=$(node -p "require('./apps/mobile/app.json').expo.version")
+          v="${WORKO_APP_VERSION:-$(node -p "require('./apps/mobile/app.json').expo.version")}"
           mkdir -p out && cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk "out/Worko-$v.apk"
       - uses: actions/upload-artifact@v4
         with:
