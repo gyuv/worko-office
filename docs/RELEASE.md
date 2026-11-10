@@ -137,3 +137,15 @@ Installing unsigned builds (tell testers):
 - **Desktop**: re-publish the previous build under a higher version number (update clients never downgrade); until the
   in-app updater is wired (KNOWN_GAPS) users reinstall from the download page. **Android**: halt the staged rollout in Play Console; ship a fixed build with a higher `versionCode`.
 - Announce the rollback to firms (status page / in-app notice) with the time window affected.
+
+## In-app updates
+Every app checks GitHub Releases (`gyuv/worko-office`, public, no token) **at every start** and then every few hours:
+
+| App | What happens |
+|---|---|
+| Windows | Downloads the new `Worko-Setup-*.exe` in the background, verifies its SHA-256 against the release, then **Restart & update** installs it silently and reopens Worko. |
+| macOS | Downloads and verifies the new `.dmg`; **Open installer** opens it so the user drags Worko into Applications (unsigned apps cannot replace themselves; signing + notarisation would make it fully automatic). |
+| Android | A sheet offers the new APK; Android installs it after the download (sideloaded apps always need one tap). |
+| Web | Polls `/version.json` and offers **Reload** when a newer deploy is live. |
+
+To ship an update: run **Release builds** with `release_tag` = the new version (e.g. `v1.2.0`) — `scripts/set-version.mjs` stamps that version on every app, so installed apps see it as newer. Downloads are accepted only from this repository's release URLs (`packages/domain/src/updates.ts`; the desktop copy `apps/desktop/src/update-core.ts` is kept identical by a test).

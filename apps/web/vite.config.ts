@@ -26,8 +26,18 @@ const cspApiOrigin = (): Plugin => ({
   },
 });
 
+/** Identity of this build: the web app polls /version.json and offers a reload when a newer deploy is live. */
+export const BUILD_ID = (process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA || String(Date.now())).slice(0, 12);
+export const APP_VERSION = process.env.WORKO_APP_VERSION || process.env.npm_package_version || '0.0.0';
+const versionFile = (): Plugin => ({
+  name: 'worko-version-json',
+  apply: 'build',
+  generateBundle() { this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ build: BUILD_ID, version: APP_VERSION }) }); },
+});
+
 export default defineConfig({
-  plugins: [react(), cspApiOrigin()],
+  plugins: [react(), cspApiOrigin(), versionFile()],
+  define: { __BUILD_ID__: JSON.stringify(BUILD_ID), __APP_VERSION__: JSON.stringify(APP_VERSION) },
   // Relative base so the same build loads from file:// inside Electron.
   base: './',
   server: { port: 5173, proxy: { '/v1': { target: 'http://localhost:3000', ws: true } } },

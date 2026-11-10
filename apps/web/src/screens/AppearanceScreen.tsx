@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { NAV } from '../components/nav';
 import { useT } from '../lib/i18n';
 import { useCan } from '../lib/me';
+import { AboutUpdates } from '../components/UpdateBanner';
 import { DEFAULT_PREFS, usePrefs, type UiPrefs } from '../lib/prefs';
 
 /** Personal display settings. Saved per user on the server, so they follow the user to every device. */
@@ -64,6 +65,8 @@ export function AppearanceScreen() {
               <Toggle on={p.motion === 'full'} onChange={(v) => set({ motion: v ? 'full' : 'reduced' })} label={t('appearance.motion')} hint={t('appearance.motionHint')} />
             </div>
           </Section>
+
+          <Section title={t('update.title')}><AboutUpdates /></Section>
 
           <Section title={t('appearance.modules')} hint={t('appearance.modulesHint')}>
             <div className="grid gap-1.5 sm:grid-cols-2">

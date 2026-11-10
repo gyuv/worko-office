@@ -20,3 +20,4 @@ export * from './publicapi.js';
 export * from './saas.js';
 export * from './dpdp.js';
 export * from './quick.js';
+export * from './updates.js';

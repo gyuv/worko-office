@@ -1272,6 +1272,14 @@ export const en = {
   'myday.empty': 'All clear. Enjoy the calm.', 'myday.emptyHint': 'Nothing assigned to you is due this week.',
   'myday.complete': 'Mark “{title}” done', 'myday.snooze': 'Move to tomorrow', 'myday.done': 'Done: {title}', 'myday.snoozed': 'Moved to tomorrow',
   'myday.undo': 'Undo', 'myday.needsDetail': 'Finish the checklist first — opening the task', 'myday.all': 'All my tasks',
+  // ---- in-app updates ----
+  'update.downloading': 'Downloading Worko {version}… {progress}%', 'update.ready': 'Worko {version} is ready.',
+  'update.readyHint': 'Restart to update — it takes a few seconds and keeps you signed in.', 'update.restart': 'Restart & update',
+  'update.readyMac': 'Open the installer, then drag Worko into Applications.', 'update.openInstaller': 'Open installer',
+  'update.later': 'Later', 'update.webNew': 'A new version of Worko is available.', 'update.reload': 'Reload',
+  'update.title': 'About & updates', 'update.version': 'Version {version}', 'update.check': 'Check for updates',
+  'update.checking': 'Checking…', 'update.current': 'You have the latest version.', 'update.failed': 'Could not check for updates. Try again later.',
+  'update.auto': 'Worko checks for updates every time it starts and installs them for you.',
   // ---- extension (extension agent adds keys here, if any) ----
 } as const;
 export type MessageKey = keyof typeof en;

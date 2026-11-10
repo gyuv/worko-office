@@ -16,6 +16,7 @@ import { flushSignatures } from './net';
 import { useBillingPerms } from './screens/Billing';
 import { Stack } from './screens/Stack';
 import { MyDayCard, QuickAddFab } from './screens/Today';
+import { UpdatePrompt } from './screens/UpdatePrompt';
 import { useChatUnread } from './screens/Comm';
 import { useLeadPerms } from './screens/Leads';
 import { PortalRoot } from './portal/PortalApp';
@@ -135,6 +136,7 @@ function Tabs({ theme }: { theme: Theme }) {
         </FadeIn>
       </View>
       {(tab === 'home' || tab === 'tasks') && <QuickAddFab theme={theme} />}
+      <UpdatePrompt theme={theme} />
       <View style={s.tabbar} accessibilityRole="tablist">
         {TABS.map((x) => (
           <Pressable key={x.key} style={s.tab} onPress={() => { setTab(x.key); if (x.key === 'tasks') setTaskOpen(null); }} accessibilityRole="tab" accessibilityState={{ selected: tab === x.key }}>
