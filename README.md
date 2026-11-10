@@ -16,6 +16,35 @@
 
 ---
 
+## ⬇️ Download
+
+<table>
+<tr>
+<td align="center" width="25%"><h3>🪟 Windows</h3><a href="https://github.com/gyuv/worko-office/releases"><b>Worko-Setup.exe</b></a><br><sub>Windows 10 / 11 · 64-bit</sub></td>
+<td align="center" width="25%"><h3>🍎 macOS</h3><a href="https://github.com/gyuv/worko-office/releases"><b>Worko.dmg</b></a><br><sub>Apple Silicon (arm64) · Intel</sub></td>
+<td align="center" width="25%"><h3>🤖 Android</h3><a href="https://github.com/gyuv/worko-office/releases"><b>Worko.apk</b></a><br><sub>Android 8+ · sideload</sub></td>
+<td align="center" width="25%"><h3>🌐 Web</h3><a href="https://worko-office.vercel.app"><b>Open in browser</b></a><br><sub>Nothing to install</sub></td>
+</tr>
+</table>
+
+<p align="center"><a href="https://github.com/gyuv/worko-office/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/gyuv/worko-office?include_prereleases&style=for-the-badge&label=latest&color=16a34a"></a></p>
+
+> [!TIP]
+> **Install once — it updates itself.** Every app checks for a new version each time it starts. Windows updates with one click, macOS opens the new installer, Android asks once to install, and the web app offers a reload. Check any time in **Appearance → About & updates**.
+
+<details>
+<summary><b>First-time install help</b></summary>
+
+| | Steps |
+|---|---|
+| **Windows** | Run the `.exe`. If SmartScreen appears: **More info → Run anyway** (the build is not code-signed yet). |
+| **macOS** | Open the `.dmg` for your Mac (`arm64` = Apple Silicon), drag **Worko** to Applications, then **right-click → Open** the first time. |
+| **Android** | Download the `.apk` on the phone, allow **Install unknown apps** for your browser, then tap the file. |
+
+</details>
+
+---
+
 ## ✨ Built for the daily grind
 
 <table>
