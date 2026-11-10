@@ -8,7 +8,7 @@ module.exports = ({ config }) => {
   const m = /^(\d+)\.(\d+)\.(\d+)/.exec(version);
   const android = {
     ...config.android,
-    versionCode: m ? Number(m[1]) * 10000 + Number(m[2]) * 100 + Number(m[3]) : config.android.versionCode,
+    versionCode: m ? Math.max(1, Number(m[1]) * 10000 + Number(m[2]) * 100 + Number(m[3])) : config.android.versionCode,
     intentFilters: (config.android.intentFilters || []).map((f) => ({ ...f, data: f.data.map((d) => ({ ...d, host })) })),
   };
   return {

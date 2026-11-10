@@ -61,4 +61,4 @@ export function pickUpdate(releases: GhRelease[], platform: UpdatePlatform, curr
 }
 
 /** Android versionCode from a semver (1.2.3 → 10203); monotonic for majors < 2100. */
-export const androidVersionCode = (v: string) => { const p = parseVersion(v); return p ? p.core[0] * 10000 + p.core[1] * 100 + p.core[2] : 1; };
+export const androidVersionCode = (v: string) => { const p = parseVersion(v); return p ? Math.max(1, p.core[0] * 10000 + p.core[1] * 100 + p.core[2]) : 1; };
