@@ -1,0 +1,20 @@
+name: ✨ Feature request
+description: Suggest an idea that would make daily work easier
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What slows you down today?
+      placeholder: "Every month I have to …"
+    validations: { required: true }
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help?
+  - type: dropdown
+    id: who
+    attributes:
+      label: Who would use it?
+      multiple: true
+      options: [Partner / owner, Manager, Staff / article, Accounts, Client (portal), Platform admin]
