@@ -6,6 +6,8 @@ import { DEFAULTS, deepLinkHash, isAllowedExternal, isAppUrl, isTokenPair, loadS
 import { randomBytes } from 'node:crypto';
 import { DbKeyStore, TokenStore } from './token-store';
 import { trayMenu } from './tray-menu';
+import { spawn } from 'node:child_process';
+import { platformKey, Updater, type UpdateState } from './updater';
 
 const userData = () => app.getPath('userData');
 const settingsFile = () => join(userData(), 'settings.json');
@@ -79,7 +81,41 @@ app.whenReady().then(() => {
   tray = new Tray(nativeImage.createEmpty()); // VERIFY: branded .ico/.png tray icons land with installer assets (Phase 12)
   tray.on('click', showWindow);
   refreshTray();
+  startUpdater();
 });
+
+/** In-app updates: check GitHub Releases at every start (and every 4 h), download + verify in the background. */
+let updater: Updater | null = null;
+function startUpdater() {
+  const platform = platformKey(process.platform, process.arch);
+  if (!platform || (!app.isPackaged && !process.env.WORKO_FORCE_UPDATER)) return;
+  updater = new Updater({
+    current: app.getVersion(), platform, dir: join(app.getPath('temp'), 'worko-updates'), fetch: globalThis.fetch.bind(globalThis),
+    onState: (st: UpdateState) => {
+      win?.webContents.send('worko:update', st);
+      if (st.phase === 'ready' && Notification.isSupported()) {
+        const n = new Notification({ title: `Worko ${st.info.version} is ready`, body: 'Restart to update — it takes a few seconds.' });
+        n.on('click', showWindow); n.show();
+      }
+    },
+  });
+  setTimeout(() => void updater?.check(), 4000);
+  setInterval(() => void updater?.check(), 4 * 3600_000);
+}
+function installUpdate() {
+  const st = updater?.state;
+  if (!st || st.phase !== 'ready') return false;
+  if (process.platform === 'win32') {
+    // NSIS (electron-builder): silent install, then relaunch the new version.
+    spawn(st.file, ['/S', '--updated', '--force-run'], { detached: true, stdio: 'ignore' }).unref();
+    quitting = true; setTimeout(() => app.quit(), 300);
+  } else if (process.platform === 'darwin') {
+    void shell.openPath(st.file); // unsigned builds cannot self-replace: open the dmg, the user drags Worko to Applications
+  } else {
+    void shell.openExternal(st.info.page);
+  }
+  return true;
+}
 app.on('window-all-closed', () => { /* stay resident in the tray */ });
 app.on('before-quit', () => { quitting = true; });
 
@@ -103,6 +139,9 @@ on('worko:notify', (_e, raw) => {
   toast.on('click', showWindow);
   toast.show();
 });
+handle('worko:update:get', () => updater?.state ?? { phase: 'idle', current: app.getVersion() });
+handle('worko:update:check', () => updater?.check() ?? { phase: 'idle', current: app.getVersion() });
+handle('worko:update:install', () => installUpdate());
 /** Remote wipe: erase every local trace (tokens, cache, storage, future SQLite store) and restart clean. */
 handle('worko:dbkey', () => new Uint8Array(dbKey.get()));
 handle('worko:wipe', async () => {

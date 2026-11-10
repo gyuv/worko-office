@@ -14,7 +14,17 @@ export type DesktopBridge = {
   /** 32-byte key for the local encrypted store; generated and kept by the OS keychain (safeStorage). */
   getDbKey(): Promise<Uint8Array>;
   settings: { get(): Promise<{ autoStart: boolean }>; set(s: { autoStart: boolean }): Promise<void> };
+  /** In-app updater (desktop main process). Older desktop builds lack it, so it is optional. */
+  updates?: {
+    get(): Promise<DesktopUpdateState>; check(): Promise<DesktopUpdateState>; install(): Promise<boolean>;
+    onState(cb: (s: DesktopUpdateState) => void): () => void;
+  };
 };
+export type DesktopUpdateState =
+  | { phase: 'idle' | 'checking' | 'current'; current: string; checkedAt?: string }
+  | { phase: 'downloading'; current: string; info: { version: string; notes: string }; progress: number }
+  | { phase: 'ready'; current: string; info: { version: string; notes: string }; file: string }
+  | { phase: 'error'; current: string; message: string };
 
 declare global { interface Window { worko?: DesktopBridge } }
 

@@ -99,3 +99,44 @@ describe('deep links', () => {
       expect(deepLinkHash(bad), bad).toBeNull();
   });
 });
+
+import { createHash } from 'node:crypto';
+import { platformKey, Updater, type UpdateState } from './updater';
+import { DOWNLOAD_PREFIX } from './update-core';
+
+describe('in-app updater', () => {
+  it('update-core.ts matches the domain source', () => {
+    const domain = readFileSync(join(__dirname, '../../../packages/domain/src/updates.ts'), 'utf8');
+    const copy = readFileSync(join(__dirname, 'update-core.ts'), 'utf8').split('\n').slice(2).join('\n');
+    expect(copy).toBe(domain);
+  });
+  it('maps OS + arch to a release asset kind', () => {
+    expect(platformKey('win32', 'x64')).toBe('win');
+    expect(platformKey('darwin', 'arm64')).toBe('mac-arm64');
+    expect(platformKey('darwin', 'x64')).toBe('mac-x64');
+    expect(platformKey('freebsd', 'x64')).toBeNull();
+  });
+  const bytes = Buffer.from('installer-bytes');
+  const sha = createHash('sha256').update(bytes).digest('hex');
+  const releases = (digest: string) => [{ tag_name: 'v2.0.0', html_url: 'h', assets: [{ name: 'Worko-Setup-2.0.0.exe', browser_download_url: `${DOWNLOAD_PREFIX}v2.0.0/Worko-Setup-2.0.0.exe`, size: bytes.length, digest: `sha256:${digest}` }] }];
+  const fakeFetch = (digest: string) => (async (url: string) => (String(url).includes('api.github.com')
+    ? new Response(JSON.stringify(releases(digest)))
+    : new Response(bytes, { headers: { 'content-length': String(bytes.length) } }))) as unknown as typeof fetch;
+
+  it('downloads, verifies and reports ready', async () => {
+    const states: UpdateState['phase'][] = [];
+    const u = new Updater({ current: '1.0.0', platform: 'win', dir: mkdtempSync(join(tmpdir(), 'wu-')), fetch: fakeFetch(sha), onState: (s) => states.push(s.phase) });
+    const s = await u.check();
+    expect(s.phase).toBe('ready');
+    expect(states).toContain('checking');
+    if (s.phase === 'ready') expect(readFileSync(s.file).equals(bytes)).toBe(true);
+  });
+  it('refuses a file whose checksum does not match', async () => {
+    const u = new Updater({ current: '1.0.0', platform: 'win', dir: mkdtempSync(join(tmpdir(), 'wu-')), fetch: fakeFetch('0'.repeat(64)), onState: () => {} });
+    expect(await u.check()).toMatchObject({ phase: 'error', message: 'checksum mismatch' });
+  });
+  it('stays current when nothing newer exists', async () => {
+    const u = new Updater({ current: '3.0.0', platform: 'win', dir: mkdtempSync(join(tmpdir(), 'wu-')), fetch: fakeFetch(sha), onState: () => {} });
+    expect((await u.check()).phase).toBe('current');
+  });
+});

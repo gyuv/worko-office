@@ -4,7 +4,7 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "cd ../.. && pnpm turbo run build --filter=@worko/web...",
   "outputDirectory": "dist",
-  "rewrites": [{ "source": "/((?!assets/|\\.well-known/).*)", "destination": "/index.html" }],
+  "rewrites": [{ "source": "/((?!assets/|\\.well-known/|version\\.json).*)", "destination": "/index.html" }],
   "headers": [
     {
       "source": "/(.*)",
@@ -18,6 +18,7 @@
       ]
     },
     { "source": "/assets/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }] },
-    { "source": "/index.html", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+    { "source": "/index.html", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+    { "source": "/version.json", "headers": [{ "key": "Cache-Control", "value": "no-store" }] }
   ]
 }

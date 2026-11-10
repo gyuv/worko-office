@@ -13,6 +13,16 @@ contextBridge.exposeInMainWorld('worko', {
   setBadge: (count: number) => ipcRenderer.send('worko:badge', count),
   wipeLocalData: () => ipcRenderer.invoke('worko:wipe'),
   getDbKey: () => ipcRenderer.invoke('worko:dbkey'),
+  updates: {
+    get: () => ipcRenderer.invoke('worko:update:get'),
+    check: () => ipcRenderer.invoke('worko:update:check'),
+    install: () => ipcRenderer.invoke('worko:update:install'),
+    onState: (cb: (s: unknown) => void) => {
+      const h = (_e: unknown, s: unknown) => cb(s);
+      ipcRenderer.on('worko:update', h);
+      return () => { ipcRenderer.removeListener('worko:update', h); };
+    },
+  },
   settings: {
     get: () => ipcRenderer.invoke('worko:settings:get'),
     set: (s: { autoStart: boolean }) => ipcRenderer.invoke('worko:settings:set', s),

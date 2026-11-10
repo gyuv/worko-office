@@ -3,12 +3,17 @@
 // /.well-known/assetlinks.json, template in store/), WORKO_API_BASE — the API the build talks to, EAS_PROJECT_ID.
 module.exports = ({ config }) => {
   const host = process.env.WORKO_WEB_HOST || 'app.worko.in';
+  // WORKO_APP_VERSION (CI, from the release tag) drives the in-app updater: version + a monotonic versionCode.
+  const version = process.env.WORKO_APP_VERSION || config.version;
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(version);
   const android = {
     ...config.android,
+    versionCode: m ? Number(m[1]) * 10000 + Number(m[2]) * 100 + Number(m[3]) : config.android.versionCode,
     intentFilters: (config.android.intentFilters || []).map((f) => ({ ...f, data: f.data.map((d) => ({ ...d, host })) })),
   };
   return {
     ...config,
+    version,
     android,
     extra: {
       ...config.extra,

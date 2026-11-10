@@ -41,6 +41,9 @@ jobs:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
       - uses: actions/checkout@v4
+      - name: Stamp version from the release tag (drives the in-app updater)
+        shell: bash
+        run: node scripts/set-version.mjs "${{ inputs.release_tag || github.ref_name }}" >> "$GITHUB_ENV"
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
@@ -67,6 +70,9 @@ jobs:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
       - uses: actions/checkout@v4
+      - name: Stamp version from the release tag (drives the in-app updater)
+        shell: bash
+        run: node scripts/set-version.mjs "${{ inputs.release_tag || github.ref_name }}" >> "$GITHUB_ENV"
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
@@ -91,6 +97,9 @@ jobs:
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
       - uses: actions/checkout@v4
+      - name: Stamp version from the release tag (drives the in-app updater)
+        shell: bash
+        run: node scripts/set-version.mjs "${{ inputs.release_tag || github.ref_name }}" >> "$GITHUB_ENV"
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
@@ -141,6 +150,7 @@ jobs:
           prerelease: true
           fail_on_unmatched_files: true
           body: |
+            Installed apps update themselves: they check this page at every start.
             Unsigned test builds. Windows: SmartScreen → More info → Run anyway. macOS: right-click → Open
             (or `xattr -dr com.apple.quarantine /Applications/Worko.app`). Android: allow "Install unknown apps";
             the APK is debug-signed and cannot be uploaded to Play. See docs/RELEASE.md.
