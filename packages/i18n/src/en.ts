@@ -1280,6 +1280,11 @@ export const en = {
   'update.title': 'About & updates', 'update.version': 'Version {version}', 'update.check': 'Check for updates',
   'update.checking': 'Checking…', 'update.current': 'You have the latest version.', 'update.failed': 'Could not check for updates. Try again later.',
   'update.auto': 'Worko checks for updates every time it starts and installs them for you.',
+  // ---- sign-in: server address + reachability ----
+  'auth.server': 'Server', 'auth.serverHint': 'Your Worko server address, e.g. worko-api.onrender.com', 'auth.serverSave': 'Use this server',
+  'auth.serverReset': 'Use the default', 'auth.serverInvalid': 'That address does not look right. It should start with https://',
+  'auth.unreachable': 'Can’t reach the server ({server}). Check your internet, or tap Server to fix the address. A sleeping free server can take up to a minute to wake — try again.',
+  'auth.serverChanged': 'Server changed. Sign in again.',
   // ---- extension (extension agent adds keys here, if any) ----
 } as const;
 export type MessageKey = keyof typeof en;

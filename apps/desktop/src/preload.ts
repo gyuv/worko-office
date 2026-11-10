@@ -5,6 +5,7 @@ const apiBase = ipcRenderer.sendSync('worko:apiBase') as string;
 contextBridge.exposeInMainWorld('worko', {
   platform: 'desktop',
   apiBase,
+  setApiBase: (url: string | null) => ipcRenderer.invoke('worko:apiBase:set', url),
   tokens: {
     get: () => ipcRenderer.invoke('worko:tokens:get'),
     set: (t: unknown) => ipcRenderer.invoke('worko:tokens:set', t),

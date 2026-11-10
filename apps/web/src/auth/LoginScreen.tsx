@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { api, unwrap, useSession } from '../lib/session';
 import { useT } from '../lib/i18n';
-import { platformName } from '../lib/platform';
+import { apiBase, desktop, platformName } from '../lib/platform';
 import type { MessageKey } from '@worko/i18n';
 
 type Mode = 'password' | 'otp';
@@ -20,15 +20,20 @@ export function LoginScreen() {
   const [otp, setOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [error, setError] = useState<MessageKey | null>(null);
+  const [unreachable, setUnreachable] = useState(false);
+  const [editServer, setEditServer] = useState(false);
+  const [server, setServer] = useState(apiBase());
+  const host = apiBase().replace(/^https?:\/\//, '');
   const [busy, setBusy] = useState(false);
   const device = { platform: platformName(), label: navigator.userAgent.includes('Windows') ? 'Windows PC' : 'Browser' } as const;
 
   async function run(fn: () => Promise<void>) {
-    setBusy(true); setError(null);
+    setBusy(true); setError(null); setUnreachable(false);
     try { await fn(); } catch (e) {
       const err = e as { status?: number; code?: string };
       if (err.code === 'MFA_REQUIRED') { setNeedTotp(true); setError('auth.mfaRequired'); }
-      else setError(err.status === 429 ? 'auth.locked' : err.status && err.status < 500 ? 'auth.invalid' : 'common.error');
+      else if (!err.status || err.status >= 500) setUnreachable(true); // network/CORS failure, or the server is down/asleep
+      else setError(err.status === 429 ? 'auth.locked' : 'auth.invalid');
     } finally { setBusy(false); }
   }
 
@@ -53,6 +58,7 @@ export function LoginScreen() {
         </div>
         {notice === 'wiped' && !error && <div role="alert" className="rounded-md border border-border bg-surface-alt p-2 text-sm">{t('auth.wiped')}</div>}
         {error && <div role="alert" className="rounded-md border border-border bg-surface-alt p-2 text-sm">{t(error)}</div>}
+        {unreachable && <div role="alert" className="rounded-md border border-border bg-surface-alt p-2 text-sm">{t('auth.unreachable', { server: host })}</div>}
         <Field id="firm" label={t('auth.firm')} value={firm} onChange={setFirm} placeholder={t('auth.firmHint')} autoComplete="organization" />
         {mode === 'password' ? (
           <>
@@ -72,6 +78,18 @@ export function LoginScreen() {
         <button type="button" className="w-full text-center text-sm text-primary" onClick={() => { setMode(mode === 'password' ? 'otp' : 'password'); setError(null); }}>
           {mode === 'password' ? t('auth.usePhone') : t('auth.useEmail')}
         </button>
+        {desktop()?.setApiBase && (editServer ? (
+          <div className="space-y-2 border-t border-border pt-3">
+            <label htmlFor="server" className="label">{t('auth.server')}</label>
+            <input id="server" className="input" value={server} placeholder={t('auth.serverHint')} onChange={(e) => setServer(e.target.value)} />
+            <div className="flex gap-2">
+              <button type="button" className="btn btn-primary flex-1 justify-center" onClick={async () => { if (!(await desktop()!.setApiBase!(server))) setError('auth.serverInvalid'); }}>{t('auth.serverSave')}</button>
+              <button type="button" className="btn" onClick={() => void desktop()!.setApiBase!(null)}>{t('auth.serverReset')}</button>
+            </div>
+          </div>
+        ) : (
+          <button type="button" className="w-full truncate text-center text-xs text-muted hover:text-fg" onClick={() => setEditServer(true)}>{t('auth.server')}: {host}</button>
+        ))}
       </form>
     </main>
   );

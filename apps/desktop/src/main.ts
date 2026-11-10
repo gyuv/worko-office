@@ -1,8 +1,9 @@
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, safeStorage, session, shell, Tray, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, net, Notification, protocol, safeStorage, session, shell, Tray, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 import { pathToFileURL } from 'node:url';
 import { rmSync } from 'node:fs';
-import { join } from 'node:path';
-import { DEFAULTS, deepLinkHash, isAllowedExternal, isAppUrl, isTokenPair, loadSettings, saveSettings } from './settings';
+import { join, normalize, sep } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { APP_ORIGIN, DEFAULTS, deepLinkHash, isAllowedExternal, isAppUrl, isTokenPair, loadSettings, normaliseServer, saveSettings, withApiInCsp } from './settings';
 import { randomBytes } from 'node:crypto';
 import { DbKeyStore, TokenStore } from './token-store';
 import { trayMenu } from './tray-menu';
@@ -17,7 +18,24 @@ let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let badge = 0;
 let quitting = false;
-const appUrl = process.env.WORKO_WEB_URL ?? pathToFileURL(join(__dirname, '../../web/dist/index.html')).toString();
+// The renderer is served from app://worko/ (not file://) so API requests carry a real Origin the server can allow.
+const webDir = normalize(join(__dirname, '../../web/dist'));
+const appUrl = process.env.WORKO_WEB_URL ?? `${APP_ORIGIN}/index.html`;
+protocol.registerSchemesAsPrivileged([{ scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
+function serveApp() {
+  protocol.handle('app', async (req) => {
+    const u = new URL(req.url);
+    const rel = decodeURIComponent(u.pathname === '/' ? '/index.html' : u.pathname);
+    const file = normalize(join(webDir, rel));
+    if (u.host !== 'worko' || (file !== webDir && !file.startsWith(webDir + sep))) return new Response('Not found', { status: 404 });
+    if (rel === '/index.html') {
+      // The CSP's connect-src must include the server this install talks to (it can be changed at sign-in).
+      const html = withApiInCsp(await readFile(file, 'utf8'), settings.apiBase);
+      return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8' } });
+    }
+    return net.fetch(pathToFileURL(file).toString());
+  });
+}
 const tokens = new TokenStore(join(app.getPath('userData'), 'session.bin'), safeStorage);
 const dbKey = new DbKeyStore(join(app.getPath('userData'), 'dbkey.bin'), safeStorage, randomBytes);
 
@@ -74,6 +92,7 @@ app.whenReady().then(() => {
   settings = loadSettings(settingsFile());
   if (process.env.WORKO_API_BASE) settings.apiBase = process.env.WORKO_API_BASE;
   if (process.argv.includes('--hidden')) settings.startMinimised = true;
+  serveApp();
   session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(perm === 'notifications'));
   applyAutoStart();
   createWindow();
@@ -127,6 +146,13 @@ const on = (ch: string, fn: (e: IpcMainEvent, ...a: unknown[]) => void) =>
   ipcMain.on(ch, (e, ...a) => { if (trusted(e)) fn(e, ...a); else e.returnValue = null; });
 
 on('worko:apiBase', (e) => { e.returnValue = settings.apiBase; });
+handle('worko:apiBase:set', (_e, raw) => {
+  const next = raw === null ? DEFAULTS.apiBase : normaliseServer(String(raw));
+  if (!next) return false;
+  settings.apiBase = next; saveSettings(settingsFile(), settings);
+  setTimeout(() => win?.reload(), 50); // preload re-reads the address; CSP is rebuilt for the new server
+  return true;
+});
 handle('worko:tokens:get', () => tokens.get());
 handle('worko:tokens:set', (_e, t) => { if (!isTokenPair(t)) throw new Error('Invalid token payload'); tokens.set(t); });
 handle('worko:settings:get', () => ({ autoStart: settings.autoStart }));

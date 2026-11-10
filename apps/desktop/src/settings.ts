@@ -58,3 +58,27 @@ export function deepLinkHash(url: string): string | null {
     return `#/${path}`;
   } catch { return null; }
 }
+
+/** Origin of the packaged renderer (custom protocol); the API allows it in CORS. */
+export const APP_ORIGIN = 'app://worko';
+
+/** A typed server address → https://host/v1 (bare hosts get https and /v1); null when unusable. */
+export function normaliseServer(raw: string): string | null {
+  const v = raw.trim();
+  if (!v || (/^[a-z][a-z0-9+.-]*:\/\//i.test(v) && !/^https?:\/\//i.test(v))) return null;
+  try {
+    const u = new URL(/^https?:\/\//i.test(v) ? v : `https://${v}`);
+    if (u.protocol !== 'https:' && !(u.protocol === 'http:' && u.hostname === 'localhost')) return null;
+    const path = u.pathname.replace(/\/+$/, '');
+    return `${u.origin}${path || '/v1'}`;
+  } catch { return null; }
+}
+
+/** Adds the API origin (and its websocket twin) to the page CSP's connect-src. */
+export function withApiInCsp(html: string, apiBase: string): string {
+  try {
+    const u = new URL(apiBase);
+    const extra = `${u.origin} ${u.protocol === 'https:' ? 'wss' : 'ws'}://${u.host}`;
+    return html.replace("connect-src 'self'", `connect-src 'self' ${extra}`);
+  } catch { return html; }
+}

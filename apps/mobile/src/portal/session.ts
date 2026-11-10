@@ -3,7 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 import { Linking } from 'react-native';
 import { create } from 'zustand';
 import { makeCacheEntry, readCacheEntry, safeExternalUrl, type CacheEntry } from '../logic/portal';
-import Constants from 'expo-constants';
+import { loadServer, serverBase } from '../server-base';
 
 /**
  * DESIGN (Phase 9, D126/D134): the client portal lives in the SAME Android app behind an "I'm a client" entry on the
@@ -33,6 +33,7 @@ export const usePortal = create<State>((set) => ({
   setFirm(f) { set({ firm: f }); void SecureStore.setItemAsync(FIRM_KEY, f); },
   setClient(id) { set({ clientId: id }); },
   async init() {
+    await loadServer();
     let tokens: PortalTokens | null = null; let firm: string | null = null;
     try { tokens = JSON.parse((await SecureStore.getItemAsync(KEY)) ?? 'null'); firm = await SecureStore.getItemAsync(FIRM_KEY); } catch { /* ignore */ }
     set({ tokens, firm, ready: true });
@@ -40,8 +41,8 @@ export const usePortal = create<State>((set) => ({
 }));
 
 // Same server as staff mode, but the staff session module (api client, wipe handler) is deliberately not imported.
-const apiBase = (Constants.expoConfig?.extra?.apiBase as string | undefined) ?? 'http://10.0.2.2:3000/v1';
-const base = () => apiBase.replace(/\/$/, '');
+// (only the chosen server address is shared, via ../server-base, which imports nothing app-specific).
+const base = () => serverBase().replace(/\/$/, '');
 export type HttpError = Error & { status?: number; code?: string };
 const fail = async (res: Response): Promise<never> => {
   const b = (await res.json().catch(() => null)) as { message?: string; code?: string } | null;
